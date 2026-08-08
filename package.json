@@ -1,0 +1,8 @@
+{
+  "name": "ideasexist",
+  "private": true,
+  "description": "Does this startup exist? — local startup directory (FastAPI backend + Next.js frontend)",
+  "scripts": {
+    "test": "node scripts/verify.mjs"
+  }
+}
