@@ -17,4 +17,7 @@ LLM_API_KEY = os.getenv("OPENCODE_GO_API_KEY", "")
 # GitHub API: optional token for rate-limit headroom (unauth = 60 req/hr, plenty at this scale)
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "") or None
 
+# Admin seeder gate: single owner token ("knows it's me"). Empty = admin disabled.
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
+
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:3023")

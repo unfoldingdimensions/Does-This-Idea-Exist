@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StartupCard } from "@/components/startup-card";
 import { AddStartupDialog } from "@/components/add-startup-dialog";
+import { AdminPanel } from "@/components/admin-panel";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { fetchStartups, fetchCategories, fetchStats, runVerification, markVerified } from "@/lib/api";
 import { filterStartups, sortStartups } from "@/lib/search";
@@ -221,16 +222,19 @@ export default function HomePage() {
           <span className="hidden md:inline">
             Links re-verified weekly · 3 failed checks → archived (never deleted)
           </span>
-          <Button
-            variant="outline"
-            size="sm"
-            className="ml-auto h-7 gap-1.5 text-xs"
-            onClick={handleVerify}
-            disabled={verifying || !online}
-          >
-            <RefreshCw className={cn("h-3 w-3", verifying && "animate-spin")} />
-            Run verification
-          </Button>
+          <div className="ml-auto flex items-center gap-1.5">
+            <AdminPanel onSeeded={() => void loadAll()} />
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5 text-xs"
+              onClick={handleVerify}
+              disabled={verifying || !online}
+            >
+              <RefreshCw className={cn("h-3 w-3", verifying && "animate-spin")} />
+              Run verification
+            </Button>
+          </div>
         </div>
       </footer>
     </div>

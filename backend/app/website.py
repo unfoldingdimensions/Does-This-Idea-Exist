@@ -1,10 +1,13 @@
 """Website fetching: homepage text extraction (for LLM description) + Wayback CDX
 first-snapshot date (proxy for 'when was this created')."""
 import html as html_lib
+import logging
 import re
 from html.parser import HTMLParser
 
 import httpx
+
+log = logging.getLogger("ideasexist")
 
 UA_BROWSER = {
     "User-Agent": (
@@ -109,8 +112,8 @@ def rdap_registration_date(domain: str) -> str | None:
                     d = _normalize_date(ev.get("eventDate"))
                     if d:
                         return d
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 — best-effort lookup; log loudly, return None
+        log.warning("rdap lookup failed for %s: %s", host, exc)
     return None
 
 
@@ -143,6 +146,6 @@ def wayback_first_snapshot(domain: str) -> str | None:
                         d = _normalize_date(str(data[1][0]))  # CDX: YYYYMMDDHHMMSS
                         if d:
                             return d
-            except Exception:
-                pass
+            except Exception as exc:  # noqa: BLE001 — best-effort lookup; log loudly, return None
+                log.warning("wayback CDX lookup failed for %s: %s", cand, exc)
     return None

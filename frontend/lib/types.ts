@@ -37,3 +37,17 @@ export interface VerifyResult {
   flagged: number;
   dead_flipped: string[];
 }
+
+export interface SeedJob {
+  id: string;
+  source: string;
+  status: "queued" | "running" | "done" | "failed";
+  total: number;
+  done: number;
+  ok: number;
+  failed: number;
+  errors: string[];
+  current: string;
+  started_at: number | null;
+  finished_at: number | null;
+}
