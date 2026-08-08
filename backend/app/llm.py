@@ -53,7 +53,11 @@ def llm_json(user_content: str, max_tokens: int = 8000, timeout: float = 180.0) 
         {"role": "user", "content": user_content},
     ]
 
-    for with_response_format in (True, False):  # bounded: 2 attempts
+    # Bounded 2 attempts: retry once on ANY failure (gateway intermittently returns
+    # empty/invalid completions; a second attempt usually succeeds). Attempt 2 drops
+    # response_format for gateways that reject structured output.
+    last_error: Exception | None = None
+    for with_response_format in (True, False):
         body = {
             "model": config.LLM_MODEL,
             "messages": messages,
@@ -64,23 +68,15 @@ def llm_json(user_content: str, max_tokens: int = 8000, timeout: float = 180.0) 
             body["response_format"] = {"type": "json_object"}
         try:
             r = httpx.post(url, headers=headers, json=body, timeout=timeout)
-        except httpx.HTTPError as exc:
-            if with_response_format:
-                continue  # retry without response_format
-            raise RuntimeError(f"LLM request failed: {exc}") from exc
-        if r.status_code == 400 and with_response_format:
-            continue  # gateway rejects structured output — retry without it
-        if r.status_code != 200:
-            raise RuntimeError(f"LLM HTTP {r.status_code}: {r.text[:200]}")
-        data = r.json()
-        choice = (data.get("choices") or [{}])[0]
-        content = (choice.get("message") or {}).get("content") or ""
-        if not content:
-            if with_response_format:
-                continue  # intermittent empty completion — retry once
-            raise RuntimeError(
-                f"LLM returned empty content (finish_reason={choice.get('finish_reason')})"
-            )
-        return _parse_json(content)
-
-    raise RuntimeError("LLM call failed after retries")
+            r.raise_for_status()
+            data = r.json()
+            choice = (data.get("choices") or [{}])[0]
+            content = (choice.get("message") or {}).get("content") or ""
+            if not content:
+                raise RuntimeError(
+                    f"LLM returned empty content (finish_reason={choice.get('finish_reason')})"
+                )
+            return _parse_json(content)
+        except Exception as exc:  # noqa: BLE001 — retry once, then surface the real error
+            last_error = exc
+    raise RuntimeError(f"LLM call failed after retries: {last_error}") from last_error

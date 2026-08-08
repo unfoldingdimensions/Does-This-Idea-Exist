@@ -29,8 +29,12 @@ def fetch_repo(repo_url: str) -> dict:
     headers = dict(UA)
     if config.GITHUB_TOKEN:
         headers["Authorization"] = f"Bearer {config.GITHUB_TOKEN}"
+    # follow_redirects: GitHub API returns 301 for renamed/transferred repos
     r = httpx.get(
-        f"https://api.github.com/repos/{owner}/{repo}", headers=headers, timeout=30
+        f"https://api.github.com/repos/{owner}/{repo}",
+        headers=headers,
+        timeout=30,
+        follow_redirects=True,
     )
     if r.status_code == 404:
         raise ValueError(f"GitHub repo not found: {owner}/{repo}")
