@@ -11,7 +11,8 @@ __pycache__/
 # secrets & local data
 backend/.env
 frontend/.env.local
-backend/data/
+backend/data/*
+!backend/data/seed_famous.json
 
 # misc
 .DS_Store
