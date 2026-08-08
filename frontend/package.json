@@ -6,7 +6,8 @@
     "dev": "next dev --webpack --port 3023",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "npm run lint && npm run build"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
