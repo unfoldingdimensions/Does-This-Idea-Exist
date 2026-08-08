@@ -52,3 +52,7 @@ export function seedByWebsite(websiteUrl: string, name?: string): Promise<Startu
 export function runVerification(): Promise<VerifyResult> {
   return json<VerifyResult>(`${API_BASE}/api/verify/run`, { method: "POST" });
 }
+
+export function markVerified(id: number): Promise<Startup> {
+  return json<Startup>(`${API_BASE}/api/startups/${id}/verify`, { method: "POST" });
+}

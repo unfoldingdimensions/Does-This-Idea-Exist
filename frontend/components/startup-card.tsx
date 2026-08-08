@@ -16,7 +16,13 @@ function initials(name: string): string {
     .join("");
 }
 
-export function StartupCard({ startup }: { startup: Startup }) {
+export function StartupCard({
+  startup,
+  onVerified,
+}: {
+  startup: Startup;
+  onVerified?: (s: Startup) => void;
+}) {
   const dead = startup.status === "dead" || startup.status === "pivoted";
   const verified = startup.verified === 1;
   const year = foundedYear(startup.founded);
@@ -81,7 +87,18 @@ export function StartupCard({ startup }: { startup: Startup }) {
             </Button>
           )}
           <span className="ml-auto text-[11px] text-muted-foreground">
-            {verified ? "verified" : "unchecked"}
+            {verified ? (
+              "verified"
+            ) : (
+              <button
+                type="button"
+                onClick={() => onVerified?.(startup)}
+                className="rounded text-[11px] font-medium text-primary hover:underline"
+                title="Confirm this startup exists"
+              >
+                mark verified
+              </button>
+            )}
           </span>
         </div>
       </CardContent>

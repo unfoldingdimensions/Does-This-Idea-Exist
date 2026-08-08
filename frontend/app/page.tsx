@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StartupCard } from "@/components/startup-card";
 import { AddStartupDialog } from "@/components/add-startup-dialog";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { fetchStartups, fetchCategories, fetchStats, runVerification } from "@/lib/api";
+import { fetchStartups, fetchCategories, fetchStats, runVerification, markVerified } from "@/lib/api";
 import { filterStartups, sortStartups } from "@/lib/search";
 import type { CategoryCount, Startup, Stats } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -84,6 +84,17 @@ export default function HomePage() {
       toast.error(err instanceof Error ? err.message : "Verification failed");
     } finally {
       setVerifying(false);
+    }
+  };
+
+  const handleMarkVerified = async (s: Startup) => {
+    try {
+      const updated = await markVerified(s.id);
+      toast.success(`${updated.name} marked verified`);
+      setStartups((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+      void loadAll();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to mark verified");
     }
   };
 
@@ -184,7 +195,7 @@ export default function HomePage() {
         ) : (
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
             {results.map((s) => (
-              <StartupCard key={s.id} startup={s} />
+              <StartupCard key={s.id} startup={s} onVerified={handleMarkVerified} />
             ))}
           </div>
         )}

@@ -101,6 +101,24 @@ def run_verification() -> dict:
     return verify.run_verification()
 
 
+@app.post("/api/startups/{startup_id}/verify")
+def mark_verified(startup_id: int) -> dict:
+    """Human gate: confirm a startup exists → verified badge + verified_at."""
+    conn = db.connect()
+    try:
+        cur = conn.execute(
+            "UPDATE startups SET verified = 1, verified_at = datetime('now') WHERE id = ?",
+            (startup_id,),
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Startup not found")
+        conn.commit()
+        row = conn.execute("SELECT * FROM startups WHERE id = ?", (startup_id,)).fetchone()
+        return dict(row)
+    finally:
+        conn.close()
+
+
 @app.get("/api/stats")
 def stats() -> dict:
     conn = db.connect()
