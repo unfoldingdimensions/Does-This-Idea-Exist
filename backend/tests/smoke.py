@@ -11,6 +11,7 @@ gate, the seeder job lifecycle (with fake sources), and reuse_profile behavior.
 import os
 import tempfile
 import time
+from itertools import islice
 from pathlib import Path
 
 _tmp = tempfile.TemporaryDirectory()
@@ -95,6 +96,28 @@ with TestClient(app) as client:
 
 # --- routing in _ingest (github vs website + name_hint passthrough) ---
 routes: list[tuple[str, str]] = []
+
+
+# --- gh_search producer yields full URLs (regression: bare owner/repo names were
+#     misrouted to website seeding → "getaddrinfo failed" on every GitHub search) ---
+class _FakeSearchResponse:
+    status_code = 200
+
+    def json(self):
+        return {"items": [{"full_name": "acme/tool"}, {"full_name": "beta/app"}]}
+
+
+_real_httpx_get = seeder.httpx.get
+seeder.httpx.get = lambda *a, **k: _FakeSearchResponse()
+try:
+    produced = list(islice(seeder._gh_search({"query": "stars:>10000"}), 2))
+finally:
+    seeder.httpx.get = _real_httpx_get
+check(
+    "gh_search yields full github URLs",
+    produced == ["https://github.com/acme/tool", "https://github.com/beta/app"],
+    str(produced),
+)
 
 
 def fake_gh(url, **kwargs):

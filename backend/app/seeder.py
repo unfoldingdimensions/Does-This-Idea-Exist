@@ -137,7 +137,7 @@ def _gh_search(params: dict):
         if not items:
             return
         for item in items:
-            yield item["full_name"]
+            yield f"https://github.com/{item['full_name']}"  # full URLs — _ingest routes on "github.com/"
             time.sleep(THROTTLE_S)
         page += 1
 
