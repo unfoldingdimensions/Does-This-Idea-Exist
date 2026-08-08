@@ -52,6 +52,8 @@ never ships in the repo**). Then run batch seeds from three sources:
    one-click "initial incentive" seed for a fresh directory.
 2. **GitHub search** — `search/repositories` by query (e.g. `stars:>50000`), sorted by stars.
 3. **URL list** — paste websites/GitHub repos, one per line.
+4. **Top Startups** — scrapes `topstartups.io` (~1,259 funded startups, ~20/page): company
+   name + website per card, utm params stripped.
 
 Per-run **cap** is a free-form input (default 30; pull 100+ in testing — server validates 1–500
 and returns a loud 400 outside that, it never clamps silently). Re-runs skip the LLM for entries

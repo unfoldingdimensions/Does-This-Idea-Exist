@@ -3,8 +3,10 @@
 Fail-loud policy: every failure is logged AND recorded in job["errors"] — nothing
 is swallowed. A "done" job with failed > 0 reads as done-with-failures.
 """
+import html as html_lib
 import json
 import logging
+import re
 import threading
 import time
 import uuid
@@ -13,6 +15,7 @@ from pathlib import Path
 import httpx
 
 from . import config, enrich
+from .website import UA_BROWSER
 
 log = logging.getLogger("ideasexist")
 
@@ -162,8 +165,47 @@ def _famous(params: dict):
         yield url, entry.get("name")
 
 
+_TOPSTARTUPS_RE = re.compile(
+    r'<a[^>]*href="([^"]+)"[^>]*id="startup-website-link"[^>]*>(.*?)</a>', re.S
+)
+
+
+def _strip_tags(text: str) -> str:
+    return html_lib.unescape(re.sub(r"<[^>]+>", "", text)).strip()
+
+
+def _topstartups(params: dict):
+    """topstartups.io — server-rendered HTML list, ?page=N pagination (~20/page, 1,259 total).
+
+    Yields (website_url, name_hint) tuples; requires the browser UA (blocks bare bots).
+    UTM params are stripped from each company-site link.
+    """
+    page = 1
+    while True:
+        r = httpx.get(
+            f"https://topstartups.io/?page={page}",
+            headers=UA_BROWSER,
+            timeout=30,
+            follow_redirects=True,
+        )
+        if r.status_code != 200:
+            raise RuntimeError(f"topstartups HTTP {r.status_code}: {r.text[:120]}")
+        found = 0
+        for href, raw_name in _TOPSTARTUPS_RE.findall(r.text):
+            name = _strip_tags(raw_name)
+            if not name:
+                continue
+            yield href.split("?")[0].strip().rstrip("/"), name  # strip ?utm_source=... + trailing slash
+            found += 1
+            time.sleep(THROTTLE_S)
+        if found == 0:
+            return  # list exhausted
+        page += 1
+
+
 SOURCES = {
     "github_search": _gh_search,
     "url_list": _url_list,
     "famous": _famous,
+    "topstartups": _topstartups,
 }

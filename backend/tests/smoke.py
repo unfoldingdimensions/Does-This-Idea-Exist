@@ -119,6 +119,31 @@ check(
     str(produced),
 )
 
+# --- topstartups producer: parses paginated HTML cards into (url, name_hint) ---
+class _FakeTopStartupsResponse:
+    status_code = 200
+    text = (
+        '<a href="https://www.joinpogo.com/?utm_source=topstartups.io" target="_blank" '
+        'id="startup-website-link"><h3>Pogo</a></h3>\n'
+        '<a href="http://www.anduril.com/?utm_source=topstartups.io" target="_blank" '
+        'id="startup-website-link"><h3>Anduril Industries</a></h3>\n'
+    )
+
+
+seeder.httpx.get = lambda *a, **k: _FakeTopStartupsResponse()
+try:
+    ts = list(islice(seeder._topstartups({}), 2))
+finally:
+    seeder.httpx.get = _real_httpx_get
+check(
+    "topstartups yields (url, name_hint) with utm stripped",
+    ts == [
+        ("https://www.joinpogo.com", "Pogo"),
+        ("http://www.anduril.com", "Anduril Industries"),
+    ],
+    str(ts),
+)
+
 
 def fake_gh(url, **kwargs):
     routes.append(("github", url))

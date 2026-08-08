@@ -32,9 +32,10 @@ const SOURCE_LABELS: Record<string, string> = {
   famous: "Famous list",
   github_search: "GitHub search",
   url_list: "URL list",
+  topstartups: "Top Startups",
 };
 
-type SeedSource = "famous" | "github_search" | "url_list";
+type SeedSource = "famous" | "github_search" | "url_list" | "topstartups";
 
 /** Owner-only seeder: token unlock → source tabs → live job progress. Failures are loud. */
 export function AdminPanel({ onSeeded }: { onSeeded: () => void }) {
@@ -182,10 +183,11 @@ export function AdminPanel({ onSeeded }: { onSeeded: () => void }) {
               value={source}
               onValueChange={(v) => setSource(v as SeedSource)}
             >
-              <TabsList className="grid w-full grid-cols-3">
+              <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="famous">Famous list</TabsTrigger>
                 <TabsTrigger value="github_search">GitHub search</TabsTrigger>
                 <TabsTrigger value="url_list">URL list</TabsTrigger>
+                <TabsTrigger value="topstartups">Top Startups</TabsTrigger>
               </TabsList>
 
               <TabsContent value="famous" className="space-y-2 pt-2">
@@ -217,6 +219,13 @@ export function AdminPanel({ onSeeded }: { onSeeded: () => void }) {
                   onChange={(e) => setUrls(e.target.value)}
                   placeholder={"https://example.com\nhttps://github.com/owner/repo"}
                 />
+              </TabsContent>
+              <TabsContent value="topstartups" className="space-y-2 pt-2">
+                <p className="text-xs text-muted-foreground">
+                  Scrapes topstartups.io (1,259 funded startups, ~20 per page) — company
+                  name + website per card, utm params stripped. Use a cap below ~40 per run
+                  to keep each batch quick.
+                </p>
               </TabsContent>
             </Tabs>
 
