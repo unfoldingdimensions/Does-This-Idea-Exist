@@ -1,0 +1,17 @@
+# deps
+node_modules/
+.next/
+out/
+
+# python
+backend/.venv/
+__pycache__/
+*.pyc
+
+# secrets & local data
+backend/.env
+frontend/.env.local
+backend/data/
+
+# misc
+.DS_Store
