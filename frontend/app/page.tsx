@@ -11,6 +11,7 @@ import { AddStartupDialog } from "@/components/add-startup-dialog";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { fetchStartups, fetchCategories, fetchStats, runVerification, markVerified } from "@/lib/api";
 import { filterStartups, sortStartups } from "@/lib/search";
+import { titleCase } from "@/lib/format";
 import type { CategoryCount, Startup, Stats } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -105,7 +106,7 @@ export default function HomePage() {
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4">
           <span className="text-sm font-bold tracking-tight">IdeaExists</span>
           <span className="hidden text-xs text-muted-foreground sm:inline">
-            does this startup exist?
+            Does this startup exist?
           </span>
           <div className="ml-auto flex items-center gap-1.5">
             <AddStartupDialog onAdded={handleAdded} />
@@ -121,16 +122,16 @@ export default function HomePage() {
         </div>
       )}
 
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-16">
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-20">
         {/* Hero + search */}
-        <section className="mx-auto max-w-2xl pb-8 pt-10 text-center">
+        <section className="mx-auto max-w-2xl pb-9 pt-12 text-center">
           <h1 className="text-3xl font-bold tracking-tight">
             Does this startup exist?
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
             Searchable directory of startups — what they do, their website, their code.
           </p>
-          <div className="relative mx-auto mt-5 max-w-xl">
+          <div className="relative mx-auto mt-6 max-w-xl">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={query}
@@ -144,7 +145,7 @@ export default function HomePage() {
 
         {/* Category chips */}
         {categories.length > 0 && (
-          <div className="flex flex-wrap items-center justify-center gap-1.5 pb-6">
+          <div className="flex flex-wrap items-center justify-center gap-2 pb-9">
             <button
               onClick={() => setCategory(null)}
               className={cn(
@@ -167,7 +168,7 @@ export default function HomePage() {
                     : "bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                 )}
               >
-                {c.category} <span className="opacity-60">{c.count}</span>
+                {titleCase(c.category)} <span className="opacity-60">{c.count}</span>
               </button>
             ))}
           </div>
@@ -203,7 +204,7 @@ export default function HomePage() {
 
       {/* Footer */}
       <footer className="border-t">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-4 text-xs text-muted-foreground">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-5 text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5">
             {online ? (
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
@@ -216,9 +217,9 @@ export default function HomePage() {
             <ShieldCheck className="h-3.5 w-3.5" />
             {stats?.verified ?? 0} verified
           </span>
-          {stats?.last_checked && <span>last checked {stats.last_checked.slice(0, 10)}</span>}
+          {stats?.last_checked && <span>Last checked {stats.last_checked.slice(0, 10)}</span>}
           <span className="hidden md:inline">
-            links re-verified weekly · 3 failed checks → archived (never deleted)
+            Links re-verified weekly · 3 failed checks → archived (never deleted)
           </span>
           <Button
             variant="outline"
