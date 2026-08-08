@@ -5,7 +5,6 @@ import { Search, ShieldCheck, RefreshCw, ServerCrash, Building2 } from "lucide-r
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StartupCard } from "@/components/startup-card";
 import { AddStartupDialog } from "@/components/add-startup-dialog";
@@ -25,22 +24,23 @@ export default function HomePage() {
   const [online, setOnline] = React.useState(true);
   const [verifying, setVerifying] = React.useState(false);
 
-  const loadAll = React.useCallback(async () => {
-    setLoading(true);
-    const [s, c, st] = await Promise.allSettled([
+  const loadAll = React.useCallback(() => {
+    // setState only inside .then callbacks (react-hooks v7: no synchronous setState in effects)
+    return Promise.allSettled([
       fetchStartups(),
       fetchCategories(),
       fetchStats(),
-    ]);
-    if (s.status === "fulfilled") {
-      setStartups(s.value);
-      setOnline(true);
-    } else {
-      setOnline(false);
-    }
-    if (c.status === "fulfilled") setCategories(c.value);
-    if (st.status === "fulfilled") setStats(st.value);
-    setLoading(false);
+    ]).then(([s, c, st]) => {
+      if (s.status === "fulfilled") {
+        setStartups(s.value);
+        setOnline(true);
+      } else {
+        setOnline(false);
+      }
+      if (c.status === "fulfilled") setCategories(c.value);
+      if (st.status === "fulfilled") setStats(st.value);
+      setLoading(false);
+    });
   }, []);
 
   React.useEffect(() => {
