@@ -1,10 +1,34 @@
 "use client";
 
 import * as React from "react";
-import { Search, ShieldCheck, RefreshCw, ServerCrash, Building2 } from "lucide-react";
+import { useAutoAnimate } from "@formkit/auto-animate/react";
+import {
+  BarChart3,
+  BrainCircuit,
+  Building2,
+  Code2,
+  Coins,
+  FolderGit2,
+  Gamepad2,
+  Globe,
+  GraduationCap,
+  HeartPulse,
+  Landmark,
+  Megaphone,
+  MousePointerClick,
+  Palette,
+  Plane,
+  RefreshCw,
+  ServerCrash,
+  Share2,
+  ShieldCheck,
+  ShoppingBag,
+  Sparkles,
+  UtensilsCrossed,
+  Zap,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StartupCard } from "@/components/startup-card";
 import { AddStartupDialog } from "@/components/add-startup-dialog";
@@ -13,28 +37,69 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { FilterBar } from "@/components/filter-bar";
 import { StartupDetail } from "@/components/startup-detail";
 import { HomeSections } from "@/components/home-sections";
+import { MorphingDiscoveryBar, type DiscoveryCategory } from "@/components/ui/morphing-discovery-bar";
+import { SplitButton } from "@/components/ui/split-button";
+import { ContinuousPagination } from "@/components/ui/continuous-pagination";
 import { fetchStartups, fetchCategories, fetchStats, runVerification, markVerified } from "@/lib/api";
+import { CountUp } from "@/components/count-up";
 import { filterStartups, sortStartups, foundedYear } from "@/lib/search";
 import type { SortKey } from "@/lib/search";
-import { titleCase } from "@/lib/format";
+import { formatDate, titleCase } from "@/lib/format";
 import type { CategoryCount, Startup, Stats } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+const PAGE_SIZE = 24;
+
 /** Read filter state from the URL on first client render (SSR-safe: window guard). */
-function readInitialParams(): { query: string; category: string | null; year: string; status: string; sort: SortKey } {
+function readInitialParams(): {
+  query: string;
+  category: string | null;
+  year: string;
+  status: string;
+  sort: SortKey;
+  page: number;
+} {
   if (typeof window === "undefined") {
-    return { query: "", category: null, year: "all", status: "all", sort: "top" };
+    return { query: "", category: null, year: "all", status: "all", sort: "top", page: 1 };
   }
   const p = new URLSearchParams(window.location.search);
   const sort = p.get("sort");
   const rawCategory = p.get("category")?.trim().toLowerCase();
+  const rawPage = Number.parseInt(p.get("page") ?? "1", 10);
   return {
     query: p.get("q") ?? "",
     category: rawCategory ? rawCategory : null,
     year: p.get("year") ?? "all",
     status: p.get("status") ?? "all",
     sort: sort === "newest" || sort === "verified" || sort === "name" || sort === "founded" ? sort : "top",
+    page: Number.isFinite(rawPage) && rawPage > 0 ? rawPage : 1,
   };
+}
+
+/** Lucide icon per known category — one icon set (MIT), fallback Sparkles. */
+const CATEGORY_ICONS: Record<string, React.ReactNode> = {
+  ai: <Sparkles className="h-3.5 w-3.5" />,
+  "developer-tools": <Code2 className="h-3.5 w-3.5" />,
+  design: <Palette className="h-3.5 w-3.5" />,
+  fintech: <Landmark className="h-3.5 w-3.5" />,
+  productivity: <Zap className="h-3.5 w-3.5" />,
+  "machine-learning": <BrainCircuit className="h-3.5 w-3.5" />,
+  marketing: <Megaphone className="h-3.5 w-3.5" />,
+  "social-media": <Share2 className="h-3.5 w-3.5" />,
+  health: <HeartPulse className="h-3.5 w-3.5" />,
+  "e-commerce": <ShoppingBag className="h-3.5 w-3.5" />,
+  education: <GraduationCap className="h-3.5 w-3.5" />,
+  analytics: <BarChart3 className="h-3.5 w-3.5" />,
+  "no-code": <MousePointerClick className="h-3.5 w-3.5" />,
+  crypto: <Coins className="h-3.5 w-3.5" />,
+  gaming: <Gamepad2 className="h-3.5 w-3.5" />,
+  food: <UtensilsCrossed className="h-3.5 w-3.5" />,
+  travel: <Plane className="h-3.5 w-3.5" />,
+  "open-source": <FolderGit2 className="h-3.5 w-3.5" />,
+};
+
+function categoryIcon(id: string): React.ReactNode {
+  return CATEGORY_ICONS[id] ?? <Sparkles className="h-3.5 w-3.5" />;
 }
 
 export default function HomePage() {
@@ -46,10 +111,14 @@ export default function HomePage() {
   const [year, setYear] = React.useState(() => readInitialParams().year);
   const [status, setStatus] = React.useState(() => readInitialParams().status);
   const [sort, setSort] = React.useState<SortKey>(() => readInitialParams().sort);
+  const [page, setPage] = React.useState(() => readInitialParams().page);
   const [loading, setLoading] = React.useState(true);
   const [online, setOnline] = React.useState(true);
   const [verifying, setVerifying] = React.useState(false);
   const [detail, setDetail] = React.useState<Startup | null>(null);
+  const [addOpen, setAddOpen] = React.useState(false);
+  const [addTab, setAddTab] = React.useState<"github" | "website">("github");
+  const [gridRef] = useAutoAnimate({ duration: 260 });
 
   const loadAll = React.useCallback(() => {
     // setState only inside .then callbacks (react-hooks v7: no synchronous setState in effects)
@@ -82,8 +151,43 @@ export default function HomePage() {
       year: year === "all" ? null : year,
       status: status === "all" ? null : status,
     });
-    return sortStartups(filtered, sort);
+    const searching = query.trim().length > 0;
+    // While searching on the default sort, keep Fuse's relevance ranking (the
+    // exact-name match must rank #1 — see review finding #1); an explicit sort
+    // choice from the user is still honored over relevance.
+    return searching && sort === "top" ? filtered : sortStartups(filtered, sort);
   }, [startups, query, category, year, status, sort]);
+
+  const totalPages = Math.max(1, Math.ceil(results.length / PAGE_SIZE));
+  // Clamp during render (no setState-in-effect): a URL page beyond the last page
+  // after filtering shows the last page while `page` state stays untouched.
+  const currentPage = Math.min(page, totalPages);
+  const paged = React.useMemo(
+    () => results.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
+    [results, currentPage],
+  );
+
+  // Filter/sort changes reset to page 1 — done in the setters (no effects).
+  const changeQuery = (q: string) => {
+    setQuery(q);
+    setPage(1);
+  };
+  const changeCategory = (c: string | null) => {
+    setCategory(c);
+    setPage(1);
+  };
+  const changeYear = (y: string) => {
+    setYear(y);
+    setPage(1);
+  };
+  const changeStatus = (s: string) => {
+    setStatus(s);
+    setPage(1);
+  };
+  const changeSort = (k: SortKey) => {
+    setSort(k);
+    setPage(1);
+  };
 
   const years = React.useMemo(() => {
     const set = new Set<string>();
@@ -97,10 +201,10 @@ export default function HomePage() {
   const hasAnyFilter = query !== "" || category !== null || year !== "all" || status !== "all";
 
   const clearFilters = () => {
-    setQuery("");
-    setCategory(null);
-    setYear("all");
-    setStatus("all");
+    changeQuery("");
+    changeCategory(null);
+    changeYear("all");
+    changeStatus("all");
   };
 
   // Shareable, back-button-safe URL state: replaceState (never pushState — no history spam)
@@ -112,9 +216,10 @@ export default function HomePage() {
     if (year !== "all") p.set("year", year);
     if (status !== "all") p.set("status", status);
     if (sort !== "top") p.set("sort", sort);
+    if (currentPage > 1) p.set("page", String(currentPage));
     const qs = p.toString();
     window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
-  }, [query, category, year, status, sort]);
+  }, [query, category, year, status, sort, currentPage]);
 
   const handleAdded = (entry: Startup) => {
     setStartups((prev) => {
@@ -128,6 +233,7 @@ export default function HomePage() {
     });
     setQuery("");
     setCategory(null);
+    setPage(1);
     void loadAll();
   };
 
@@ -162,89 +268,120 @@ export default function HomePage() {
     }
   };
 
+  const discoveryCategories: DiscoveryCategory[] = React.useMemo(
+    () =>
+      [...categories]
+        .sort((a, b) => b.count - a.count)
+        .map((c) => ({
+          id: c.category.toLowerCase(),
+          label: titleCase(c.category),
+          icon: categoryIcon(c.category.toLowerCase()),
+          count: c.count,
+        })),
+    [categories],
+  );
+
   return (
     <div className="flex min-h-full flex-col">
-      {/* Header */}
-      <header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur">
+      {/* Header — frosted glass */}
+      <header className="sticky top-0 z-40 border-b border-border/40 bg-background/55 backdrop-blur-xl">
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4">
-          <span className="text-sm font-bold tracking-tight">IdeaExists</span>
+          <span className="font-display text-sm font-bold tracking-tight">IdeaExists</span>
           <span className="hidden text-xs text-muted-foreground sm:inline">
             Does this startup exist?
           </span>
-          <div className="ml-auto flex items-center gap-1.5">
-            <AddStartupDialog onAdded={handleAdded} />
+          <div className="ml-auto flex items-center gap-2">
+            <SplitButton
+              mainLabel="Add startup"
+              options={[
+                {
+                  label: "By GitHub",
+                  icon: <FolderGit2 className="h-3.5 w-3.5" />,
+                  onClick: () => {
+                    setAddTab("github");
+                    setAddOpen(true);
+                  },
+                },
+                {
+                  label: "By website",
+                  icon: <Globe className="h-3.5 w-3.5" />,
+                  onClick: () => {
+                    setAddTab("website");
+                    setAddOpen(true);
+                  },
+                },
+              ]}
+            />
             <ThemeToggle />
           </div>
         </div>
       </header>
 
       {!online && !loading && (
-        <div className="flex items-center justify-center gap-2 border-b bg-destructive/5 px-4 py-2 text-xs text-destructive">
+        <div className="flex items-center justify-center gap-2 border-b border-border/40 bg-destructive/5 px-4 py-2 text-xs text-destructive">
           <ServerCrash className="h-3.5 w-3.5" />
-          Backend offline — start it with <code className="font-mono">uvicorn app.main:app --port 8020</code>
+          The archive is unreachable — start it with{" "}
+          <code className="font-mono">uvicorn app.main:app --port 8020</code>
         </div>
       )}
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-20">
-        {/* Hero + search */}
-        <section className="mx-auto max-w-2xl pb-9 pt-12 text-center">
-          <h1 className="text-3xl font-bold tracking-tight">
-            Does this startup exist?
+        {/* Hero */}
+        <section className="mx-auto max-w-3xl pb-10 pt-12 text-center">
+          <h1 className="font-display text-4xl font-bold tracking-tight sm:text-5xl">
+            A human-kept archive of what exists.
           </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Searchable directory of startups — what they do, their website, their code.
+          <p className="mx-auto mt-3 max-w-[52ch] text-sm text-muted-foreground">
+            Search the archive — what they do, where they live, and whether they&rsquo;re still alive.
+            Every listing checked by a human, not a crawler.
           </p>
-          <div className="relative mx-auto mt-6 max-w-xl">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="e.g. AI resume builder for developers"
-              className="h-10 rounded-lg pl-9"
-              aria-label="Search startups"
+
+          <div className="mt-7">
+            <MorphingDiscoveryBar
+              categories={discoveryCategories}
+              value={category}
+              onCategoryChange={changeCategory}
+              query={query}
+              onQueryChange={changeQuery}
+              totalCount={stats?.total}
             />
           </div>
-        </section>
 
-        {/* Category chips */}
-        {categories.length > 0 && (
-          <div className="flex flex-wrap items-center justify-center gap-2 pb-9">
-            <button
-              onClick={() => setCategory(null)}
-              className={cn(
-                "h-7 rounded-full px-3 text-xs font-medium transition-colors",
-                category === null
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-              )}
-            >
-              All
-            </button>
-            {categories.map((c) => (
-              <button
-                key={c.category}
-                onClick={() => setCategory(category?.toLowerCase() === c.category.toLowerCase() ? null : c.category)}
-                className={cn(
-                  "h-7 rounded-full px-3 text-xs font-medium transition-colors",
-                  category?.toLowerCase() === c.category.toLowerCase()
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                )}
-              >
-                {titleCase(c.category)} <span className="opacity-60">{c.count}</span>
-              </button>
-            ))}
+          <p className="mt-4 font-mono text-[11px] tabular-nums text-muted-foreground">
+            <CountUp value={stats?.total ?? 0} /> startups
+            {stats?.last_checked && (
+              <>
+                {" "}
+                · last checked {formatDate(stats.last_checked)}
+              </>
+            )}
+          </p>
+
+          {/* Trust legend — the human gate at a glance (review ticket T-4) */}
+          <div className="mt-2.5 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 font-mono text-[10px] text-muted-foreground">
+            <span className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden />
+              Verified — a human checked it
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/60" aria-hidden />
+              Unverified — filed, awaiting a human
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-destructive/80" aria-hidden />
+              Dead — checked, gone
+            </span>
           </div>
-        )}
+        </section>
 
         {/* Filter bar: count, founded-year, status, sort */}
         <FilterBar
           sort={sort}
-          onSort={setSort}
+          onSort={changeSort}
           year={year}
-          onYear={setYear}
+          onYear={changeYear}
           status={status}
-          onStatus={setStatus}
+          onStatus={changeStatus}
           years={years}
           count={results.length}
           onClear={clearFilters}
@@ -259,19 +396,19 @@ export default function HomePage() {
         {loading ? (
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
             {Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} className="h-48 rounded-xl" />
+              <Skeleton key={i} className="glass h-48 rounded-2xl" />
             ))}
           </div>
-        ) : results.length === 0 ? (
-          <div className="mx-auto max-w-md rounded-xl bg-muted/40 px-6 py-12 text-center">
+        ) : paged.length === 0 ? (
+          <div className="glass mx-auto max-w-md rounded-2xl px-6 py-12 text-center">
             <Building2 className="mx-auto h-8 w-8 text-muted-foreground" />
             <h2 className="mt-3 text-sm font-bold">
-              {hasAnyFilter ? "No startups match these filters" : "Nothing found yet"}
+              {hasAnyFilter ? "Nothing in the archive matches." : "Nothing on file yet."}
             </h2>
             <p className="mt-1 text-xs text-muted-foreground">
               {hasAnyFilter
-                ? "Try clearing filters, or add it yourself — the directory grows with every seed."
-                : "Maybe you build this? Add it to the directory and check back next week."}
+                ? "Try widening the net — or file it yourself. The archive grows with every seed."
+                : "Either it doesn't exist — or you're about to be the first to file it."}
             </p>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
               {hasAnyFilter && (
@@ -279,23 +416,31 @@ export default function HomePage() {
                   Clear filters
                 </Button>
               )}
-              <AddStartupDialog onAdded={handleAdded} />
+              <Button size="sm" className="gap-1.5" onClick={() => setAddOpen(true)}>
+                <Sparkles className="h-3.5 w-3.5" /> Add it to the archive
+              </Button>
             </div>
           </div>
         ) : (
-          <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
-            {results.map((s) => (
-              <StartupCard
-                key={s.id}
-                startup={s}
-                onVerified={handleMarkVerified}
-                onDetails={setDetail}
-              />
-            ))}
-          </div>
+          <>
+            <div
+              ref={gridRef}
+              className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]"
+            >
+              {paged.map((s) => (
+                <StartupCard
+                  key={s.id}
+                  startup={s}
+                  onVerified={handleMarkVerified}
+                  onDetails={setDetail}
+                />
+              ))}
+            </div>
+            <ContinuousPagination page={page} totalPages={totalPages} onPageChange={setPage} />
+          </>
         )}
 
-        {/* Detail modal */}
+        {/* Detail modal — shared-layout expansion */}
         <StartupDetail
           startup={detail}
           startups={startups}
@@ -303,26 +448,37 @@ export default function HomePage() {
           onNavigate={setDetail}
           onVerified={handleMarkVerified}
         />
+
+        {/* Add dialog — controlled by split-button / empty state */}
+        <AddStartupDialog
+          open={addOpen}
+          onOpenChange={setAddOpen}
+          tab={addTab}
+          onTabChange={setAddTab}
+          onAdded={handleAdded}
+        />
       </main>
 
       {/* Footer */}
-      <footer className="border-t">
+      <footer className="border-t border-border/40 bg-background/55 backdrop-blur-xl">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-5 text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5">
             {online ? (
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              <span className="h-1.5 w-1.5 rounded-full bg-success" />
             ) : (
               <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
             )}
-            {stats?.total ?? 0} startups
+            <CountUp value={stats?.total ?? 0} /> startups
           </span>
           <span className="flex items-center gap-1">
             <ShieldCheck className="h-3.5 w-3.5" />
-            {stats?.verified ?? 0} verified
+            <CountUp value={stats?.verified ?? 0} /> verified
           </span>
-          {stats?.last_checked && <span>Last checked {stats.last_checked.slice(0, 10)}</span>}
-          <span className="hidden md:inline">
-            Links re-verified weekly · 3 failed checks → archived (never deleted)
+          <span className="hidden font-mono text-[11px] tabular-nums md:inline">
+            Dead is a status, not an erasure. Kept by a human, checked weekly.
+          </span>
+          <span className="hidden lg:inline">
+            No accounts. No tracking. Searches stay on this machine.
           </span>
           <div className="ml-auto flex items-center gap-1.5">
             <AdminPanel onSeeded={() => void loadAll()} />

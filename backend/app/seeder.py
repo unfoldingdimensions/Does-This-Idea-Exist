@@ -16,6 +16,7 @@ import httpx
 
 from . import config, enrich
 from .website import UA_BROWSER
+from urllib.parse import urlparse
 
 log = logging.getLogger("ideasexist")
 
@@ -178,9 +179,12 @@ def _topstartups(params: dict):
     """topstartups.io — server-rendered HTML list, ?page=N pagination (~20/page, 1,259 total).
 
     Yields (website_url, name_hint) tuples; requires the browser UA (blocks bare bots).
-    UTM params are stripped from each company-site link.
+    UTM params are stripped from each company-site link. The directory's own domain and
+    within-run URL repeats are skipped (scraper artifact guard — the source site is not
+    a startup, and one company should seed exactly once per run).
     """
     page = 1
+    seen: set[str] = set()
     while True:
         r = httpx.get(
             f"https://topstartups.io/?page={page}",
@@ -195,7 +199,14 @@ def _topstartups(params: dict):
             name = _strip_tags(raw_name)
             if not name:
                 continue
-            yield href.split("?")[0].strip().rstrip("/"), name  # strip ?utm_source=... + trailing slash
+            url = href.split("?")[0].strip().rstrip("/")  # strip ?utm_source=... + trailing slash
+            if url in seen:
+                continue
+            host = (urlparse(url).hostname or "").lower().rstrip(".")
+            if host in ("topstartups.io", "www.topstartups.io"):
+                continue
+            seen.add(url)
+            yield url, name
             found += 1
             time.sleep(THROTTLE_S)
         if found == 0:

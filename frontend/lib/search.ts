@@ -9,8 +9,11 @@ function createSearcher(startups: Startup[]): Fuse<Startup> {
       { name: "description", weight: 1.5 },
       { name: "category", weight: 1 },
     ],
-    threshold: 0.4,
+    // 0.3 (was 0.4): tight enough to exclude pure character-fuzz false positives
+    // ("obsidian" → Avoca/Zoom), loose enough to keep fuzzy + deep-description hits.
+    threshold: 0.3,
     ignoreLocation: true,
+    includeScore: true,
   });
 }
 
@@ -45,10 +48,20 @@ export function filterStartups(startups: Startup[], filters: Filters): Startup[]
   const terms = (filters.q ?? "").trim().split(/\s+/).filter(Boolean);
   if (terms.length === 0) return sortStartups(out);
   const searcher = createSearcher(out);
-  const perTerm = terms.map((t) => new Set(searcher.search(t).map((r) => r.item.id)));
-  const matchedIds = [...perTerm[0]].filter((id) => perTerm.every((set) => set.has(id)));
+  // Per-term score maps; a term's match score is Fuse's normalized distance
+  // (0 = exact, 1 = no match). Combined score = worst (max) term — AND semantics.
+  const perTerm = terms.map((t) => new Map(searcher.search(t).map((r) => [r.item.id, r.score ?? 1])));
+  const matchedIds = [...perTerm[0].keys()].filter((id) => perTerm.every((m) => m.has(id)));
   const byId = new Map(out.map((s) => [s.id, s]));
-  return sortStartups(matchedIds.map((id) => byId.get(id)).filter((s): s is Startup => Boolean(s)));
+  const ranked = matchedIds
+    .map((id) => ({ s: byId.get(id), score: Math.max(...perTerm.map((m) => m.get(id) ?? 1)) }))
+    .filter((x): x is { s: Startup; score: number } => Boolean(x.s));
+  // Relevance first (the exact-name match ranks #1, not the most-starred hit),
+  // dead/pivoted entries sink to the bottom, stars break ties.
+  ranked.sort(
+    (a, b) => DEAD_ORDER(a.s) - DEAD_ORDER(b.s) || a.score - b.score || (b.s.stars ?? 0) - (a.s.stars ?? 0),
+  );
+  return ranked.map((x) => x.s);
 }
 
 export type SortKey = "top" | "newest" | "verified" | "name" | "founded";

@@ -2,41 +2,43 @@
 
 import * as React from "react";
 import { Archive, Clock3, ShieldCheck } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { initials } from "@/components/startup-card";
+import { HueAvatar } from "@/components/hue-avatar";
 import { titleCase } from "@/lib/format";
 import type { Startup } from "@/lib/types";
 
 function Strip({
   title,
   icon,
+  footnote,
   items,
   onNavigate,
 }: {
   title: string;
   icon: React.ReactNode;
+  footnote?: string;
   items: Startup[];
   onNavigate: (s: Startup) => void;
 }) {
   if (items.length === 0) return null;
   return (
     <section className="space-y-2">
-      <h3 className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+      <div className="ledger-header pb-2">
         {icon} {title}
-      </h3>
+        {footnote && (
+          <span className="ml-2 hidden font-sans text-[10px] font-normal normal-case tracking-normal text-muted-foreground/80 sm:inline">
+            {footnote}
+          </span>
+        )}
+      </div>
       <div className="flex gap-2 overflow-x-auto pb-1">
         {items.map((s) => (
           <button
             key={s.id}
             type="button"
             onClick={() => onNavigate(s)}
-            className="flex min-w-0 flex-1 basis-0 items-center gap-2 rounded-xl border bg-card px-3 py-2 text-left transition-colors hover:bg-accent"
+            className="glass flex min-w-0 flex-1 basis-0 items-center gap-2 rounded-xl px-3 py-2 text-left transition-colors hover:bg-accent/60"
           >
-            <Avatar className="h-6 w-6 shrink-0 rounded-md bg-muted">
-              <AvatarFallback className="rounded-md text-[10px] font-bold">
-                {initials(s.name)}
-              </AvatarFallback>
-            </Avatar>
+            <HueAvatar name={s.name} size="sm" />
             <span className="min-w-0">
               <span className="block truncate text-xs font-semibold">{s.name}</span>
               <span className="block truncate text-[11px] text-muted-foreground">
@@ -72,9 +74,25 @@ export function HomeSections({
 
   return (
     <div className="space-y-4 pb-6">
-      <Strip title="Just added" icon={<Clock3 className="h-3 w-3" />} items={justAdded} onNavigate={onNavigate} />
-      <Strip title="Recently verified" icon={<ShieldCheck className="h-3 w-3" />} items={recentlyVerified} onNavigate={onNavigate} />
-      <Strip title="Dead recently" icon={<Archive className="h-3 w-3" />} items={deadRecently} onNavigate={onNavigate} />
+      <Strip
+        title="Just added"
+        icon={<Clock3 className="h-3 w-3" />}
+        items={justAdded}
+        onNavigate={onNavigate}
+      />
+      <Strip
+        title="Recently verified"
+        icon={<ShieldCheck className="h-3 w-3" />}
+        items={recentlyVerified}
+        onNavigate={onNavigate}
+      />
+      <Strip
+        title="Dead recently"
+        icon={<Archive className="h-3 w-3" />}
+        footnote="Three failed checks. Filed, never deleted."
+        items={deadRecently}
+        onNavigate={onNavigate}
+      />
     </div>
   );
 }

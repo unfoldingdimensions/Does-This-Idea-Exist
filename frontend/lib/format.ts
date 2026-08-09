@@ -48,3 +48,28 @@ export function shortDate(iso: string | null | undefined): string {
       : { year: "numeric", month: "short", day: "numeric" };
   return d.toLocaleDateString("en-US", opts);
 }
+
+/**
+ * Deterministic hue (0–360) from a name — the Identicon pattern (GitHub, 2013):
+ * faceless entries still get a stable color identity. Same name → same hue, always.
+ */
+export function hueFromName(name: string): number {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) {
+    h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  }
+  return h % 360;
+}
+
+/**
+ * Pastel chip colors for initial avatars. One style works in BOTH themes:
+ * a light pastel background with a dark same-hue letter passes contrast
+ * on beige AND charcoal (dark text on ~78% lightness ≈ 7:1).
+ */
+export function hueAvatarStyle(name: string): React.CSSProperties {
+  const h = hueFromName(name);
+  return {
+    backgroundColor: `hsl(${h} 55% 78%)`,
+    color: `hsl(${h} 60% 26%)`,
+  };
+}

@@ -1,6 +1,7 @@
 """SQLite storage (stdlib sqlite3, WAL). Schema v1 — additive changes only."""
 import sqlite3
 from pathlib import Path
+from urllib.parse import urlparse
 
 from . import config
 
@@ -53,18 +54,58 @@ def init_db() -> None:
     conn.close()
 
 
+def normalize_url(url: str | None) -> str:
+    """Canonical identity form for dedup: lowercase scheme+host, strip www.,
+    default ports, trailing slashes, query strings and fragments.
+
+    Paths stay case-sensitive (github.com/Owner/repo != github.com/owner/repo).
+    """
+    if not url:
+        return ""
+    u = url.strip()
+    try:
+        p = urlparse(u)
+    except ValueError:
+        return u.rstrip("/")
+    host = (p.hostname or "").lower().removeprefix("www.")
+    if p.scheme not in ("http", "https") or not host:
+        return u.rstrip("/")
+    port = ""
+    if p.port and not (
+        (p.scheme == "http" and p.port == 80) or (p.scheme == "https" and p.port == 443)
+    ):
+        port = f":{p.port}"
+    return f"{p.scheme}://{host}{port}{p.path.rstrip('/')}"
+
+
 def find_by_url(conn: sqlite3.Connection, website_url: str | None = None, github_url: str | None = None) -> sqlite3.Row | None:
-    """Look up an existing startup by website or github URL (dedup for re-seeds)."""
+    """Look up an existing startup by website or github URL (dedup for re-seeds).
+
+    Exact-match first (unique index), then a normalized-equivalence fallback so
+    `https://zoom.com` and `https://www.zoom.com/` resolve to the same row.
+    """
     if website_url:
         row = conn.execute(
             "SELECT * FROM startups WHERE lower(website_url) = lower(?)", (website_url,)
         ).fetchone()
-        if row:
+        if not row:
+            n_ws = normalize_url(website_url)
+            if n_ws:
+                for candidate in conn.execute("SELECT * FROM startups WHERE website_url IS NOT NULL"):
+                    if normalize_url(candidate["website_url"]) == n_ws:
+                        return candidate
+        elif row:
             return row
     if github_url:
         row = conn.execute(
             "SELECT * FROM startups WHERE lower(github_url) = lower(?)", (github_url,)
         ).fetchone()
-        if row:
+        if not row:
+            n_gh = normalize_url(github_url)
+            if n_gh:
+                for candidate in conn.execute("SELECT * FROM startups WHERE github_url IS NOT NULL"):
+                    if normalize_url(candidate["github_url"]) == n_gh:
+                        return candidate
+        elif row:
             return row
     return None

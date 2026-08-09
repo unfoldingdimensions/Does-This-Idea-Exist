@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Smell Report — IdeaExists</title>
+<style>body{font-family:ui-monospace,Menlo,Consolas,monospace;max-width:760px;margin:40px auto;padding:0 20px;background:#faf9f7;color:#1a1a1a;line-height:1.6}
+h1{font-size:22px}h2{font-size:16px;margin-top:32px;border-bottom:1px solid #e5e0d8;padding-bottom:4px}
+table{border-collapse:collapse;width:100%;font-size:13px}td,th{border:1px solid #e5e0d8;padding:6px 8px;text-align:left}
+.bad{color:#a33}.good{color:#2a7a4a}pre{background:#f0ede6;padding:10px;font-size:12px;white-space:pre-wrap}
+.score{font-size:28px;font-weight:bold}.sub{color:#666;font-size:13px}</style></head><body>
+<h1>Smell Report — IdeaExists</h1>
+<p class="score">7/10 · WEAK-MODERATE</p>
+<p class="sub">3 of 10 tells present — all clustering in the first viewport · audit 2026-08-09 · source read + live rendered check</p>
+<h2>TL;DR</h2>
+<p>Three tells: <b>generic tech hue</b> (indigo-blue primary, globals.css:58/93), <b>no type system</b> (one family, ad-hoc sizes, no mono/display roles), <b>centered everything</b> (hero stack, page.tsx:190–207). Everything else is clean — no gradients, no tile grids, no glass, no bounce. The personality pass is the deslop: replace each tell with a decision that could only belong to a verification-first local archive.</p>
+<h2>Heuristics (0 = tell present, 1 = clean)</h2>
+<table>
+<tr><th>#</th><th>Heuristic</th><th>Score</th><th>Evidence</th></tr>
+<tr><td>1</td><td>tech gradient</td><td class="good">1</td><td>none</td></tr>
+<tr><td>2</td><td>generic tech hue</td><td class="bad">0</td><td>--primary oklch(0.546 0.245 262.881) / dark 0.707 0.165 254.624 — hue ≈255</td></tr>
+<tr><td>3</td><td>feature tile grid</td><td class="good">1</td><td>content-driven cards</td></tr>
+<tr><td>4</td><td>accent rail</td><td class="good">1</td><td>absent</td></tr>
+<tr><td>5</td><td>frosted glass over blobs</td><td class="good">1</td><td>absent</td></tr>
+<tr><td>6</td><td>oversized statistics</td><td class="good">1</td><td>12px footer counts</td></tr>
+<tr><td>7</td><td>icon above heading</td><td class="good">1</td><td>absent</td></tr>
+<tr><td>8</td><td>generic motion</td><td class="good">1</td><td>nothing moves (the problem)</td></tr>
+<tr><td>9</td><td>no type system</td><td class="bad">0</td><td>one family; h1 30px → body 14px → 13px → 11px ad-hoc</td></tr>
+<tr><td>10</td><td>centered everything</td><td class="bad">0</td><td>hero + chips centered, no focal asymmetry</td></tr>
+</table>
+<h2>Priority issues</h2>
+<p><b>P0 — first viewport belongs to no product.</b> Fix: recolor + typeset + texture, then voice. Centered search hero becomes defensible once the cluster is broken (search IS the focal point).<br>
+<b>P1 — flat type.</b> Fix: 1.3-ratio scale with named roles, mono for data.<br>
+<b>P1 — zero motion.</b> Fix: ease-out reveal system, reduced-motion safe.<br>
+<b>P2 — voice absent.</b> Fix: dry-warm curator copy.</p>
+<h2>New-smell guard</h2>
+<pre>- no blue→blue swap (ink-green is a new lane, not a hue rotation)
+- no bounce/spring easing anywhere (ease-out only)
+- no favicon fetching (privacy leak in a no-tracking app)
+- no more centering while fixing the cluster (add ruled left-aligned headers, asymmetric footer)
+- no gradients/glassmorphism as "personality"</pre>
+</body></html>

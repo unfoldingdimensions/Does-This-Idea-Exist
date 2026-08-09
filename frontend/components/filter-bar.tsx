@@ -51,12 +51,15 @@ export function FilterBar({
   const hasFilters = year !== "all" || status !== "all";
   return (
     <div className="flex flex-wrap items-center gap-2 pb-6">
-      <span className="text-xs font-medium text-muted-foreground" aria-live="polite">
+      <span
+        className="font-mono text-xs tabular-nums text-muted-foreground"
+        aria-live="polite"
+      >
         {count} {count === 1 ? "startup" : "startups"}
       </span>
       <div className="ml-auto flex flex-wrap items-center gap-2">
         <Select value={year} onValueChange={onYear}>
-          <SelectTrigger className="h-8 w-32 text-xs" aria-label="Filter by founded year">
+          <SelectTrigger className="glass h-8 w-32 rounded-full text-xs" aria-label="Filter by founded year">
             <SelectValue placeholder="Founded year" />
           </SelectTrigger>
           <SelectContent>
@@ -69,7 +72,7 @@ export function FilterBar({
           </SelectContent>
         </Select>
         <Select value={status} onValueChange={onStatus}>
-          <SelectTrigger className="h-8 w-32 text-xs" aria-label="Filter by status">
+          <SelectTrigger className="glass h-8 w-32 rounded-full text-xs" aria-label="Filter by status">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
@@ -81,7 +84,7 @@ export function FilterBar({
           </SelectContent>
         </Select>
         <Select value={sort} onValueChange={(v) => onSort(v as SortKey)}>
-          <SelectTrigger className="h-8 w-36 text-xs" aria-label="Sort startups">
+          <SelectTrigger className="glass h-8 w-36 rounded-full text-xs" aria-label="Sort startups">
             <SelectValue placeholder="Sort" />
           </SelectTrigger>
           <SelectContent>
