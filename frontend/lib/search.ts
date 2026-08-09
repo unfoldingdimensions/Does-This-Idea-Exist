@@ -29,7 +29,10 @@ export interface Filters {
  */
 export function filterStartups(startups: Startup[], filters: Filters): Startup[] {
   let out = startups;
-  if (filters.category) out = out.filter((s) => s.category === filters.category);
+  if (filters.category) {
+    const cat = filters.category.trim().toLowerCase();
+    out = out.filter((s) => (s.category ?? "").toLowerCase() === cat);
+  }
   if (filters.year) out = out.filter((s) => (s.founded ?? "").startsWith(filters.year as string));
   if (filters.status) {
     out = out.filter((s) => {

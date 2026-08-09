@@ -12,6 +12,7 @@ import { AdminPanel } from "@/components/admin-panel";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { FilterBar } from "@/components/filter-bar";
 import { StartupDetail } from "@/components/startup-detail";
+import { HomeSections } from "@/components/home-sections";
 import { fetchStartups, fetchCategories, fetchStats, runVerification, markVerified } from "@/lib/api";
 import { filterStartups, sortStartups, foundedYear } from "@/lib/search";
 import type { SortKey } from "@/lib/search";
@@ -19,15 +20,32 @@ import { titleCase } from "@/lib/format";
 import type { CategoryCount, Startup, Stats } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+/** Read filter state from the URL on first client render (SSR-safe: window guard). */
+function readInitialParams(): { query: string; category: string | null; year: string; status: string; sort: SortKey } {
+  if (typeof window === "undefined") {
+    return { query: "", category: null, year: "all", status: "all", sort: "top" };
+  }
+  const p = new URLSearchParams(window.location.search);
+  const sort = p.get("sort");
+  const rawCategory = p.get("category")?.trim().toLowerCase();
+  return {
+    query: p.get("q") ?? "",
+    category: rawCategory ? rawCategory : null,
+    year: p.get("year") ?? "all",
+    status: p.get("status") ?? "all",
+    sort: sort === "newest" || sort === "verified" || sort === "name" || sort === "founded" ? sort : "top",
+  };
+}
+
 export default function HomePage() {
   const [startups, setStartups] = React.useState<Startup[]>([]);
   const [categories, setCategories] = React.useState<CategoryCount[]>([]);
   const [stats, setStats] = React.useState<Stats | null>(null);
-  const [query, setQuery] = React.useState("");
-  const [category, setCategory] = React.useState<string | null>(null);
-  const [year, setYear] = React.useState("all");
-  const [status, setStatus] = React.useState("all");
-  const [sort, setSort] = React.useState<SortKey>("top");
+  const [query, setQuery] = React.useState(() => readInitialParams().query);
+  const [category, setCategory] = React.useState<string | null>(() => readInitialParams().category);
+  const [year, setYear] = React.useState(() => readInitialParams().year);
+  const [status, setStatus] = React.useState(() => readInitialParams().status);
+  const [sort, setSort] = React.useState<SortKey>(() => readInitialParams().sort);
   const [loading, setLoading] = React.useState(true);
   const [online, setOnline] = React.useState(true);
   const [verifying, setVerifying] = React.useState(false);
@@ -84,6 +102,19 @@ export default function HomePage() {
     setYear("all");
     setStatus("all");
   };
+
+  // Shareable, back-button-safe URL state: replaceState (never pushState — no history spam)
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const p = new URLSearchParams();
+    if (query) p.set("q", query);
+    if (category) p.set("category", category);
+    if (year !== "all") p.set("year", year);
+    if (status !== "all") p.set("status", status);
+    if (sort !== "top") p.set("sort", sort);
+    const qs = p.toString();
+    window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
+  }, [query, category, year, status, sort]);
 
   const handleAdded = (entry: Startup) => {
     setStartups((prev) => {
@@ -192,10 +223,10 @@ export default function HomePage() {
             {categories.map((c) => (
               <button
                 key={c.category}
-                onClick={() => setCategory(category === c.category ? null : c.category)}
+                onClick={() => setCategory(category?.toLowerCase() === c.category.toLowerCase() ? null : c.category)}
                 className={cn(
                   "h-7 rounded-full px-3 text-xs font-medium transition-colors",
-                  category === c.category
+                  category?.toLowerCase() === c.category.toLowerCase()
                     ? "bg-primary text-primary-foreground"
                     : "bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                 )}
@@ -218,6 +249,11 @@ export default function HomePage() {
           count={results.length}
           onClear={clearFilters}
         />
+
+        {/* Freshness highlights — only on the unfiltered landing view */}
+        {!hasAnyFilter && !loading && results.length > 0 && (
+          <HomeSections startups={startups} onNavigate={setDetail} />
+        )}
 
         {/* Grid */}
         {loading ? (
