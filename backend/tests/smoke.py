@@ -144,6 +144,21 @@ check(
     str(ts),
 )
 
+# --- design_library producer: bundled file → (url, name_hint) tuples, no network ---
+dl = list(seeder._design_library({}))
+check(
+    "design_library yields 201 (url, name_hint) pairs",
+    len(dl) == 201
+    and all(u.startswith("https://") and isinstance(n, str) and n for u, n in dl),
+    f"{len(dl)} entries, first: {dl[0] if dl else None}",
+)
+dl_urls = [u for u, _ in dl]
+check(
+    "design_library urls unique + routed to website pipeline",
+    len(set(dl_urls)) == len(dl_urls) and all("github.com/" not in u for u in dl_urls),
+    f"{len(set(dl_urls))} unique",
+)
+
 
 def fake_gh(url, **kwargs):
     routes.append(("github", url))

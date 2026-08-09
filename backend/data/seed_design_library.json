@@ -1,0 +1,1409 @@
+[
+  {
+    "id": "adyen",
+    "name": "Adyen",
+    "website_url": "https://www.adyen.com",
+    "category": "fintech",
+    "why": "Payments-platform brand: clean premium design, bold typography, enterprise trust layout"
+  },
+  {
+    "id": "affirm",
+    "name": "Affirm",
+    "website_url": "https://www.affirm.com",
+    "category": "fintech",
+    "why": "BNPL brand: clean modern typography, warm palette, confident product sections"
+  },
+  {
+    "id": "airbnb",
+    "name": "Airbnb",
+    "website_url": "https://www.airbnb.com",
+    "category": "consumer",
+    "why": "Reference for hospitality warmth, photography-led search, rounded friendly tokens"
+  },
+  {
+    "id": "airtable",
+    "name": "Airtable",
+    "website_url": "https://www.airtable.com",
+    "category": "saas",
+    "why": "No-code database brand: bold color blocks, playful illustration, product-led storytelling"
+  },
+  {
+    "id": "akiflow",
+    "name": "Akiflow",
+    "website_url": "https://akiflow.com",
+    "category": "productivity",
+    "why": "Command-bar productivity app: bold type, dark app surfaces, keyboard-first positioning"
+  },
+  {
+    "id": "aljazeera",
+    "name": "Al Jazeera",
+    "website_url": "https://www.aljazeera.com",
+    "category": "media",
+    "why": "News brand: bold red accent, strong editorial typography, clean global news layout"
+  },
+  {
+    "id": "alchemy",
+    "name": "Alchemy",
+    "website_url": "https://www.alchemy.com",
+    "category": "crypto",
+    "why": "Web3-dev platform: bold gradients, dark technical aesthetic, developer-first clarity"
+  },
+  {
+    "id": "allbirds",
+    "name": "Allbirds",
+    "website_url": "https://www.allbirds.com",
+    "category": "ecommerce",
+    "why": "Reference for sustainable-brand warmth, earthy palette, simple ecommerce"
+  },
+  {
+    "id": "amplitude",
+    "name": "Amplitude",
+    "website_url": "https://amplitude.com",
+    "category": "saas",
+    "why": "Product-analytics brand: bold data-viz hero, clean grid, confident tech typography"
+  },
+  {
+    "id": "anthropic",
+    "name": "Anthropic",
+    "website_url": "https://www.anthropic.com",
+    "category": "ai",
+    "why": "Reference for warm-beige editorial AI brand, serif+grotesk mix, calm authority"
+  },
+  {
+    "id": "anytype",
+    "name": "Anytype",
+    "website_url": "https://anytype.io",
+    "category": "productivity",
+    "why": "Private knowledge app: playful gradient brand, dark app surfaces, crafted details"
+  },
+  {
+    "id": "apple",
+    "name": "Apple",
+    "website_url": "https://www.apple.com",
+    "category": "consumer",
+    "why": "Reference for premium product photography, generous whitespace, strict type discipline"
+  },
+  {
+    "id": "arc",
+    "name": "Arc (The Browser Company)",
+    "website_url": "https://arc.net",
+    "category": "consumer",
+    "why": "Reference for bold editorial web design, personality, motion-forward storytelling"
+  },
+  {
+    "id": "asana",
+    "name": "Asana",
+    "website_url": "https://asana.com",
+    "category": "saas",
+    "why": "Work-management brand: warm gradient palette, friendly illustration, calm enterprise clarity"
+  },
+  {
+    "id": "astro",
+    "name": "Astro",
+    "website_url": "https://astro.build",
+    "category": "devtools",
+    "why": "Editorial dev brand: serif display type, warm palette, stunning gradient hero, designed docs"
+  },
+  {
+    "id": "atlasobscura",
+    "name": "Atlas Obscura",
+    "website_url": "https://www.atlasobscura.com",
+    "category": "travel",
+    "why": "Travel-editorial brand: warm vintage palette, elegant serif, curious-storytelling layout"
+  },
+  {
+    "id": "atlassian",
+    "name": "Atlassian",
+    "website_url": "https://www.atlassian.com",
+    "category": "saas",
+    "why": "Reference for enterprise-SaaS clarity, blue brand, suite-of-products layout"
+  },
+  {
+    "id": "backmarket",
+    "name": "Back Market",
+    "website_url": "https://www.backmarket.com",
+    "category": "ecommerce",
+    "why": "Refurb-electronics marketplace: playful brand, clean product cards, sustainability storytelling"
+  },
+  {
+    "id": "bandcamp",
+    "name": "Bandcamp",
+    "website_url": "https://bandcamp.com",
+    "category": "media",
+    "why": "Music-commerce brand: warm independent aesthetic, artist-led layouts, clean listening UI"
+  },
+  {
+    "id": "base",
+    "name": "Base",
+    "website_url": "https://www.base.org",
+    "category": "crypto",
+    "why": "L2 brand: optimistic blue identity, bold type, community-first storytelling"
+  },
+  {
+    "id": "basecamp",
+    "name": "Basecamp",
+    "website_url": "https://basecamp.com",
+    "category": "saas",
+    "why": "Anti-hype SaaS voice: typographic hero, editorial layout, personality-driven copy"
+  },
+  {
+    "id": "beehiiv",
+    "name": "beehiiv",
+    "website_url": "https://www.beehiiv.com",
+    "category": "saas",
+    "why": "Newsletter platform: editorial serif+grotesk mix, premium dark sections, creator-first design"
+  },
+  {
+    "id": "binance",
+    "name": "Binance",
+    "website_url": "https://www.binance.com",
+    "category": "crypto",
+    "why": "Crypto-exchange brand: dark gold-and-black aesthetic, dense market-data UI"
+  },
+  {
+    "id": "bluesky",
+    "name": "Bluesky",
+    "website_url": "https://bsky.app",
+    "category": "consumer",
+    "why": "Social-network brand: clean blue identity, simple friendly layout, modern minimalism"
+  },
+  {
+    "id": "brex",
+    "name": "Brex",
+    "website_url": "https://www.brex.com",
+    "category": "fintech",
+    "why": "Reference for corporate fintech trust design, restrained palette, bold statements"
+  },
+  {
+    "id": "brilliant",
+    "name": "Brilliant",
+    "website_url": "https://brilliant.org",
+    "category": "education",
+    "why": "Learning-platform brand: bold dark hero, playful geometry, puzzle-driven visual design"
+  },
+  {
+    "id": "bun",
+    "name": "Bun",
+    "website_url": "https://bun.sh",
+    "category": "devtools",
+    "why": "Fast-runtime brand: bold typography, monochrome plus accent, performance-first messaging"
+  },
+  {
+    "id": "bybit",
+    "name": "Bybit",
+    "website_url": "https://www.bybit.com",
+    "category": "crypto",
+    "why": "Crypto-exchange brand: dark trading aesthetic, neon accents, dense market UI"
+  },
+  {
+    "id": "cal",
+    "name": "Cal.com",
+    "website_url": "https://cal.com",
+    "category": "productivity",
+    "why": "Open-source scheduling: playful brand, bold type, dark hero, community-first design"
+  },
+  {
+    "id": "calendly",
+    "name": "Calendly",
+    "website_url": "https://calendly.com",
+    "category": "productivity",
+    "why": "Scheduling brand: clean modern layout, purple accent, approachable enterprise tone"
+  },
+  {
+    "id": "canva",
+    "name": "Canva",
+    "website_url": "https://www.canva.com",
+    "category": "design-tools",
+    "why": "Reference for accessible-design brand, rainbow palette, creator-marketplace UI"
+  },
+  {
+    "id": "capsule",
+    "name": "Capsule",
+    "website_url": "https://www.capsule.com",
+    "category": "healthcare",
+    "why": "Pharmacy brand: warm modern design, friendly illustration, human-centered healthcare UI"
+  },
+  {
+    "id": "capterra",
+    "name": "Capterra",
+    "website_url": "https://www.capterra.com",
+    "category": "saas",
+    "why": "Software-review platform: clear review cards, orange brand, trust-oriented layout"
+  },
+  {
+    "id": "carrd",
+    "name": "Carrd",
+    "website_url": "https://carrd.co",
+    "category": "design-tools",
+    "why": "One-page site builder: radical minimalism, tiny typography, single-column elegance"
+  },
+  {
+    "id": "carvana",
+    "name": "Carvana",
+    "website_url": "https://www.carvana.com",
+    "category": "ecommerce",
+    "why": "Used-car ecommerce: playful orange brand, friendly illustrations, vending-machine story"
+  },
+  {
+    "id": "chainlink",
+    "name": "Chainlink",
+    "website_url": "https://chain.link",
+    "category": "crypto",
+    "why": "Oracle brand: dark futuristic design, cyan accents, data-network visualizations"
+  },
+  {
+    "id": "clickup",
+    "name": "ClickUp",
+    "website_url": "https://clickup.com",
+    "category": "saas",
+    "why": "Project-management brand: bold purple identity, dense feature sections, energetic marketing"
+  },
+  {
+    "id": "cloudflare",
+    "name": "Cloudflare",
+    "website_url": "https://www.cloudflare.com",
+    "category": "devtools",
+    "why": "Developer-platform clarity at scale: orange accent system, technical depth made readable"
+  },
+  {
+    "id": "coda",
+    "name": "Coda",
+    "website_url": "https://coda.io",
+    "category": "saas",
+    "why": "Docs-meets-apps brand: clean gradient aesthetic, template showcases, friendly tone"
+  },
+  {
+    "id": "coinbase",
+    "name": "Coinbase",
+    "website_url": "https://www.coinbase.com",
+    "category": "fintech",
+    "why": "Reference for crypto trust design, blue brand system, market-data UI"
+  },
+  {
+    "id": "craft",
+    "name": "Craft",
+    "website_url": "https://www.craft.do",
+    "category": "productivity",
+    "why": "Mac document app: warm minimal marketing, elegant product UI, smooth motion showcases"
+  },
+  {
+    "id": "cursor",
+    "name": "Cursor",
+    "website_url": "https://cursor.com",
+    "category": "ai",
+    "why": "AI-editor brand: dark premium landing, calm gradients, product screenshots that sell speed"
+  },
+  {
+    "id": "datawrapper",
+    "name": "Datawrapper",
+    "website_url": "https://www.datawrapper.de",
+    "category": "saas",
+    "why": "Charting-tool brand: simple trustworthy layout, editorial type, restrained palette"
+  },
+  {
+    "id": "deel",
+    "name": "Deel",
+    "website_url": "https://www.deel.com",
+    "category": "saas",
+    "why": "Global-payroll brand: bold gradient hero, crisp layout, confident modern fintech-adjacent design"
+  },
+  {
+    "id": "deepgram",
+    "name": "Deepgram",
+    "website_url": "https://deepgram.com",
+    "category": "ai",
+    "why": "Speech-AI brand: dark technical aesthetic, bright accents, waveform motifs"
+  },
+  {
+    "id": "deepnote",
+    "name": "Deepnote",
+    "website_url": "https://deepnote.com",
+    "category": "saas",
+    "why": "Data-notebook brand: elegant minimal design, soft gradients, collaborative focus"
+  },
+  {
+    "id": "deno",
+    "name": "Deno",
+    "website_url": "https://deno.com",
+    "category": "devtools",
+    "why": "Runtime brand: clean minimal landing, subtle gradients, developer-focused clarity"
+  },
+  {
+    "id": "descript",
+    "name": "Descript",
+    "website_url": "https://www.descript.com",
+    "category": "ai",
+    "why": "Video-editing AI: editorial layout, clean product shots, calm but confident branding"
+  },
+  {
+    "id": "digitalocean",
+    "name": "DigitalOcean",
+    "website_url": "https://www.digitalocean.com",
+    "category": "devtools",
+    "why": "Friendly dev-cloud brand: soft blue palette, playful illustration, approachable technical marketing"
+  },
+  {
+    "id": "discord",
+    "name": "Discord",
+    "website_url": "https://discord.com",
+    "category": "consumer",
+    "why": "Reference for community-platform dark UI, playful purple brand, gamer culture"
+  },
+  {
+    "id": "dropbox",
+    "name": "Dropbox",
+    "website_url": "https://www.dropbox.com",
+    "category": "saas",
+    "why": "Reference for storage-product marketing, blue brand, clear feature sections"
+  },
+  {
+    "id": "duolingo",
+    "name": "Duolingo",
+    "website_url": "https://www.duolingo.com",
+    "category": "education",
+    "why": "Reference for gamified education, mascot-led brand, bright playful palette"
+  },
+  {
+    "id": "eightsleep",
+    "name": "Eight Sleep",
+    "website_url": "https://eightsleep.com",
+    "category": "wellness",
+    "why": "Sleep-tech brand: premium dark design, sleek product photography, data-visualization UI"
+  },
+  {
+    "id": "elevenlabs",
+    "name": "ElevenLabs",
+    "website_url": "https://elevenlabs.io",
+    "category": "ai",
+    "why": "Reference for AI-audio brand, dark futuristic landing, bold gradients"
+  },
+  {
+    "id": "ethereum",
+    "name": "Ethereum",
+    "website_url": "https://ethereum.org",
+    "category": "crypto",
+    "why": "Protocol education: clean modern layout, purple-blue gradient identity, accessible docs"
+  },
+  {
+    "id": "expo",
+    "name": "Expo",
+    "website_url": "https://expo.dev",
+    "category": "devtools",
+    "why": "React Native toolchain: bold dark hero, purple brand, clear feature architecture"
+  },
+  {
+    "id": "fal",
+    "name": "fal.ai",
+    "website_url": "https://fal.ai",
+    "category": "ai",
+    "why": "AI-infra landing: glassy dark aesthetic, glowing gradients, technical clarity"
+  },
+  {
+    "id": "fastmail",
+    "name": "Fastmail",
+    "website_url": "https://www.fastmail.com",
+    "category": "saas",
+    "why": "Email brand: refined minimal design, warm accents, calm premium tone"
+  },
+  {
+    "id": "fathom",
+    "name": "Fathom",
+    "website_url": "https://fathom.video",
+    "category": "ai",
+    "why": "Meeting-AI brand: bold typography, warm palette, playful product-UI showcases"
+  },
+  {
+    "id": "figma",
+    "name": "Figma",
+    "website_url": "https://www.figma.com",
+    "category": "design-tools",
+    "why": "Reference for playful-but-clear product marketing, community-led design"
+  },
+  {
+    "id": "ft",
+    "name": "Financial Times",
+    "website_url": "https://www.ft.com",
+    "category": "media",
+    "why": "Premium editorial design: pink accent, elegant serif headlines, refined news hierarchy"
+  },
+  {
+    "id": "flyio",
+    "name": "Fly.io",
+    "website_url": "https://fly.io",
+    "category": "devtools",
+    "why": "Playful dev-cloud personality: thick borders, retro illustration, docs-first dark UI with wit"
+  },
+  {
+    "id": "framer",
+    "name": "Framer",
+    "website_url": "https://www.framer.com",
+    "category": "design-tools",
+    "why": ""
+  },
+  {
+    "id": "fullstory",
+    "name": "Fullstory",
+    "website_url": "https://www.fullstory.com",
+    "category": "saas",
+    "why": "Session-analytics brand: bold type, warm palette, product-led sections"
+  },
+  {
+    "id": "github",
+    "name": "GitHub",
+    "website_url": "https://github.com",
+    "category": "devtools",
+    "why": "Reference for developer platform UI, dense information design, dark+light themes"
+  },
+  {
+    "id": "gitlab",
+    "name": "GitLab",
+    "website_url": "https://gitlab.com",
+    "category": "devtools",
+    "why": "Sleek brand refresh: bold gradients, duotone graphics, product-first storytelling for developer platforms"
+  },
+  {
+    "id": "glossier",
+    "name": "Glossier",
+    "website_url": "https://www.glossier.com",
+    "category": "ecommerce",
+    "why": "Reference for millennial-pink beauty branding, editorial minimal ecommerce"
+  },
+  {
+    "id": "go",
+    "name": "Go",
+    "website_url": "https://go.dev",
+    "category": "devtools",
+    "why": "Developer-language minimalism: clean typography, playful gopher mascot, crisp docs layout"
+  },
+  {
+    "id": "goat",
+    "name": "GOAT",
+    "website_url": "https://www.goat.com",
+    "category": "ecommerce",
+    "why": "Sneaker-marketplace brand: clean modern layout, product-led grids, confident streetwear tone"
+  },
+  {
+    "id": "goodrx",
+    "name": "GoodRx",
+    "website_url": "https://www.goodrx.com",
+    "category": "healthcare",
+    "why": "Consumer-health brand: playful teal identity, clear pricing UI, friendly accessible design"
+  },
+  {
+    "id": "grammarly",
+    "name": "Grammarly",
+    "website_url": "https://www.grammarly.com",
+    "category": "ai",
+    "why": "Writing-AI brand: confident editorial typography, warm gradients, product-led sections"
+  },
+  {
+    "id": "granola",
+    "name": "Granola",
+    "website_url": "https://www.granola.ai",
+    "category": "ai",
+    "why": "AI note-taking: refined dark app surfaces, clean typography, thoughtful details"
+  },
+  {
+    "id": "greenhouse",
+    "name": "Greenhouse",
+    "website_url": "https://www.greenhouse.io",
+    "category": "saas",
+    "why": "Hiring-software brand: warm editorial design, elegant serif accents, calm B2B tone"
+  },
+  {
+    "id": "groq",
+    "name": "Groq",
+    "website_url": "https://groq.com",
+    "category": "ai",
+    "why": "AI-inference brand: gorgeous dark landing, neon green accents, liquid motion"
+  },
+  {
+    "id": "headspace",
+    "name": "Headspace",
+    "website_url": "https://www.headspace.com",
+    "category": "wellness",
+    "why": "Reference for calm wellness brand, soft gradients, friendly illustration"
+  },
+  {
+    "id": "hex",
+    "name": "Hex",
+    "website_url": "https://hex.tech",
+    "category": "saas",
+    "why": "Notebook-analytics brand: crisp technical design, dark+light duality, developer clarity"
+  },
+  {
+    "id": "hey",
+    "name": "HEY",
+    "website_url": "https://www.hey.com",
+    "category": "saas",
+    "why": "Email rebrand: bold colorful marketing, editorial voice, personality-led layout"
+  },
+  {
+    "id": "hopper",
+    "name": "Hopper",
+    "website_url": "https://www.hopper.com",
+    "category": "travel",
+    "why": "Travel-app brand: playful cartoon illustration, colorful UI, price-prediction data viz"
+  },
+  {
+    "id": "hotjar",
+    "name": "Hotjar",
+    "website_url": "https://www.hotjar.com",
+    "category": "saas",
+    "why": "Behavior-analytics brand: friendly rounded design, pastel accents, approachable UI"
+  },
+  {
+    "id": "hubspot",
+    "name": "HubSpot",
+    "website_url": "https://www.hubspot.com",
+    "category": "saas",
+    "why": "Inbound-marketing suite: warm orange brand, clean module grids, enterprise scale"
+  },
+  {
+    "id": "huggingface",
+    "name": "Hugging Face",
+    "website_url": "https://huggingface.co",
+    "category": "ai",
+    "why": "ML-community hub: playful brand, dense-but-organized surfaces, friendly dark UI"
+  },
+  {
+    "id": "hyperliquid",
+    "name": "Hyperliquid",
+    "website_url": "https://hyperliquid.xyz",
+    "category": "crypto",
+    "why": "Perp-DEX brand: dark dense trading UI, neon green accents, power-user aesthetic"
+  },
+  {
+    "id": "iawriter",
+    "name": "iA Writer",
+    "website_url": "https://ia.net/writer",
+    "category": "productivity",
+    "why": "Typographic writing app: radical typography-first design, pure minimalism"
+  },
+  {
+    "id": "ikea",
+    "name": "IKEA",
+    "website_url": "https://www.ikea.com",
+    "category": "consumer",
+    "why": "Retail brand: bold yellow-blue identity, room-scene photography, clean catalog layout"
+  },
+  {
+    "id": "intercom",
+    "name": "Intercom",
+    "website_url": "https://www.intercom.com",
+    "category": "saas",
+    "why": "Reference for B2B SaaS marketing, conversational UI showcase, clean grids"
+  },
+  {
+    "id": "itch",
+    "name": "itch.io",
+    "website_url": "https://itch.io",
+    "category": "gaming",
+    "why": "Indie-game platform: quirky community aesthetic, colorful game grids, playful chaos"
+  },
+  {
+    "id": "convertkit",
+    "name": "Kit",
+    "website_url": "https://kit.com",
+    "category": "saas",
+    "why": "Creator-marketing brand: warm earthy palette, friendly illustration, human tone"
+  },
+  {
+    "id": "klarna",
+    "name": "Klarna",
+    "website_url": "https://www.klarna.com",
+    "category": "fintech",
+    "why": "Playful pink fintech brand: bold editorial type, vibrant gradients, charming illustration"
+  },
+  {
+    "id": "klaviyo",
+    "name": "Klaviyo",
+    "website_url": "https://www.klaviyo.com",
+    "category": "saas",
+    "why": "Marketing-automation brand: bold editorial typography, data-forward hero, confident palette"
+  },
+  {
+    "id": "krea",
+    "name": "Krea",
+    "website_url": "https://www.krea.ai",
+    "category": "ai",
+    "why": "AI-creativity tool: dark immersive landing, generative visuals as hero art"
+  },
+  {
+    "id": "lattice",
+    "name": "Lattice",
+    "website_url": "https://www.lattice.com",
+    "category": "saas",
+    "why": "Performance-management brand: clean modern design, warm gradients, people-first storytelling"
+  },
+  {
+    "id": "ledger",
+    "name": "Ledger",
+    "website_url": "https://www.ledger.com",
+    "category": "crypto",
+    "why": "Hardware-wallet brand: deep blue premium design, security-first messaging, product photography"
+  },
+  {
+    "id": "leonardo",
+    "name": "Leonardo AI",
+    "website_url": "https://leonardo.ai",
+    "category": "ai",
+    "why": "AI-image platform: polished product UI, vibrant gradient brand, gallery-led marketing"
+  },
+  {
+    "id": "linear",
+    "name": "Linear",
+    "website_url": "https://linear.app",
+    "category": "saas",
+    "why": ""
+  },
+  {
+    "id": "lonelyplanet",
+    "name": "Lonely Planet",
+    "website_url": "https://www.lonelyplanet.com",
+    "category": "travel",
+    "why": "Travel-editorial brand: warm earthy palette, evocative photography, curated destination layout"
+  },
+  {
+    "id": "loom",
+    "name": "Loom",
+    "website_url": "https://www.loom.com",
+    "category": "saas",
+    "why": "Reference for video-product UI, approachable illustration style, clear feature layout"
+  },
+  {
+    "id": "luma",
+    "name": "Luma AI",
+    "website_url": "https://lumalabs.ai",
+    "category": "ai",
+    "why": "Video-gen brand: cinematic dark landing, dreamlike product showcases"
+  },
+  {
+    "id": "mailchimp",
+    "name": "Mailchimp",
+    "website_url": "https://mailchimp.com",
+    "category": "saas",
+    "why": "Reference for friendly-SaaS brand evolution, illustration, approachable tone"
+  },
+  {
+    "id": "masterclass",
+    "name": "MasterClass",
+    "website_url": "https://www.masterclass.com",
+    "category": "education",
+    "why": "Education brand: cinematic photography, bold typography, celebrity-led storytelling"
+  },
+  {
+    "id": "mercury",
+    "name": "Mercury",
+    "website_url": "https://mercury.com",
+    "category": "fintech",
+    "why": "Reference for premium fintech branding, elegant serif display, dark sophistication"
+  },
+  {
+    "id": "metabase",
+    "name": "Metabase",
+    "website_url": "https://www.metabase.com",
+    "category": "saas",
+    "why": "Open-source BI brand: clean layout, friendly data-viz hero, approachable analytics"
+  },
+  {
+    "id": "midjourney",
+    "name": "Midjourney",
+    "website_url": "https://www.midjourney.com",
+    "category": "ai",
+    "why": "Image-gen brand: surreal dark aesthetic, cosmic gradients, cinematic landing"
+  },
+  {
+    "id": "miro",
+    "name": "Miro",
+    "website_url": "https://miro.com",
+    "category": "saas",
+    "why": "Reference for collaboration-product marketing, playful color, team-oriented layout"
+  },
+  {
+    "id": "mistral",
+    "name": "Mistral",
+    "website_url": "https://mistral.ai",
+    "category": "ai",
+    "why": "French AI-lab brand: warm editorial minimalism, elegant serif accents, restrained luxury feel"
+  },
+  {
+    "id": "mixpanel",
+    "name": "Mixpanel",
+    "website_url": "https://mixpanel.com",
+    "category": "saas",
+    "why": "Analytics brand: playful pastel palette, dense dashboard showcases, friendly data design"
+  },
+  {
+    "id": "modal",
+    "name": "Modal",
+    "website_url": "https://modal.com",
+    "category": "ai",
+    "why": "Serverless-AI brand: elegant dark minimalism, subtle glow, precise technical copy"
+  },
+  {
+    "id": "monarch",
+    "name": "Monarch Money",
+    "website_url": "https://www.monarchmoney.com",
+    "category": "fintech",
+    "why": "Personal-finance app: warm minimal design, elegant typography, calm data dashboards"
+  },
+  {
+    "id": "monday",
+    "name": "monday.com",
+    "website_url": "https://monday.com",
+    "category": "saas",
+    "why": "Work-OS brand: vibrant color-coded product UI, bold animated marketing"
+  },
+  {
+    "id": "monzo",
+    "name": "Monzo",
+    "website_url": "https://monzo.com",
+    "category": "fintech",
+    "why": "Reference for consumer-banking warmth, coral brand accent, friendly finance"
+  },
+  {
+    "id": "motion",
+    "name": "Motion",
+    "website_url": "https://motion.dev",
+    "category": "devtools",
+    "why": "Animation-library landing: kinetic hero, buttery micro-interactions, dark minimalism with purple glow"
+  },
+  {
+    "id": "usemotion",
+    "name": "Motion",
+    "website_url": "https://www.usemotion.com",
+    "category": "productivity",
+    "why": "AI-scheduler brand: bold typography, dark hero, energetic gradient accents"
+  },
+  {
+    "id": "n26",
+    "name": "N26",
+    "website_url": "https://n26.com",
+    "category": "fintech",
+    "why": "Neobank brand: minimal European design, clean product shots, restrained typography"
+  },
+  {
+    "id": "n8n",
+    "name": "n8n",
+    "website_url": "https://n8n.io",
+    "category": "saas",
+    "why": "Workflow-automation brand: dark technical UI, bold typography, open-source credibility"
+  },
+  {
+    "id": "netflix",
+    "name": "Netflix",
+    "website_url": "https://www.netflix.com",
+    "category": "media",
+    "why": "Reference for dark streaming UI, hero-driven content surfaces, red brand accent"
+  },
+  {
+    "id": "netlify",
+    "name": "Netlify",
+    "website_url": "https://www.netlify.com",
+    "category": "devtools",
+    "why": "Web-platform marketing: teal brand, generous whitespace, approachable developer copy, clean grids"
+  },
+  {
+    "id": "nextjs",
+    "name": "Next.js",
+    "website_url": "https://nextjs.org",
+    "category": "devtools",
+    "why": "Framework marketing: monochrome black hero, sharp type, developer-docs hierarchy"
+  },
+  {
+    "id": "nike",
+    "name": "Nike",
+    "website_url": "https://www.nike.com",
+    "category": "ecommerce",
+    "why": "Reference for athletic brand boldness, kinetic type, product-first imagery"
+  },
+  {
+    "id": "nintendo",
+    "name": "Nintendo",
+    "website_url": "https://www.nintendo.com",
+    "category": "gaming",
+    "why": "Gaming brand: playful red identity, product-led grids, family-friendly energy"
+  },
+  {
+    "id": "notion",
+    "name": "Notion",
+    "website_url": "https://www.notion.so",
+    "category": "saas",
+    "why": "Reference for warm-minimal workspace UI, content-first layout, neutral palettes"
+  },
+  {
+    "id": "observable",
+    "name": "Observable",
+    "website_url": "https://observablehq.com",
+    "category": "saas",
+    "why": "Data-storytelling platform: monochrome minimalism, dense interactive charts, editorial structure"
+  },
+  {
+    "id": "obsidian",
+    "name": "Obsidian",
+    "website_url": "https://obsidian.md",
+    "category": "productivity",
+    "why": "Knowledge-base app: minimal purple brand, community plugin ecosystem, calm dark UI"
+  },
+  {
+    "id": "onemedical",
+    "name": "One Medical",
+    "website_url": "https://www.onemedical.com",
+    "category": "healthcare",
+    "why": "Primary-care brand: clean modern healthcare design, warm palette, trust-forward layout"
+  },
+  {
+    "id": "openai",
+    "name": "OpenAI",
+    "website_url": "https://openai.com",
+    "category": "ai",
+    "why": "Reference for AI-lab minimalism, restrained dark landing, product showcases"
+  },
+  {
+    "id": "optimism",
+    "name": "Optimism",
+    "website_url": "https://www.optimism.io",
+    "category": "crypto",
+    "why": "L2 brand: bold red-and-blue duotone, playful editorial design, retro-future vibe"
+  },
+  {
+    "id": "oura",
+    "name": "Oura",
+    "website_url": "https://oura.com",
+    "category": "wellness",
+    "why": "Reference for wearable wellness design, dark premium landing, data-driven sleep UI, ring-product photography"
+  },
+  {
+    "id": "paddle",
+    "name": "Paddle",
+    "website_url": "https://www.paddle.com",
+    "category": "saas",
+    "why": "Commerce-infra for SaaS: bold dark hero, crisp product UI, confident fintech-adjacent design"
+  },
+  {
+    "id": "peloton",
+    "name": "Peloton",
+    "website_url": "https://www.onepeloton.com",
+    "category": "wellness",
+    "why": "Fitness brand: premium dark design, bold typography, high-energy product photography"
+  },
+  {
+    "id": "penpot",
+    "name": "Penpot",
+    "website_url": "https://penpot.app",
+    "category": "design-tools",
+    "why": "Open-source design tool: playful gradient brand, clean hero, community-first tone"
+  },
+  {
+    "id": "perplexity",
+    "name": "Perplexity",
+    "website_url": "https://www.perplexity.ai",
+    "category": "ai",
+    "why": "Reference for AI-search UI, clean answer surfaces, turquoise accent"
+  },
+  {
+    "id": "phantom",
+    "name": "Phantom",
+    "website_url": "https://phantom.app",
+    "category": "crypto",
+    "why": "Solana-wallet brand: clean dark UI, vibrant purple gradient, approachable crypto design"
+  },
+  {
+    "id": "pika",
+    "name": "Pika",
+    "website_url": "https://pika.art",
+    "category": "ai",
+    "why": "AI-video brand: bold cinematic landing, dramatic typography, playful product motion"
+  },
+  {
+    "id": "pitchfork",
+    "name": "Pitchfork",
+    "website_url": "https://pitchfork.com",
+    "category": "media",
+    "why": "Music-editorial brand: stark minimalism, bold type, review-led content design"
+  },
+  {
+    "id": "plaid",
+    "name": "Plaid",
+    "website_url": "https://plaid.com",
+    "category": "fintech",
+    "why": "Fintech-API brand: bold editorial type, playful gradient patterns, developer clarity"
+  },
+  {
+    "id": "plausible",
+    "name": "Plausible",
+    "website_url": "https://plausible.io",
+    "category": "analytics",
+    "why": ""
+  },
+  {
+    "id": "playstation",
+    "name": "PlayStation",
+    "website_url": "https://www.playstation.com",
+    "category": "gaming",
+    "why": "Gaming brand: dark cinematic design, bold blue identity, game-hero marketing"
+  },
+  {
+    "id": "posthog",
+    "name": "PostHog",
+    "website_url": "https://posthog.com",
+    "category": "saas",
+    "why": "Open-source analytics: quirky illustration, candid voice, dark docs with personality"
+  },
+  {
+    "id": "postmark",
+    "name": "Postmark",
+    "website_url": "https://postmarkapp.com",
+    "category": "saas",
+    "why": "Transactional-email service: crisp minimal UI, warm accent, developer-friendly clarity"
+  },
+  {
+    "id": "producthunt",
+    "name": "Product Hunt",
+    "website_url": "https://www.producthunt.com",
+    "category": "consumer",
+    "why": "Launch-community brand: playful gradient identity, card-based feed, energetic editorial style"
+  },
+  {
+    "id": "proton",
+    "name": "Proton",
+    "website_url": "https://proton.me",
+    "category": "saas",
+    "why": "Privacy suite: deep blue brand, clean product grid, trust-forward design"
+  },
+  {
+    "id": "radix",
+    "name": "Radix UI",
+    "website_url": "https://www.radix-ui.com",
+    "category": "devtools",
+    "why": "Unstyled-primitives brand: precise typography, elegant dark/light theming, API clarity"
+  },
+  {
+    "id": "railway",
+    "name": "Railway",
+    "website_url": "https://railway.com",
+    "category": "devtools",
+    "why": "Minimal deploy-platform landing: dark gradient hero, crisp mono type, small-team craft"
+  },
+  {
+    "id": "ramp",
+    "name": "Ramp",
+    "website_url": "https://ramp.com",
+    "category": "fintech",
+    "why": "Reference for modern fintech marketing, data-forward hero, clean grids"
+  },
+  {
+    "id": "raycast",
+    "name": "Raycast",
+    "website_url": "https://www.raycast.com",
+    "category": "devtools",
+    "why": "Reference for dark utility-UI refinement, tight spacing, crisp mono accents"
+  },
+  {
+    "id": "react",
+    "name": "React",
+    "website_url": "https://react.dev",
+    "category": "devtools",
+    "why": "Framework docs redesign: bold dark hero, clean typography, approachable educational structure"
+  },
+  {
+    "id": "readymag",
+    "name": "Readymag",
+    "website_url": "https://readymag.com",
+    "category": "design-tools",
+    "why": "Web-design tool: bold editorial portfolio aesthetic, grid-breaking creative layouts"
+  },
+  {
+    "id": "recraft",
+    "name": "Recraft",
+    "website_url": "https://www.recraft.ai",
+    "category": "ai",
+    "why": "AI-design-tool brand: clean product UI, playful pastel palette, vector-design focus"
+  },
+  {
+    "id": "remote",
+    "name": "Remote",
+    "website_url": "https://remote.com",
+    "category": "saas",
+    "why": "Global-HR brand: dark hero with vivid gradients, clean international messaging"
+  },
+  {
+    "id": "render",
+    "name": "Render",
+    "website_url": "https://render.com",
+    "category": "devtools",
+    "why": "Quiet precise cloud-dashboard marketing: restrained palette, tight typography, dense technical clarity"
+  },
+  {
+    "id": "replicate",
+    "name": "Replicate",
+    "website_url": "https://replicate.com",
+    "category": "ai",
+    "why": "ML-API brand: clean white minimalism, dense model grids, playful pastel accents"
+  },
+  {
+    "id": "resend",
+    "name": "Resend",
+    "website_url": "https://resend.com",
+    "category": "devtools",
+    "why": "Reference for minimal dark dev landing, sharp type, restrained accent color"
+  },
+  {
+    "id": "retool",
+    "name": "Retool",
+    "website_url": "https://retool.com",
+    "category": "devtools",
+    "why": "Reference for developer-tool marketing, dense technical clarity, dark+light mix"
+  },
+  {
+    "id": "revolut",
+    "name": "Revolut",
+    "website_url": "https://www.revolut.com",
+    "category": "fintech",
+    "why": "Reference for global fintech scale, dark fintech aesthetic, app-first marketing"
+  },
+  {
+    "id": "riotgames",
+    "name": "Riot Games",
+    "website_url": "https://www.riotgames.com",
+    "category": "gaming",
+    "why": "Game-studio brand: dark immersive design, bold typography, game-world storytelling"
+  },
+  {
+    "id": "rippling",
+    "name": "Rippling",
+    "website_url": "https://rippling.com",
+    "category": "saas",
+    "why": "HR-tech brand: clean blue system, dense product UI, enterprise polish"
+  },
+  {
+    "id": "robinhood",
+    "name": "Robinhood",
+    "website_url": "https://robinhood.com",
+    "category": "fintech",
+    "why": "Commission-free investing: bold white design, iconic green accent, data-forward UI"
+  },
+  {
+    "id": "runway",
+    "name": "Runway",
+    "website_url": "https://runwayml.com",
+    "category": "ai",
+    "why": "Reference for generative-AI aesthetic, dark cinematic landing, motion products"
+  },
+  {
+    "id": "rust",
+    "name": "Rust",
+    "website_url": "https://www.rust-lang.org",
+    "category": "devtools",
+    "why": "Language-brand warmth: earthy orange, friendly mascot, community-driven editorial tone"
+  },
+  {
+    "id": "semrush",
+    "name": "Semrush",
+    "website_url": "https://www.semrush.com",
+    "category": "saas",
+    "why": "SEO-suite brand: bold orange, dense product dashboards, global-scale marketing"
+  },
+  {
+    "id": "sentry",
+    "name": "Sentry",
+    "website_url": "https://sentry.io",
+    "category": "devtools",
+    "why": "Exception-tracking SaaS with dense data-rich marketing, dark surfaces, electric accent system"
+  },
+  {
+    "id": "shadcn",
+    "name": "shadcn/ui",
+    "website_url": "https://ui.shadcn.com",
+    "category": "devtools",
+    "why": "Component-library reference: ultra-clean dark UI, copy-paste aesthetic, restrained accent"
+  },
+  {
+    "id": "shopify",
+    "name": "Shopify",
+    "website_url": "https://www.shopify.com",
+    "category": "ecommerce",
+    "why": "Reference for commerce-platform marketing, green brand, merchant success stories"
+  },
+  {
+    "id": "sketch",
+    "name": "Sketch",
+    "website_url": "https://www.sketch.com",
+    "category": "design-tools",
+    "why": "Reference for creative-tool minimalism, warm neutral palette, product storytelling, elegant type"
+  },
+  {
+    "id": "slack",
+    "name": "Slack",
+    "website_url": "https://slack.com",
+    "category": "saas",
+    "why": "Reference for communication-platform branding, bold color blocks, playful type"
+  },
+  {
+    "id": "solana",
+    "name": "Solana",
+    "website_url": "https://solana.com",
+    "category": "crypto",
+    "why": "Layer-1 brand: futuristic gradient aesthetic, bold typography, vibrant motion"
+  },
+  {
+    "id": "soundcloud",
+    "name": "SoundCloud",
+    "website_url": "https://soundcloud.com",
+    "category": "media",
+    "why": "Audio-platform brand: dark minimal UI, bold waveform visuals, clean player design"
+  },
+  {
+    "id": "spark",
+    "name": "Spark",
+    "website_url": "https://sparkmailapp.com",
+    "category": "productivity",
+    "why": "Email-app brand: bold gradient identity, playful product UI, modern mobile-first design"
+  },
+  {
+    "id": "spline",
+    "name": "Spline",
+    "website_url": "https://spline.design",
+    "category": "design-tools",
+    "why": "Reference for 3D-design-tool branding, dark immersive landing, interactive 3D showcases, gradient depth"
+  },
+  {
+    "id": "spotify",
+    "name": "Spotify",
+    "website_url": "https://www.spotify.com",
+    "category": "media",
+    "why": "Reference for bold duotone branding, dark immersive surfaces, motion cues"
+  },
+  {
+    "id": "square",
+    "name": "Square",
+    "website_url": "https://squareup.com",
+    "category": "fintech",
+    "why": "Commerce-fintech brand: bold black-and-white typography, product-led photography"
+  },
+  {
+    "id": "squarespace",
+    "name": "Squarespace",
+    "website_url": "https://www.squarespace.com",
+    "category": "design-tools",
+    "why": "Reference for creative-company marketing, template showcases, elegant type"
+  },
+  {
+    "id": "ssense",
+    "name": "SSENSE",
+    "website_url": "https://www.ssense.com",
+    "category": "ecommerce",
+    "why": "Fashion-platform brand: brutalist minimalism, unconventional editorial layouts, high-fashion imagery"
+  },
+  {
+    "id": "stability",
+    "name": "Stability AI",
+    "website_url": "https://stability.ai",
+    "category": "ai",
+    "why": "Generative-AI brand: bold typography, gradient-rich dark hero, model showcases"
+  },
+  {
+    "id": "stripe",
+    "name": "Stripe",
+    "website_url": "https://stripe.com",
+    "category": "fintech",
+    "why": ""
+  },
+  {
+    "id": "suno",
+    "name": "Suno",
+    "website_url": "https://suno.com",
+    "category": "ai",
+    "why": "AI-music brand: dark cinematic landing, vibrant gradient waves, product-led showcases"
+  },
+  {
+    "id": "sunsama",
+    "name": "Sunsama",
+    "website_url": "https://sunsama.com",
+    "category": "productivity",
+    "why": "Daily-planning app: warm minimal marketing, serene product shots, mindful tone"
+  },
+  {
+    "id": "supabase",
+    "name": "Supabase",
+    "website_url": "https://supabase.com",
+    "category": "devtools",
+    "why": "Reference for dark green-tinged dev aesthetic, developer docs hierarchy"
+  },
+  {
+    "id": "superhuman",
+    "name": "Superhuman",
+    "website_url": "https://superhuman.com",
+    "category": "saas",
+    "why": "Reference for premium dark landing, speed/performance messaging, luxury feel"
+  },
+  {
+    "id": "svelte",
+    "name": "Svelte",
+    "website_url": "https://svelte.dev",
+    "category": "devtools",
+    "why": "Warm-minimal framework brand: pink accent, clean typography, interactive repl front and center"
+  },
+  {
+    "id": "tailwind",
+    "name": "Tailwind CSS",
+    "website_url": "https://tailwindcss.com",
+    "category": "devtools",
+    "why": "Utility-CSS brand: playful gradients, live code playground in hero, obsessive docs polish"
+  },
+  {
+    "id": "tana",
+    "name": "Tana",
+    "website_url": "https://tana.inc",
+    "category": "productivity",
+    "why": "Structured-notes app: warm editorial design, elegant typography, calm knowledge UI"
+  },
+  {
+    "id": "tauri",
+    "name": "Tauri",
+    "website_url": "https://tauri.app",
+    "category": "devtools",
+    "why": "Desktop-framework landing: dark minimal, sharp geometry, restrained green accent, crisp code samples"
+  },
+  {
+    "id": "texts",
+    "name": "Texts",
+    "website_url": "https://texts.com",
+    "category": "productivity",
+    "why": "Unified-messaging app: bold dark landing, playful accents, dense feature UI"
+  },
+  {
+    "id": "theguardian",
+    "name": "The Guardian",
+    "website_url": "https://www.theguardian.com",
+    "category": "media",
+    "why": "News brand: distinctive blue accent, editorial typography, thoughtful content hierarchy"
+  },
+  {
+    "id": "nytimes",
+    "name": "The New York Times",
+    "website_url": "https://www.nytimes.com",
+    "category": "media",
+    "why": "Editorial design benchmark: refined serif type, dense news hierarchy, restrained elegance"
+  },
+  {
+    "id": "theverge",
+    "name": "The Verge",
+    "website_url": "https://www.theverge.com",
+    "category": "media",
+    "why": "Reference for editorial news design, dense content hierarchy, bold headlines"
+  },
+  {
+    "id": "todoist",
+    "name": "Todoist",
+    "website_url": "https://todoist.com",
+    "category": "productivity",
+    "why": "Task-app brand: clean white minimalism, red accent, calm productivity design"
+  },
+  {
+    "id": "together",
+    "name": "Together AI",
+    "website_url": "https://www.together.ai",
+    "category": "ai",
+    "why": "AI-cloud brand: bold typography, dark luminous hero, developer credibility"
+  },
+  {
+    "id": "trello",
+    "name": "Trello",
+    "website_url": "https://trello.com",
+    "category": "saas",
+    "why": "Kanban classic: friendly blue brand, illustrated workflow storytelling"
+  },
+  {
+    "id": "typedream",
+    "name": "Typedream",
+    "website_url": "https://typedream.com",
+    "category": "design-tools",
+    "why": "No-code site builder: minimal landing, gradient accents, template-led showcases"
+  },
+  {
+    "id": "ulysses",
+    "name": "Ulysses",
+    "website_url": "https://ulysses.app",
+    "category": "productivity",
+    "why": "Writing app: elegant editorial minimalism, soft gradients, distraction-free positioning"
+  },
+  {
+    "id": "uniqlo",
+    "name": "UNIQLO",
+    "website_url": "https://www.uniqlo.com",
+    "category": "ecommerce",
+    "why": "Retail ecommerce: functional Japanese minimalism, clean product grids, neutral palette, LifeWear storytelling"
+  },
+  {
+    "id": "vercel",
+    "name": "Vercel",
+    "website_url": "https://vercel.com",
+    "category": "devtools",
+    "why": "Reference for monochrome minimalism, bold type hierarchy, sharp geometry"
+  },
+  {
+    "id": "vite",
+    "name": "Vite",
+    "website_url": "https://vite.dev",
+    "category": "devtools",
+    "why": "Tool-docs aesthetic done right: gradient hero, crisp code blocks, minimal navigation"
+  },
+  {
+    "id": "warp",
+    "name": "Warp",
+    "website_url": "https://www.warp.dev",
+    "category": "devtools",
+    "why": "Terminal reimagined: beautiful dark app surfaces, monospace hierarchy, AI-feature showcase"
+  },
+  {
+    "id": "webflow",
+    "name": "Webflow",
+    "website_url": "https://webflow.com",
+    "category": "design-tools",
+    "why": "Reference for clean SaaS marketing, interactive product demos, clear CTAs"
+  },
+  {
+    "id": "whoop",
+    "name": "WHOOP",
+    "website_url": "https://www.whoop.com",
+    "category": "wellness",
+    "why": "Wearable brand: bold black aesthetic, data-dashboard UI, athletic editorial design"
+  },
+  {
+    "id": "wise",
+    "name": "Wise",
+    "website_url": "https://wise.com",
+    "category": "fintech",
+    "why": "Reference for clarity-first fintech, honest transparency messaging, teal brand"
+  },
+  {
+    "id": "world",
+    "name": "World",
+    "website_url": "https://world.org",
+    "category": "crypto",
+    "why": "Identity-verification brand: bold orbital imagery, clean modern design, mission-led storytelling"
+  },
+  {
+    "id": "ynab",
+    "name": "YNAB",
+    "website_url": "https://www.ynab.com",
+    "category": "fintech",
+    "why": "Budgeting brand: friendly teal palette, clean data UI, approachable money design"
+  },
+  {
+    "id": "zapier",
+    "name": "Zapier",
+    "website_url": "https://zapier.com",
+    "category": "saas",
+    "why": "Automation brand: bold gradient blocks, illustrated connectors, approachable B2B tone"
+  },
+  {
+    "id": "zoom",
+    "name": "Zoom",
+    "website_url": "https://www.zoom.com",
+    "category": "saas",
+    "why": "Reference for enterprise-communication clarity, blue brand, trust-focused layout"
+  }
+]

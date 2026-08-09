@@ -33,9 +33,15 @@ const SOURCE_LABELS: Record<string, string> = {
   github_search: "GitHub search",
   url_list: "URL list",
   topstartups: "Top Startups",
+  design_library: "Design library",
 };
 
-type SeedSource = "famous" | "github_search" | "url_list" | "topstartups";
+type SeedSource =
+  | "famous"
+  | "github_search"
+  | "url_list"
+  | "topstartups"
+  | "design_library";
 
 /** Owner-only seeder: token unlock → source tabs → live job progress. Failures are loud. */
 export function AdminPanel({ onSeeded }: { onSeeded: () => void }) {
@@ -183,11 +189,12 @@ export function AdminPanel({ onSeeded }: { onSeeded: () => void }) {
               value={source}
               onValueChange={(v) => setSource(v as SeedSource)}
             >
-              <TabsList className="grid w-full grid-cols-4 gap-1">
+              <TabsList className="grid w-full grid-cols-5 gap-1">
                 <TabsTrigger value="famous">Famous list</TabsTrigger>
                 <TabsTrigger value="github_search">GitHub search</TabsTrigger>
                 <TabsTrigger value="url_list">URL list</TabsTrigger>
                 <TabsTrigger value="topstartups">Top Startups</TabsTrigger>
+                <TabsTrigger value="design_library">Design library</TabsTrigger>
               </TabsList>
 
               <TabsContent value="famous" className="space-y-2 pt-2">
@@ -225,6 +232,14 @@ export function AdminPanel({ onSeeded }: { onSeeded: () => void }) {
                   Scrapes topstartups.io (1,259 funded startups, ~20 per page) — company
                   name + website per card, utm params stripped. Use a cap below ~40 per run
                   to keep each batch quick.
+                </p>
+              </TabsContent>
+              <TabsContent value="design_library" className="space-y-2 pt-2">
+                <p className="text-xs text-muted-foreground">
+                  Seeds 201 curated product sites from the design-scope reference library
+                  (backend/data/seed_design_library.json) — real homepages captured with
+                  design fingerprints. Website-only; re-runs skip the LLM for entries
+                  already in the database.
                 </p>
               </TabsContent>
             </Tabs>

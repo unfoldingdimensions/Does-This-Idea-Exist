@@ -13,6 +13,7 @@ backend/.env
 frontend/.env.local
 backend/data/*
 !backend/data/seed_famous.json
+!backend/data/seed_design_library.json
 
 # misc
 .DS_Store

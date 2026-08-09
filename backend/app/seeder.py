@@ -166,6 +166,23 @@ def _famous(params: dict):
         yield url, entry.get("name")
 
 
+def _design_library(params: dict):
+    """Bundled design-reference library (data/seed_design_library.json) → (url, name_hint).
+
+    201 curated product/startup sites captured by the design-scope library (Ui Design MCP):
+    real homepages with design fingerprints. Website-only — every entry is a product site,
+    so _ingest routes each to the website pipeline (no github.com/ entries by construction).
+    """
+    path = config.BASE_DIR / "data" / "seed_design_library.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    for entry in data:
+        url = (entry.get("website_url") or "").strip()
+        if not url:
+            log.warning("seed_design_library entry missing website_url: %r", entry)
+            continue
+        yield url, entry.get("name")
+
+
 _TOPSTARTUPS_RE = re.compile(
     r'<a[^>]*href="([^"]+)"[^>]*id="startup-website-link"[^>]*>(.*?)</a>', re.S
 )
@@ -219,4 +236,5 @@ SOURCES = {
     "url_list": _url_list,
     "famous": _famous,
     "topstartups": _topstartups,
+    "design_library": _design_library,
 }
