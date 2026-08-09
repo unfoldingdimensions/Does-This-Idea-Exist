@@ -43,7 +43,7 @@ export function StartupDetail({
       {startup && (
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2.5 pr-12">
               <Avatar className="h-8 w-8 rounded-md bg-muted">
                 <AvatarFallback className="rounded-md text-sm font-bold">
                   {initials(startup.name)}
