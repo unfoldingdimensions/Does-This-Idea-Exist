@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, Space_Grotesk, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
+import { LenisProvider } from "@/components/lenis-provider";
+import { SkyBackground } from "@/components/sky-background";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 
@@ -41,8 +43,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       )}
     >
       <body className="min-h-full flex flex-col bg-background font-sans">
+        <SkyBackground />
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-          {children}
+          <LenisProvider>{children}</LenisProvider>
           <Toaster position="top-center" richColors />
         </ThemeProvider>
       </body>

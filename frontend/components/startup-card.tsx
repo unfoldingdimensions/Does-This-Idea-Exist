@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { ExternalLink, FolderGit2, Star, ShieldCheck, Archive } from "lucide-react";
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,14 +35,34 @@ export function StatusPill({
   const dead = startup.status === "dead" || startup.status === "pivoted";
   const verified = !dead && startup.verified === 1;
 
-  const label = dead ? "Dead" : verified ? "Verified" : "Unverified";
+  // Two-step confirm for the human-gate action: first click arms ("Confirm?"),
+  // second click verifies; auto-disarms after 4s so a stray click can't flip
+  // an entry's status (critique P2 — trust actions need a confirmation beat).
+  const [confirming, setConfirming] = React.useState(false);
+  const confirmTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  React.useEffect(() => {
+    return () => {
+      if (confirmTimer.current) clearTimeout(confirmTimer.current);
+    };
+  }, []);
+
+  const armConfirm = () => {
+    if (confirming) return;
+    setConfirming(true);
+    if (confirmTimer.current) clearTimeout(confirmTimer.current);
+    confirmTimer.current = setTimeout(() => setConfirming(false), 4000);
+  };
+
+  const label = dead ? "Dead" : verified ? "Verified" : confirming ? "Confirm?" : "Unverified";
   const hint = dead
     ? "Checked 3 times, link dead each time. Filed, never deleted."
     : verified
       ? startup.verified_at
         ? `A human checked this on ${formatDate(startup.verified_at)} — it's alive.`
         : "A human checked this one. It's alive."
-      : "Not yet confirmed — click to verify it.";
+      : confirming
+        ? "Click again to confirm — this stamps the entry as human-verified."
+        : "Not yet confirmed — click to verify it.";
 
   const pillClass = cn(
     "gap-1.5 text-[11px]",
@@ -51,7 +71,7 @@ export function StatusPill({
     !dead && !verified && "text-muted-foreground",
   );
 
-  // Unverified → the pill is a button (mark-verified affordance).
+  // Unverified → the pill is a button (mark-verified affordance, two-step).
   if (!dead && !verified && onMarkVerified) {
     return (
       <TooltipProvider>
@@ -59,12 +79,21 @@ export function StatusPill({
           <TooltipTrigger asChild>
             <button
               type="button"
-              onClick={() => onMarkVerified(startup)}
+              onClick={() => (confirming ? onMarkVerified(startup) : armConfirm())}
               className={cn(
-                "inline-flex items-center rounded-full border bg-secondary/60 px-2.5 py-0.5 text-[11px] font-medium transition-colors hover:border-primary/40 hover:text-foreground",
+                "inline-flex items-center rounded-full border bg-secondary/60 px-2.5 py-0.5 text-[11px] font-medium transition-colors",
+                confirming
+                  ? "border-primary/50 text-foreground"
+                  : "hover:border-primary/40 hover:text-foreground",
               )}
             >
-              <span aria-hidden className="mr-1.5 size-1.5 rounded-full bg-muted-foreground/60" />
+              <span
+                aria-hidden
+                className={cn(
+                  "mr-1.5 size-1.5 rounded-full",
+                  confirming ? "bg-primary" : "bg-muted-foreground/60",
+                )}
+              />
               {label}
             </button>
           </TooltipTrigger>
@@ -115,10 +144,27 @@ export function StartupCard({
   const [expanded, setExpanded] = React.useState(false);
   const description = startup.description ?? "";
   const showToggle = description.length > 140;
+  const reduce = useReducedMotion();
+
+  // Clamped (3-line) height of the description, measured on first toggle so the
+  // expand/collapse animates between the preview and the full text instead of
+  // snapping (the container clips; line-clamp only governs the collapsed state).
+  const descRef = React.useRef<HTMLDivElement>(null);
+  const [clampedH, setClampedH] = React.useState<number | undefined>(undefined);
+
+  const toggleDescription = () => {
+    const el = descRef.current;
+    if (el && clampedH === undefined) {
+      setClampedH(el.getBoundingClientRect().height);
+    }
+    setExpanded((v) => !v);
+  };
 
   return (
     <motion.div
       layoutId={`startup-${startup.id}`}
+      whileHover={reduce ? undefined : { y: -2 }}
+      whileTap={reduce ? undefined : { scale: 0.99 }}
       transition={{ type: "tween", ease: [0.22, 1, 0.36, 1], duration: 0.35 }}
       className={cn("glass flex h-full flex-col rounded-2xl", dead && "opacity-85 saturate-[0.55]")}
     >
@@ -151,18 +197,30 @@ export function StartupCard({
 
         {description && (
           <div className="space-y-1">
-            <p
-              className={cn(
-                "text-[13px] leading-relaxed text-muted-foreground",
-                !expanded && "line-clamp-3",
-              )}
+            <motion.div
+              ref={descRef}
+              initial={false}
+              animate={{ height: expanded ? "auto" : clampedH }}
+              transition={
+                reduce
+                  ? { duration: 0 }
+                  : { type: "tween", ease: [0.22, 1, 0.36, 1], duration: 0.32 }
+              }
+              className="overflow-hidden"
             >
-              {description}
-            </p>
+              <p
+                className={cn(
+                  "text-[13px] leading-relaxed text-muted-foreground",
+                  !expanded && "line-clamp-3",
+                )}
+              >
+                {description}
+              </p>
+            </motion.div>
             {showToggle && (
               <button
                 type="button"
-                onClick={() => setExpanded((v) => !v)}
+                onClick={toggleDescription}
                 aria-expanded={expanded}
                 className="text-xs font-medium text-primary hover:underline"
               >

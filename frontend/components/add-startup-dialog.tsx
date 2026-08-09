@@ -174,9 +174,10 @@ export function AddStartupDialog({
                 type="button"
                 onClick={close}
                 aria-label="Close"
-                className="transition-colors text-muted-foreground hover:text-foreground"
+                title="Close"
+                className="flex size-8 items-center justify-center rounded-full transition-colors text-muted-foreground hover:bg-accent hover:text-foreground"
               >
-                <X size={20} />
+                <X size={18} />
               </button>
             </div>
 
@@ -217,7 +218,7 @@ export function AddStartupDialog({
                   </div>
                   <p className="text-xs text-muted-foreground">
                     Fetches name, description, created date, stars and language — then writes the
-                    profile via deepseek-v4-flash.
+                    profile for your review.
                   </p>
                   <div className="flex justify-end pt-1">
                     <Button type="submit" disabled={busy}>

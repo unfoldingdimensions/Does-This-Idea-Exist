@@ -105,11 +105,11 @@ export function StartupDetail({
                 </p>
               </div>
               <div className="absolute right-4 top-4 flex items-center gap-2">
-                <StatusPill startup={startup} />
+                <StatusPill startup={startup} onMarkVerified={onVerified} />
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7 shrink-0"
+                  className="h-8 w-8 shrink-0"
                   onClick={onClose}
                   aria-label="Close details"
                 >

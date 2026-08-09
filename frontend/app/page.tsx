@@ -347,18 +347,13 @@ export default function HomePage() {
             />
           </div>
 
-          <p className="mt-4 font-mono text-[11px] tabular-nums text-muted-foreground">
-            <CountUp value={stats?.total ?? 0} /> startups
+          {/* Freshness + trust — one muted ledger line under the bar (the bar
+              itself carries the live count as "All 94"). Distilled from the
+              former three-band hero per critique P2. */}
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 font-mono text-[10px] text-muted-foreground">
             {stats?.last_checked && (
-              <>
-                {" "}
-                · last checked {formatDate(stats.last_checked)}
-              </>
+              <span className="tabular-nums">last checked {formatDate(stats.last_checked)}</span>
             )}
-          </p>
-
-          {/* Trust legend — the human gate at a glance (review ticket T-4) */}
-          <div className="mt-2.5 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 font-mono text-[10px] text-muted-foreground">
             <span className="flex items-center gap-1.5">
               <span className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden />
               Verified — a human checked it
@@ -385,6 +380,7 @@ export default function HomePage() {
           years={years}
           count={results.length}
           onClear={clearFilters}
+          showClear={hasAnyFilter}
         />
 
         {/* Freshness highlights — only on the unfiltered landing view */}
@@ -468,11 +464,15 @@ export default function HomePage() {
             ) : (
               <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
             )}
-            <CountUp value={stats?.total ?? 0} /> startups
+            <span className="font-mono text-[11px] tabular-nums">
+              <CountUp value={stats?.total ?? 0} /> startups
+            </span>
           </span>
           <span className="flex items-center gap-1">
             <ShieldCheck className="h-3.5 w-3.5" />
-            <CountUp value={stats?.verified ?? 0} /> verified
+            <span className="font-mono text-[11px] tabular-nums">
+              <CountUp value={stats?.verified ?? 0} /> verified
+            </span>
           </span>
           <span className="hidden font-mono text-[11px] tabular-nums md:inline">
             Dead is a status, not an erasure. Kept by a human, checked weekly.
@@ -485,7 +485,7 @@ export default function HomePage() {
             <Button
               variant="outline"
               size="sm"
-              className="h-7 gap-1.5 text-xs"
+              className="h-9 gap-1.5 text-xs"
               onClick={handleVerify}
               disabled={verifying || !online}
             >

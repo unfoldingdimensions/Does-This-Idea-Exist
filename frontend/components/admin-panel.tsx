@@ -144,11 +144,11 @@ export function AdminPanel({ onSeeded }: { onSeeded: () => void }) {
       }}
     >
       <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label="Admin panel" title="Admin — seeder">
+        <Button variant="ghost" size="icon" aria-label="Admin panel" title="Admin — seeder" className="h-9 w-9">
           <Settings2 className="h-4 w-4" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Admin — Seeder</DialogTitle>
           <DialogDescription>
@@ -183,7 +183,7 @@ export function AdminPanel({ onSeeded }: { onSeeded: () => void }) {
               value={source}
               onValueChange={(v) => setSource(v as SeedSource)}
             >
-              <TabsList className="grid w-full grid-cols-4">
+              <TabsList className="grid w-full grid-cols-4 gap-1">
                 <TabsTrigger value="famous">Famous list</TabsTrigger>
                 <TabsTrigger value="github_search">GitHub search</TabsTrigger>
                 <TabsTrigger value="url_list">URL list</TabsTrigger>
@@ -229,7 +229,7 @@ export function AdminPanel({ onSeeded }: { onSeeded: () => void }) {
               </TabsContent>
             </Tabs>
 
-            <div className="flex items-end gap-3">
+            <div className="flex flex-wrap items-end gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="cap">Cap (per run)</Label>
                 <Input
@@ -241,20 +241,20 @@ export function AdminPanel({ onSeeded }: { onSeeded: () => void }) {
                   onChange={(e) => setCap(e.target.value)}
                   className="w-28"
                 />
-                <p className="text-xs text-muted-foreground">1–500 · pull 30+ in testing</p>
               </div>
               <Button onClick={run} disabled={busy} className="ml-auto">
                 {busy && <Loader2 className="h-4 w-4 animate-spin" />}
                 Run seed
               </Button>
             </div>
+            <p className="text-xs text-muted-foreground">1–500 · pull 30+ in testing</p>
 
             {job && (
               <div className="space-y-2 rounded-lg bg-muted/40 p-3">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-medium">{SOURCE_LABELS[job.source] ?? job.source}</span>
                   <span className="text-muted-foreground">
-                    {job.done}/{job.total} · <span className="text-emerald-600 dark:text-emerald-400">{job.ok} ok</span>
+                    {job.done}/{job.total} · <span className="text-success">{job.ok} ok</span>
                     {job.failed > 0 && <span className="text-destructive"> · {job.failed} failed</span>}
                   </span>
                 </div>

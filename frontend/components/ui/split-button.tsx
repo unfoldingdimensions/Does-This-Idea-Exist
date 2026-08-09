@@ -30,11 +30,13 @@ export function SplitButton({ mainLabel, options }: SplitButtonProps) {
 
   return (
     <div className="relative flex h-9 items-center justify-center">
-      {/* Main button */}
+      {/* Main button — in flow so the wrapper keeps its width (an absolute
+          button collapsed the wrapper to ~0 and overflowed onto the theme
+          toggle; see fix batch). */}
       <motion.button
         type="button"
         onClick={() => setOpen(true)}
-        className="absolute z-10 flex h-9 items-center gap-1.5 whitespace-nowrap rounded-full bg-primary px-4 text-xs font-semibold text-primary-foreground"
+        className="relative z-10 flex h-9 items-center gap-1.5 whitespace-nowrap rounded-full bg-primary px-4 text-xs font-semibold text-primary-foreground"
         initial={false}
         animate={open ? { opacity: 0, scale: 0.85, filter: "blur(4px)", pointerEvents: "none" as const } : { opacity: 1, scale: 1, filter: "blur(0px)", pointerEvents: "auto" as const }}
         transition={{ type: "tween", ease: EASE, duration: 0.3 }}
@@ -42,7 +44,8 @@ export function SplitButton({ mainLabel, options }: SplitButtonProps) {
         <Plus className="h-3.5 w-3.5" /> {mainLabel}
       </motion.button>
 
-      {/* Split row — mounted only while open */}
+      {/* Split row — mounted only while open; anchored to the right edge so
+          it expands leftward and never covers the theme toggle beside it. */}
       <AnimatePresence>
         {open && (
           <motion.div
@@ -50,12 +53,13 @@ export function SplitButton({ mainLabel, options }: SplitButtonProps) {
             animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
             exit={{ opacity: 0, scale: 0.85, filter: "blur(4px)" }}
             transition={{ type: "tween", ease: EASE, duration: 0.3 }}
-            className="absolute z-0 flex items-center gap-1.5"
+            className="absolute right-0 z-0 flex items-center gap-1.5"
           >
             <motion.button
               type="button"
               onClick={() => setOpen(false)}
-              aria-label="Close options"
+              aria-label="Cancel"
+              title="Cancel"
               className="glass flex h-9 w-9 items-center justify-center rounded-full text-foreground hover:bg-accent"
               whileTap={{ scale: 0.92 }}
               transition={{ type: "tween", ease: EASE, duration: 0.15 }}

@@ -43,7 +43,7 @@ export function ContinuousPagination({ page, totalPages, onPageChange }: Continu
         onClick={() => onPageChange(page - 1)}
         disabled={page <= 1}
         aria-label="Previous page"
-        className="glass flex h-10 w-10 items-center justify-center rounded-full text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
+        className="glass flex h-11 w-11 items-center justify-center rounded-full text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
       >
         <ChevronLeft className="h-4 w-4" />
       </button>
@@ -62,7 +62,7 @@ export function ContinuousPagination({ page, totalPages, onPageChange }: Continu
               aria-label={`Page ${p}`}
               aria-current={p === page ? "page" : undefined}
               className={cn(
-                "relative z-10 flex h-10 w-10 items-center justify-center rounded-full text-sm font-medium transition-colors",
+                "relative z-10 flex h-11 w-11 items-center justify-center rounded-full text-sm font-medium transition-colors",
                 p === page
                   ? "bg-primary font-bold text-primary-foreground"
                   : "glass text-foreground hover:bg-accent",
@@ -82,7 +82,7 @@ export function ContinuousPagination({ page, totalPages, onPageChange }: Continu
         onClick={() => onPageChange(page + 1)}
         disabled={page >= totalPages}
         aria-label="Next page"
-        className="glass flex h-10 w-10 items-center justify-center rounded-full text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
+        className="glass flex h-11 w-11 items-center justify-center rounded-full text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
       >
         <ChevronRight className="h-4 w-4" />
       </button>

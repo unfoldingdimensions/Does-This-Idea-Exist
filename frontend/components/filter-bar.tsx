@@ -37,6 +37,7 @@ export function FilterBar({
   years,
   count,
   onClear,
+  showClear = false,
 }: {
   sort: SortKey;
   onSort: (k: SortKey) => void;
@@ -47,8 +48,8 @@ export function FilterBar({
   years: string[];
   count: number;
   onClear: () => void;
+  showClear?: boolean;
 }) {
-  const hasFilters = year !== "all" || status !== "all";
   return (
     <div className="flex flex-wrap items-center gap-2 pb-6">
       <span
@@ -62,7 +63,7 @@ export function FilterBar({
           <SelectTrigger className="glass h-8 w-32 rounded-full text-xs" aria-label="Filter by founded year">
             <SelectValue placeholder="Founded year" />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent position="popper" align="start">
             <SelectItem value="all">All years</SelectItem>
             {years.map((y) => (
               <SelectItem key={y} value={y}>
@@ -75,7 +76,7 @@ export function FilterBar({
           <SelectTrigger className="glass h-8 w-32 rounded-full text-xs" aria-label="Filter by status">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent position="popper" align="start">
             {STATUS_OPTIONS.map((o) => (
               <SelectItem key={o.value} value={o.value}>
                 {o.label}
@@ -87,7 +88,7 @@ export function FilterBar({
           <SelectTrigger className="glass h-8 w-36 rounded-full text-xs" aria-label="Sort startups">
             <SelectValue placeholder="Sort" />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent position="popper" align="start">
             {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
               <SelectItem key={k} value={k}>
                 {SORT_LABELS[k]}
@@ -95,7 +96,7 @@ export function FilterBar({
             ))}
           </SelectContent>
         </Select>
-        {hasFilters && (
+        {showClear && (
           <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs" onClick={onClear}>
             <X className="h-3 w-3" /> Clear all
           </Button>

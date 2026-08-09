@@ -20,6 +20,8 @@ export function HueAvatar({
 }) {
   return (
     <Avatar
+      aria-label={name}
+      role="img"
       className={cn(
         "shrink-0 rounded-md bg-muted",
         size === "sm" && "size-6 text-[10px]",

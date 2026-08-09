@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-10T00:00:00.000Z",
+  "title": "Design System: IdeaExists",
+  "extensions": {
+    "colorMeta": {
+      "warm-paper": { "role": "neutral", "displayName": "Warm Paper", "canonical": "oklch(0.953 0.016 82)", "tonalRamp": ["oklch(0.25 0.016 82)", "oklch(0.38 0.016 82)", "oklch(0.5 0.016 82)", "oklch(0.63 0.016 82)", "oklch(0.75 0.016 82)", "oklch(0.85 0.016 82)", "oklch(0.92 0.016 82)", "oklch(0.96 0.016 82)"] },
+      "archive-navy": { "role": "primary", "displayName": "Archive Navy", "canonical": "oklch(0.27 0.052 262)", "tonalRamp": ["oklch(0.16 0.05 262)", "oklch(0.22 0.052 262)", "oklch(0.27 0.052 262)", "oklch(0.34 0.052 262)", "oklch(0.42 0.05 262)", "oklch(0.52 0.045 262)", "oklch(0.64 0.038 262)", "oklch(0.78 0.028 262)"] },
+      "archive-navy-deep": { "role": "primary", "displayName": "Archive Navy (Deep)", "canonical": "oklch(0.32 0.055 262)", "tonalRamp": ["oklch(0.18 0.055 262)", "oklch(0.25 0.055 262)", "oklch(0.32 0.055 262)", "oklch(0.4 0.05 262)", "oklch(0.49 0.045 262)", "oklch(0.6 0.04 262)", "oklch(0.72 0.03 262)", "oklch(0.85 0.02 262)"] },
+      "glass-white": { "role": "neutral", "displayName": "Glass White", "canonical": "oklch(1 0 0 / 0.55)", "tonalRamp": ["oklch(0.3 0 0 / 0.55)", "oklch(0.4 0 0 / 0.55)", "oklch(0.5 0 0 / 0.55)", "oklch(0.6 0 0 / 0.55)", "oklch(0.7 0 0 / 0.55)", "oklch(0.8 0 0 / 0.55)", "oklch(0.9 0 0 / 0.55)", "oklch(1 0 0 / 0.55)"] },
+      "deep-beige": { "role": "neutral", "displayName": "Deep Beige", "canonical": "oklch(0.885 0.022 82)", "tonalRamp": ["oklch(0.3 0.022 82)", "oklch(0.42 0.022 82)", "oklch(0.53 0.022 82)", "oklch(0.64 0.022 82)", "oklch(0.74 0.022 82)", "oklch(0.82 0.022 82)", "oklch(0.885 0.022 82)", "oklch(0.94 0.018 82)"] },
+      "warm-grey": { "role": "neutral", "displayName": "Warm Grey", "canonical": "oklch(0.5 0.02 78)", "tonalRamp": ["oklch(0.2 0.02 78)", "oklch(0.3 0.02 78)", "oklch(0.4 0.02 78)", "oklch(0.5 0.02 78)", "oklch(0.6 0.02 78)", "oklch(0.72 0.02 78)", "oklch(0.83 0.02 78)", "oklch(0.92 0.018 82)"] },
+      "hairline": { "role": "neutral", "displayName": "Hairline", "canonical": "oklch(0.85 0.02 80 / 0.65)", "tonalRamp": ["oklch(0.35 0.02 80 / 0.65)", "oklch(0.45 0.02 80 / 0.65)", "oklch(0.55 0.02 80 / 0.65)", "oklch(0.65 0.02 80 / 0.65)", "oklch(0.75 0.02 80 / 0.65)", "oklch(0.85 0.02 80 / 0.65)", "oklch(0.92 0.02 80 / 0.65)", "oklch(0.97 0.02 80 / 0.65)"] },
+      "sage-verified": { "role": "status", "displayName": "Sage Verified", "canonical": "oklch(0.49 0.09 150)", "tonalRamp": ["oklch(0.22 0.09 150)", "oklch(0.32 0.09 150)", "oklch(0.42 0.09 150)", "oklch(0.49 0.09 150)", "oklch(0.58 0.09 150)", "oklch(0.68 0.09 150)", "oklch(0.79 0.08 150)", "oklch(0.9 0.06 150)"] },
+      "brick-dead": { "role": "status", "displayName": "Brick Dead", "canonical": "oklch(0.53 0.135 30)", "tonalRamp": ["oklch(0.25 0.13 30)", "oklch(0.36 0.135 30)", "oklch(0.46 0.135 30)", "oklch(0.53 0.135 30)", "oklch(0.62 0.13 30)", "oklch(0.72 0.12 30)", "oklch(0.83 0.1 30)", "oklch(0.93 0.07 30)"] },
+      "charcoal": { "role": "neutral", "displayName": "Charcoal", "canonical": "oklch(0.212 0.012 60)", "tonalRamp": ["oklch(0.12 0.012 60)", "oklch(0.17 0.012 60)", "oklch(0.212 0.012 60)", "oklch(0.28 0.012 60)", "oklch(0.36 0.012 60)", "oklch(0.46 0.012 60)", "oklch(0.58 0.012 60)", "oklch(0.72 0.014 60)"] },
+      "beige-primary": { "role": "primary", "displayName": "Beige Primary", "canonical": "oklch(0.88 0.03 85)", "tonalRamp": ["oklch(0.4 0.03 85)", "oklch(0.52 0.03 85)", "oklch(0.64 0.03 85)", "oklch(0.74 0.03 85)", "oklch(0.88 0.03 85)", "oklch(0.92 0.028 85)", "oklch(0.95 0.024 85)", "oklch(0.975 0.018 85)"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Hero question and section headers only — the archive's voice." },
+      "body": { "displayName": "Body", "purpose": "Prose, descriptions, UI copy." },
+      "label": { "displayName": "Ledger Label", "purpose": "Mono uppercase stamps: section rules, footer mantras." }
+    },
+    "shadows": [
+      { "name": "ambient-glass", "value": "0 8px 32px oklch(0.2 0.03 262 / 0.07)", "purpose": "Light-mode ambient pool under every glass surface." },
+      { "name": "ambient-glass-dark", "value": "0 8px 32px oklch(0 0 0 / 0.45)", "purpose": "Dark-mode ambient pool under every glass surface." },
+      { "name": "inset-highlight", "value": "inset 0 1px 0 0 oklch(1 0 0 / 0.45)", "purpose": "The top-edge light catch that makes glass read as glass." }
+    ],
+    "motion": [
+      { "name": "ease-standard", "value": "cubic-bezier(0.22, 1, 0.36, 1)", "purpose": "The only easing allowed. Duration 0.35s, transform/opacity only." },
+      { "name": "entrance-stagger", "value": "40-80ms per card", "purpose": "Card grid reveal stagger." },
+      { "name": "hover-lift", "value": "translateY(-2px)", "purpose": "Subtle card lift on hover — never scale." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one loud action: Add startup, verify, seed. Pills in Archive Navy (light) or Beige (dark).",
+      "html": "<button class=\"ds-btn-primary\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 5v14M5 12h14\"/></svg>Add startup</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; gap: 6px; background: oklch(0.32 0.055 262); color: oklch(0.965 0.02 82); font-family: 'Plus Jakarta Sans', sans-serif; font-size: 13px; font-weight: 600; padding: 8px 16px; border-radius: 9999px; border: 1px solid transparent; cursor: pointer; transition: background-color 0.2s, color 0.2s; } .ds-btn-primary:hover { background: oklch(0.36 0.055 262); } .ds-btn-primary:focus-visible { outline: 2px solid oklch(0.32 0.055 262 / 0.5); outline-offset: 2px; } .dark .ds-btn-primary { background: oklch(0.88 0.03 85); color: oklch(0.212 0.012 60); } .dark .ds-btn-primary:hover { background: oklch(0.92 0.028 85); }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Secondary actions: Website, Code, Details, Run verification. Hairline glass edge.",
+      "html": "<button class=\"ds-btn-outline\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6\"/><path d=\"M15 3h6v6\"/><path d=\"M10 14 21 3\"/></svg>Website</button>",
+      "css": ".ds-btn-outline { display: inline-flex; align-items: center; gap: 6px; background: transparent; color: oklch(0.27 0.052 262); font-family: 'Plus Jakarta Sans', sans-serif; font-size: 12px; font-weight: 600; padding: 6px 12px; height: 32px; border-radius: 12px; border: 1px solid oklch(0.85 0.02 80 / 0.65); cursor: pointer; transition: background-color 0.2s; } .ds-btn-outline:hover { background: oklch(0.885 0.022 82 / 0.5); } .ds-btn-outline:focus-visible { outline: 2px solid oklch(0.32 0.055 262 / 0.5); outline-offset: 2px; } .dark .ds-btn-outline { color: oklch(0.93 0.024 85); border-color: oklch(1 0 0 / 0.12); } .dark .ds-btn-outline:hover { background: oklch(1 0 0 / 0.08); }"
+    },
+    {
+      "name": "Status Pill",
+      "kind": "chip",
+      "refersTo": "status-pill",
+      "description": "The trust layer. Dot + label + icon; worded tooltip on hover. The unverified variant is a two-step button (first click arms 'Confirm?', second fires mark-verified — the human gate never flips on a stray click).",
+      "html": "<span class=\"ds-status ds-status-verified\"><span class=\"ds-dot\"></span><svg width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z\"/><path d=\"m9 12 2 2 4-4\"/></svg>Verified</span>",
+      "css": ".ds-status { display: inline-flex; align-items: center; gap: 5px; padding: 2px 10px; border-radius: 9999px; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 11px; font-weight: 500; border: 1px solid; } .ds-dot { width: 6px; height: 6px; border-radius: 9999px; } .ds-status-verified { background: oklch(0.49 0.09 150 / 0.12); border-color: oklch(0.49 0.09 150 / 0.25); color: oklch(0.49 0.09 150); } .ds-status-verified .ds-dot { background: oklch(0.49 0.09 150); } .ds-status-dead { background: oklch(0.53 0.135 30 / 0.1); border-color: oklch(0.53 0.135 30 / 0.2); color: oklch(0.53 0.135 30); } .ds-status-dead .ds-dot { background: oklch(0.53 0.135 30); } .ds-status-unverified { background: oklch(0.92 0.018 82); border-color: oklch(0.85 0.02 80 / 0.65); color: oklch(0.5 0.02 78); } .ds-status-unverified .ds-dot { background: oklch(0.5 0.02 78 / 0.6); } .dark .ds-status-verified { color: oklch(0.72 0.105 150); background: oklch(0.72 0.105 150 / 0.15); } .dark .ds-status-dead { color: oklch(0.66 0.15 30); } .dark .ds-status-unverified { color: oklch(0.78 0.024 80); background: oklch(1 0 0 / 0.06); }"
+    },
+    {
+      "name": "Category Chip",
+      "kind": "chip",
+      "refersTo": "chip-category",
+      "description": "Discovery-bar filter. Active pill morphs between chips via shared layout motion.",
+      "html": "<button class=\"ds-chip\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83\"/></svg>AI<span class=\"ds-count\">47</span></button><button class=\"ds-chip ds-chip-active\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m18 16 4-4-4-4M6 8l-4 4 4 4M14.5 4l-5 16\"/></svg>Developer Tools<span class=\"ds-count\">23</span></button>",
+      "css": ".ds-chip { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 9999px; background: transparent; border: none; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 12px; font-weight: 600; color: oklch(0.27 0.052 262); cursor: pointer; transition: background-color 0.2s, color 0.2s; white-space: nowrap; } .ds-chip:hover { background: oklch(0.885 0.022 82 / 0.6); } .ds-chip-active { background: oklch(0.32 0.055 262); color: oklch(0.965 0.02 82); box-shadow: 0 1px 2px oklch(0.2 0.03 262 / 0.15); } .ds-count { font-family: 'Geist Mono', monospace; font-size: 10px; font-variant-numeric: tabular-nums; opacity: 0.7; } .ds-chip:focus-visible { outline: 2px solid oklch(0.32 0.055 262 / 0.5); outline-offset: 2px; } .dark .ds-chip { color: oklch(0.93 0.024 85); } .dark .ds-chip:hover { background: oklch(1 0 0 / 0.08); } .dark .ds-chip-active { background: oklch(0.88 0.03 85); color: oklch(0.212 0.012 60); }"
+    },
+    {
+      "name": "Search Input",
+      "kind": "input",
+      "refersTo": "input-search",
+      "description": "Always-visible search field inside the discovery bar. Mono text, pill, glass-white field; clear-× appears inside when a query is active.",
+      "html": "<div class=\"ds-search\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/></svg><input type=\"text\" placeholder=\"Search the archive…\" aria-label=\"Search startups\" /></div>",
+      "css": ".ds-search { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 16px; border-radius: 9999px; background: oklch(1 0 0 / 0.8); border: 1px solid oklch(1 0 0 / 0.65); color: oklch(0.5 0.02 78); box-shadow: inset 0 1px 0 0 oklch(1 0 0 / 0.45); } .ds-search:focus-within { outline: 2px solid oklch(0.32 0.055 262 / 0.5); } .ds-search input { flex: 1; border: none; background: transparent; font-family: 'Geist Mono', monospace; font-size: 14px; font-weight: 500; color: oklch(0.27 0.052 262); } .ds-search input::placeholder { color: oklch(0.5 0.02 78); } .ds-search input:focus { outline: none; } .dark .ds-search { background: oklch(1 0 0 / 0.08); border-color: oklch(1 0 0 / 0.12); } .dark .ds-search input { color: oklch(0.93 0.024 85); }"
+    },
+    {
+      "name": "Startup Card",
+      "kind": "card",
+      "refersTo": "card-glass",
+      "description": "The archive's index card: hue avatar, name + ledger line, status pill, tagline, description, badges, actions.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-head\"><span class=\"ds-avatar\">SV</span><div class=\"ds-card-id\"><span class=\"ds-name\">Supabase</span><span class=\"ds-ledger\">founded 2019 · checked Jul 14</span></div><span class=\"ds-status ds-status-verified\"><span class=\"ds-dot\"></span>Verified</span></div><p class=\"ds-tagline\">The open-source Firebase alternative with Postgres.</p><p class=\"ds-desc\">Supabase is an open source Firebase alternative providing a Postgres database, auth, instant APIs, Edge Functions, and realtime subscriptions.</p><div class=\"ds-card-foot\"><span class=\"ds-badge\">Developer Tools</span><span class=\"ds-stars\">★ 83,412</span></div><div class=\"ds-card-actions\"><button class=\"ds-btn-outline\">Website</button><button class=\"ds-btn-outline\">Code</button><button class=\"ds-btn-outline\">Details</button></div></div>",
+      "css": ".ds-card { background: oklch(1 0 0 / 0.5); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border: 1px solid oklch(1 0 0 / 0.65); border-radius: 24px; padding: 16px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 8px 32px oklch(0.2 0.03 262 / 0.07), inset 0 1px 0 0 oklch(1 0 0 / 0.45); font-family: 'Plus Jakarta Sans', sans-serif; } .ds-card-head { display: flex; align-items: center; gap: 10px; } .ds-avatar { width: 32px; height: 32px; border-radius: 8px; background: oklch(0.82 0.12 45); color: oklch(0.2 0.05 45); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; } .ds-card-id { min-width: 0; flex: 1; } .ds-name { display: block; font-size: 14px; font-weight: 700; line-height: 1.25; color: oklch(0.27 0.052 262); } .ds-ledger { display: block; font-family: 'Geist Mono', monospace; font-size: 11px; font-variant-numeric: tabular-nums; color: oklch(0.5 0.02 78); } .ds-tagline { font-size: 13px; font-weight: 500; line-height: 1.375; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 36px; } .ds-desc { font-size: 13px; line-height: 1.5; color: oklch(0.5 0.02 78); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; } .ds-card-foot { display: flex; align-items: center; gap: 6px; margin-top: auto; } .ds-badge { padding: 2px 8px; border-radius: 9999px; background: oklch(0.92 0.018 82); font-size: 11px; color: oklch(0.27 0.052 262); } .ds-stars { margin-left: auto; font-family: 'Geist Mono', monospace; font-size: 11px; color: oklch(0.5 0.02 78); } .ds-card-actions { display: flex; gap: 8px; border-top: 1px solid oklch(0.85 0.02 80 / 0.6); padding-top: 12px; } .ds-card-actions .ds-btn-outline:last-child { margin-left: auto; } .dark .ds-card { background: oklch(1 0 0 / 0.05); border-color: oklch(1 0 0 / 0.12); box-shadow: 0 8px 32px oklch(0 0 0 / 0.45), inset 0 1px 0 0 oklch(1 0 0 / 0.09); } .dark .ds-name { color: oklch(0.93 0.024 85); } .dark .ds-badge { background: oklch(1 0 0 / 0.08); color: oklch(0.93 0.024 85); }"
+    },
+    {
+      "name": "Ledger Header",
+      "kind": "custom",
+      "refersTo": "chip-category",
+      "description": "Section rule for freshness strips and blocks — mono uppercase stamp + hairline, left-aligned.",
+      "html": "<div class=\"ds-ledger-head\"><svg width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><polyline points=\"12 6 12 12 16 14\"/></svg>Just added</div>",
+      "css": ".ds-ledger-head { display: flex; align-items: center; gap: 6px; border-bottom: 1px solid oklch(0.85 0.02 80 / 0.65); padding-bottom: 8px; font-family: 'Geist Mono', monospace; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: oklch(0.5 0.02 78); } .dark .ds-ledger-head { border-color: oklch(1 0 0 / 0.12); color: oklch(0.78 0.024 80); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Archive Behind Frosted Glass",
+    "overview": "IdeaExists is a verification-first directory of startups — the product answers one question: does this startup exist? The Warm Glass world makes that archive literal: the data lives behind frosted panels you can see dimly before you open them, and every surface reads like a hand-kept card catalog touched by warm light. Light mode is a warm beige desk under deep navy ink; dark mode is a charcoal reading room where the beige comes back as candlelit text. The glass is never cold 2021-dashboard blue-white — it is translucent warmth over calm bases, hairline-bordered, with a soft top-edge highlight like light catching a pane. The system is deliberately restrained: glass without blob gradients, ease-out motion without bounce, one morphing hero interaction, cards that expand with shared-layout motion. Personality lives in the details — mono ledger data runs, deterministic-hue initial avatars, worded status tooltips, and dry-warm curator copy — never in decoration.",
+    "keyCharacteristics": [
+      "Frosted glass panels on warm bases (beige/navy light, charcoal/beige dark) — no cold blue-white glass, no blob/gradient backdrops",
+      "Two genuine themes, not a flip: each mode inverts the other's identity (navy-on-beige ⇄ beige-on-charcoal)",
+      "Editorial contrast: Space Grotesk display + Plus Jakarta Sans body + Geist Mono for all evidence data",
+      "Status as a trust layer with a voice: dot + label + worded tooltip, color never the only signal",
+      "One signature interaction: the morphing discovery bar; one signature motion system: ease-out only, reduced-motion safe"
+    ],
+    "rules": [
+      { "name": "The Status-Is-Sacred Rule", "body": "Only three colors may carry semantic meaning — sage (verified), brick (dead), warm grey (unverified) — and they must always appear with a label and/or icon, never as color alone. No decorative use of these three, ever.", "section": "colors" },
+      { "name": "The One Anchor Rule", "body": "Saturation is reserved for the status layer. The chrome is warm neutrals + one anchor hue per theme; introducing a second loud accent breaks the archive's calm and is a smell.", "section": "colors" },
+      { "name": "The Ledger Rule", "body": "If it is a fact with a number or a date, it is set in Geist Mono with tabular figures. If it is prose, it is Jakarta. If it is the hero or a section title, it is Space Grotesk. Three voices, no exceptions.", "section": "typography" },
+      { "name": "The No-Spooky-Shadow Rule", "body": "Shadow is ambient pooling, never a hard cast. No shadow-lg-style drop shadows, no elevation ladder — a panel is either glass or overlay-glass, and nothing floats above glass.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do set every date, count, star, and check stamp in Geist Mono with tabular-nums — evidence is ledgered.",
+      "Do give every status a dot + label + worded tooltip; the trust layer is visible card copy, not hidden metadata.",
+      "Do keep dead entries on the page — filed treatment (desaturate/fade), never deleted, never joked about.",
+      "Do use ease-out [0.22, 1, 0.36, 1] for motion, 0.35s, transform/opacity only; respect prefers-reduced-motion (opacity-only or zero-duration).",
+      "Do let the warm base show through — cards are translucent glass on beige/charcoal, not opaque white boxes."
+    ],
+    "donts": [
+      "Don't add gradients, blob backdrops, or cold blue-white glass — the antislop tell this world exists to avoid.",
+      "Don't use bounce or spring easing anywhere in this project.",
+      "Don't use the status colors (sage/brick/grey) decoratively, or without their label/icon.",
+      "Don't fetch favicons or external avatars for cards — the archive is local and the privacy line is a brand promise.",
+      "Don't center more elements to 'fix' the hero — asymmetry comes from left-aligned ledger rules, not more centering.",
+      "Don't put emoji in status pills — status semantics stay icon/label-only; emoji (one per concept) is reserved for strips/actions ('Add startup 👋' register)."
+    ]
+  }
+}

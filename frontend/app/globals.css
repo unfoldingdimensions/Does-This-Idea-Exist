@@ -98,6 +98,42 @@
   --glass-strong-bg: oklch(1 0 0 / 0.78);
   --glass-strong-border: oklch(1 0 0 / 0.85);
   --glass-overlay: oklch(0.27 0.052 262 / 0.28);
+
+  /* Sky — sunset archive (light). Yellow-gold dawn at the top of the page;
+     as you scroll down an orange evening wash crossfades in and the sun
+     sinks. Scroll motion is opacity/transform only, never louder than glass. */
+  --sky-wash-light: linear-gradient(
+    to bottom,
+    oklch(0.96 0.05 95),
+    oklch(0.92 0.06 88) 40%,
+    oklch(0.89 0.07 75) 70%,
+    oklch(0.86 0.06 60)
+  );
+  --sky-wash-evening: linear-gradient(
+    to bottom,
+    oklch(0.93 0.05 82),
+    oklch(0.89 0.065 68) 40%,
+    oklch(0.84 0.08 52) 75%,
+    oklch(0.8 0.085 38)
+  );
+  --sky-sun-glow: radial-gradient(
+    closest-side,
+    oklch(0.99 0.09 88 / 1),
+    oklch(0.96 0.1 84 / 0.75) 30%,
+    oklch(0.92 0.1 78 / 0.3) 55%,
+    oklch(0.9 0.09 72 / 0.08) 75%,
+    transparent 85%
+  );
+  --sky-dusk-glow: radial-gradient(
+    80% 55% at 50% 100%,
+    oklch(0.82 0.08 40 / 0.5),
+    transparent 70%
+  );
+
+  /* Scrollbars — warm grey thumb on a paper track; the pill inset look. */
+  --scrollbar-thumb: oklch(0.55 0.02 78 / 0.6);
+  --scrollbar-thumb-hover: oklch(0.47 0.02 78 / 0.75);
+  --scrollbar-track: oklch(0.93 0.016 82 / 0.6);
 }
 
 .dark {
@@ -112,7 +148,7 @@
   --secondary: oklch(1 0 0 / 0.08);
   --secondary-foreground: oklch(0.93 0.024 85);
   --muted: oklch(1 0 0 / 0.06);
-  --muted-foreground: oklch(0.72 0.02 80);
+  --muted-foreground: oklch(0.78 0.024 80);
   --accent: oklch(1 0 0 / 0.1);
   --accent-foreground: oklch(0.93 0.024 85);
   --destructive: oklch(0.66 0.15 30);
@@ -142,6 +178,27 @@
   --glass-strong-bg: oklch(0.185 0.011 60 / 0.85);
   --glass-strong-border: oklch(1 0 0 / 0.16);
   --glass-overlay: oklch(0 0 0 / 0.5);
+
+  /* Sky — moon night (dark). Warm charcoal sinking into deep indigo; the
+     moon glow + stars read like a reading-room window, not a neon sky. */
+  --sky-wash-dark: linear-gradient(
+    to bottom,
+    oklch(0.235 0.02 60),
+    oklch(0.205 0.028 262) 50%,
+    oklch(0.175 0.035 272) 85%,
+    oklch(0.16 0.04 278)
+  );
+  --sky-moon-glow: radial-gradient(
+    closest-side,
+    oklch(0.95 0.03 85 / 0.35),
+    transparent 70%
+  );
+  --sky-star: oklch(0.95 0.03 85 / 0.55);
+
+  /* Scrollbars — warm beige thumb on a charcoal track. */
+  --scrollbar-thumb: oklch(0.93 0.024 85 / 0.38);
+  --scrollbar-thumb-hover: oklch(0.93 0.024 85 / 0.55);
+  --scrollbar-track: oklch(1 0 0 / 0.06);
 }
 
 @layer base {
@@ -160,6 +217,34 @@
   button:not(:disabled),
   [role="button"]:not(:disabled) {
     cursor: pointer;
+  }
+  /* Custom scrollbars everywhere — Warm Glass, both themes.
+     WebKit/Blink: slim 10px bar, inset pill thumb (transparent 2px border +
+     padding-box clip = the "floating pill" look), hover darkens.
+     Firefox: thin + themed colors via the same tokens. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
   }
 }
 
@@ -201,10 +286,11 @@
   }
 
   /* Thin visible scrollbar for the discovery-bar chip row — the affordance
-     that tells users "there's more to scroll". */
+     that tells users "there's more to scroll". Same tokens as the global
+     scrollbar, just a slimmer horizontal bar. */
   .chip-scroll {
     scrollbar-width: thin;
-    scrollbar-color: var(--border) transparent;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   }
   .chip-scroll::-webkit-scrollbar {
     height: 4px;
@@ -214,7 +300,53 @@
   }
   .chip-scroll::-webkit-scrollbar-thumb {
     border-radius: 9999px;
-    background: var(--border);
+    background: var(--scrollbar-thumb);
+  }
+  .chip-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+  }
+
+  /* ---- Sky (fixed background layers, behind everything) ----
+     Color comes only from the --sky-* tokens above; the TSX layer
+     (sky-background.tsx) never holds a color literal. Scroll motion is
+     transform/opacity-only (compositor-friendly), reduced-motion → static. */
+  .sky-wash-sunset {
+    background: var(--sky-wash-light);
+  }
+  .sky-wash-evening {
+    background: var(--sky-wash-evening);
+  }
+  .sky-wash-night {
+    background: var(--sky-wash-dark);
+  }
+  .sky-sun {
+    position: absolute;
+    border-radius: 9999px;
+    background: var(--sky-sun-glow);
+    width: 44vmin;
+    height: 44vmin;
+    margin-left: -22vmin; /* center via negative half-width */
+  }
+  .sky-dusk {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 55vh;
+    background: var(--sky-dusk-glow);
+  }
+  .sky-moon {
+    position: absolute;
+    border-radius: 9999px;
+    background: var(--sky-moon-glow);
+    width: 24vmin;
+    height: 24vmin;
+    margin-left: -12vmin;
+  }
+  .sky-star {
+    position: absolute;
+    border-radius: 9999px;
+    background: var(--sky-star);
   }
 }
 
