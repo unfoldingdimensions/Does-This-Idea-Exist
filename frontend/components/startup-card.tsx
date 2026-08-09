@@ -1,14 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { ExternalLink, FolderGit2, Star, ShieldCheck, Archive } from "lucide-react";
+import { ExternalLink, FolderGit2, Star, ShieldCheck, Archive, Eye } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { Startup } from "@/lib/types";
 import { foundedYear } from "@/lib/search";
-import { titleCase } from "@/lib/format";
+import { shortDate, titleCase } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 function initials(name: string): string {
@@ -20,15 +20,43 @@ function initials(name: string): string {
     .join("");
 }
 
+/** Status pill: green Verified / red Dead / grey Unverified — the trust signal. */
+function StatusPill({ startup }: { startup: Startup }) {
+  if (startup.status === "dead" || startup.status === "pivoted") {
+    return (
+      <Badge variant="secondary" className="gap-1 border-destructive/20 bg-destructive/10 text-[11px] text-destructive">
+        <Archive className="h-3 w-3" /> Dead
+      </Badge>
+    );
+  }
+  if (startup.verified === 1) {
+    return (
+      <Badge
+        variant="secondary"
+        className="gap-1 border-emerald-500/20 bg-emerald-500/10 text-[11px] text-emerald-600 dark:bg-emerald-400/15 dark:text-emerald-400"
+        title={startup.verified_at ? `Verified ${shortDate(startup.verified_at)}` : "Verified"}
+      >
+        <ShieldCheck className="h-3 w-3" /> Verified
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="secondary" className="text-[11px] text-muted-foreground">
+      Unverified
+    </Badge>
+  );
+}
+
 export function StartupCard({
   startup,
   onVerified,
+  onDetails,
 }: {
   startup: Startup;
   onVerified?: (s: Startup) => void;
+  onDetails?: (s: Startup) => void;
 }) {
   const dead = startup.status === "dead" || startup.status === "pivoted";
-  const verified = startup.verified === 1;
   const year = foundedYear(startup.founded);
   const [expanded, setExpanded] = React.useState(false);
   const description = startup.description ?? "";
@@ -44,19 +72,21 @@ export function StartupCard({
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <span className="truncate text-sm font-bold leading-tight">{startup.name}</span>
-              {verified && (
-                <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-primary" aria-label="Verified" />
-              )}
-            </div>
-            {year && <p className="text-xs text-muted-foreground">Founded {year}</p>}
+            <button
+              type="button"
+              onClick={() => onDetails?.(startup)}
+              className="truncate text-left text-sm font-bold leading-tight hover:text-primary hover:underline"
+              title="View details"
+            >
+              {startup.name}
+            </button>
+            <p className="truncate text-xs text-muted-foreground">
+              {year && <>Founded {year}</>}
+              {year && startup.last_checked && " · "}
+              {startup.last_checked && <>Last checked {shortDate(startup.last_checked)}</>}
+            </p>
           </div>
-          {dead && (
-            <Badge variant="secondary" className="gap-1 text-[11px]">
-              <Archive className="h-3 w-3" /> Archived
-            </Badge>
-          )}
+          <StatusPill startup={startup} />
         </div>
 
         {startup.tagline && (
@@ -119,20 +149,29 @@ export function StartupCard({
               </a>
             </Button>
           )}
-          <span className="ml-auto text-[11px] text-muted-foreground">
-            {verified ? (
-              "Verified"
-            ) : (
-              <button
+          <div className="ml-auto flex items-center gap-1.5">
+            {!dead && startup.verified !== 1 && (
+              <Button
                 type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2 text-xs text-primary hover:underline"
                 onClick={() => onVerified?.(startup)}
-                className="rounded text-[11px] font-medium text-primary hover:underline"
                 title="Confirm this startup exists"
               >
                 Mark verified
-              </button>
+              </Button>
             )}
-          </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 text-xs"
+              onClick={() => onDetails?.(startup)}
+            >
+              <Eye className="h-3 w-3" /> Details
+            </Button>
+          </div>
         </div>
       </CardContent>
     </Card>
