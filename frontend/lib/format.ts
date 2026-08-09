@@ -28,3 +28,23 @@ export function titleCase(value: string | null | undefined): string {
   if (SPECIAL[s.toLowerCase()]) return SPECIAL[s.toLowerCase()];
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
+
+/** Full date for detail views: "2026-08-09" / ISO → "Aug 9, 2026"; null/empty → "—". */
+export function formatDate(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+
+/** Short date for cards: omits the year when it's the current year ("Aug 9"). */
+export function shortDate(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const opts: Intl.DateTimeFormatOptions =
+    d.getFullYear() === new Date().getFullYear()
+      ? { month: "short", day: "numeric" }
+      : { year: "numeric", month: "short", day: "numeric" };
+  return d.toLocaleDateString("en-US", opts);
+}

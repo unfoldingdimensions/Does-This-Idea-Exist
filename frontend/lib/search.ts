@@ -14,29 +14,65 @@ function createSearcher(startups: Startup[]): Fuse<Startup> {
   });
 }
 
-/**
- * Filter by query: every whitespace-separated term must fuzzy-match somewhere in the
- * startup (AND across terms), so "markdown notes" hits Obsidian but not the whole grid.
- */
-export function filterStartups(startups: Startup[], query: string): Startup[] {
-  const terms = query.trim().split(/\s+/).filter(Boolean);
-  if (terms.length === 0) return sortStartups(startups);
-  const searcher = createSearcher(startups);
-  const perTerm = terms.map((t) => new Set(searcher.search(t).map((r) => r.item.id)));
-  const matchedIds = [...perTerm[0]].filter((id) => perTerm.every((s) => s.has(id)));
-  const byId = new Map(startups.map((s) => [s.id, s]));
-  return sortStartups(
-    matchedIds.map((id) => byId.get(id)).filter((s): s is Startup => Boolean(s)),
-  );
+export interface Filters {
+  q?: string;
+  category?: string | null;
+  year?: string | null;
+  status?: string | null;
 }
 
-/** Order: active first (by name), dead/pivoted last — matches backend ordering. */
-export function sortStartups(startups: Startup[]): Startup[] {
-  return [...startups].sort((a, b) => {
-    const dead = (s: Startup) => (s.status === "dead" || s.status === "pivoted" ? 1 : 0);
-    if (dead(a) !== dead(b)) return dead(a) - dead(b);
-    return a.name.localeCompare(b.name);
-  });
+/**
+ * Filter by query + facet: every whitespace-separated query term must fuzzy-match
+ * somewhere (AND across terms — "markdown notes" hits Obsidian, not the whole grid);
+ * category matches exactly; year matches the founded-year prefix; status maps
+ * verified→verified===1, unverified→verified===0, dead→status==='dead'.
+ */
+export function filterStartups(startups: Startup[], filters: Filters): Startup[] {
+  let out = startups;
+  if (filters.category) out = out.filter((s) => s.category === filters.category);
+  if (filters.year) out = out.filter((s) => (s.founded ?? "").startsWith(filters.year as string));
+  if (filters.status) {
+    out = out.filter((s) => {
+      if (filters.status === "verified") return s.verified === 1;
+      if (filters.status === "unverified") return s.verified === 0;
+      if (filters.status === "dead") return s.status === "dead" || s.status === "pivoted";
+      return true;
+    });
+  }
+  const terms = (filters.q ?? "").trim().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return sortStartups(out);
+  const searcher = createSearcher(out);
+  const perTerm = terms.map((t) => new Set(searcher.search(t).map((r) => r.item.id)));
+  const matchedIds = [...perTerm[0]].filter((id) => perTerm.every((set) => set.has(id)));
+  const byId = new Map(out.map((s) => [s.id, s]));
+  return sortStartups(matchedIds.map((id) => byId.get(id)).filter((s): s is Startup => Boolean(s)));
+}
+
+export type SortKey = "top" | "newest" | "verified" | "name" | "founded";
+
+const DEAD_ORDER = (s: Startup) => (s.status === "dead" || s.status === "pivoted" ? 1 : 0);
+const ts = (iso: string | null | undefined): number => (iso ? new Date(iso).getTime() : 0);
+
+/**
+ * Sort by key; every key sinks dead/pivoted entries to the bottom first (the
+ * directory never promotes dead entries), then applies the requested ordering.
+ */
+export function sortStartups(startups: Startup[], key: SortKey = "top"): Startup[] {
+  const arr = [...startups];
+  arr.sort((a, b) => DEAD_ORDER(a) - DEAD_ORDER(b));
+  const starsTiebreak = (a: Startup, b: Startup) => (b.stars ?? 0) - (a.stars ?? 0);
+  switch (key) {
+    case "newest":
+      return arr.sort((a, b) => ts(b.created_at) - ts(a.created_at) || starsTiebreak(a, b));
+    case "verified":
+      return arr.sort((a, b) => ts(b.verified_at) - ts(a.verified_at) || starsTiebreak(a, b));
+    case "name":
+      return arr.sort((a, b) => a.name.localeCompare(b.name));
+    case "founded":
+      return arr.sort((a, b) => ts(b.founded) - ts(a.founded) || starsTiebreak(a, b));
+    default: // top
+      return arr.sort((a, b) => starsTiebreak(a, b) || a.name.localeCompare(b.name));
+  }
 }
 
 export function foundedYear(founded: string | null): string | null {

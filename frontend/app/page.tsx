@@ -49,11 +49,11 @@ export default function HomePage() {
     void loadAll();
   }, [loadAll]);
 
-  // Debounced client-side search (dataset is small — no backend round-trip per keystroke)
-  const results = React.useMemo(() => {
-    const base = category ? startups.filter((s) => s.category === category) : startups;
-    return filterStartups(base, query);
-  }, [startups, query, category]);
+  // Debounced client-side search + facets (dataset is small — no backend round-trip per keystroke)
+  const results = React.useMemo(
+    () => filterStartups(startups, { q: query, category }),
+    [startups, query, category],
+  );
 
   const handleAdded = (entry: Startup) => {
     setStartups((prev) => {
