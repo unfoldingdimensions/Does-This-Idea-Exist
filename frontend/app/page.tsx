@@ -10,8 +10,10 @@ import { StartupCard } from "@/components/startup-card";
 import { AddStartupDialog } from "@/components/add-startup-dialog";
 import { AdminPanel } from "@/components/admin-panel";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { FilterBar } from "@/components/filter-bar";
 import { fetchStartups, fetchCategories, fetchStats, runVerification, markVerified } from "@/lib/api";
-import { filterStartups, sortStartups } from "@/lib/search";
+import { filterStartups, sortStartups, foundedYear } from "@/lib/search";
+import type { SortKey } from "@/lib/search";
 import { titleCase } from "@/lib/format";
 import type { CategoryCount, Startup, Stats } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -22,6 +24,9 @@ export default function HomePage() {
   const [stats, setStats] = React.useState<Stats | null>(null);
   const [query, setQuery] = React.useState("");
   const [category, setCategory] = React.useState<string | null>(null);
+  const [year, setYear] = React.useState("all");
+  const [status, setStatus] = React.useState("all");
+  const [sort, setSort] = React.useState<SortKey>("top");
   const [loading, setLoading] = React.useState(true);
   const [online, setOnline] = React.useState(true);
   const [verifying, setVerifying] = React.useState(false);
@@ -50,10 +55,33 @@ export default function HomePage() {
   }, [loadAll]);
 
   // Debounced client-side search + facets (dataset is small — no backend round-trip per keystroke)
-  const results = React.useMemo(
-    () => filterStartups(startups, { q: query, category }),
-    [startups, query, category],
-  );
+  const results = React.useMemo(() => {
+    const filtered = filterStartups(startups, {
+      q: query,
+      category,
+      year: year === "all" ? null : year,
+      status: status === "all" ? null : status,
+    });
+    return sortStartups(filtered, sort);
+  }, [startups, query, category, year, status, sort]);
+
+  const years = React.useMemo(() => {
+    const set = new Set<string>();
+    startups.forEach((s) => {
+      const y = foundedYear(s.founded);
+      if (y) set.add(y);
+    });
+    return [...set].sort((a, b) => b.localeCompare(a));
+  }, [startups]);
+
+  const hasAnyFilter = query !== "" || category !== null || year !== "all" || status !== "all";
+
+  const clearFilters = () => {
+    setQuery("");
+    setCategory(null);
+    setYear("all");
+    setStatus("all");
+  };
 
   const handleAdded = (entry: Startup) => {
     setStartups((prev) => {
@@ -175,6 +203,19 @@ export default function HomePage() {
           </div>
         )}
 
+        {/* Filter bar: count, founded-year, status, sort */}
+        <FilterBar
+          sort={sort}
+          onSort={setSort}
+          year={year}
+          onYear={setYear}
+          status={status}
+          onStatus={setStatus}
+          years={years}
+          count={results.length}
+          onClear={clearFilters}
+        />
+
         {/* Grid */}
         {loading ? (
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
@@ -185,12 +226,20 @@ export default function HomePage() {
         ) : results.length === 0 ? (
           <div className="mx-auto max-w-md rounded-xl bg-muted/40 px-6 py-12 text-center">
             <Building2 className="mx-auto h-8 w-8 text-muted-foreground" />
-            <h2 className="mt-3 text-sm font-bold">Nothing found for “{query || "this filter"}”</h2>
+            <h2 className="mt-3 text-sm font-bold">
+              {hasAnyFilter ? "No startups match these filters" : "Nothing found yet"}
+            </h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Maybe <span className="font-medium">you</span> build this? Add it to the directory
-              and check back next week.
+              {hasAnyFilter
+                ? "Try clearing filters, or add it yourself — the directory grows with every seed."
+                : "Maybe you build this? Add it to the directory and check back next week."}
             </p>
-            <div className="mt-4 flex justify-center">
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              {hasAnyFilter && (
+                <Button variant="outline" size="sm" onClick={clearFilters}>
+                  Clear filters
+                </Button>
+              )}
               <AddStartupDialog onAdded={handleAdded} />
             </div>
           </div>
