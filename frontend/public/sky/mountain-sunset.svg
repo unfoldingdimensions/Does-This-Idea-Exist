@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 480" preserveAspectRatio="xMidYMax slice" role="presentation" aria-hidden="true">
+  <defs>
+    <linearGradient id="rim-light" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f4e8d0" stop-opacity="0"/>
+      <stop offset="0.35" stop-color="#f7dfae" stop-opacity="0.55"/>
+      <stop offset="0.5" stop-color="#f5d79c" stop-opacity="0.7"/>
+      <stop offset="0.68" stop-color="#eec287" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#eec287" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="far-ridge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5b6a92" stop-opacity="0.4"/>
+      <stop offset="1" stop-color="#4a5782" stop-opacity="0.5"/>
+    </linearGradient>
+    <linearGradient id="mid-ridge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3d4a72" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#36426a" stop-opacity="0.72"/>
+    </linearGradient>
+    <linearGradient id="near-ridge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2d3a5f" stop-opacity="0.95"/>
+      <stop offset="0.35" stop-color="#293558" stop-opacity="0.97"/>
+      <stop offset="1" stop-color="#232e4e" stop-opacity="1"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Soft sun glow pooling above the ridge line (hand-drawn halo) -->
+  <ellipse cx="258" cy="252" rx="340" ry="120" fill="#f2cf96" opacity="0.16"/>
+  <ellipse cx="258" cy="266" rx="230" ry="78" fill="#f6d9a4" opacity="0.22"/>
+  <ellipse cx="258" cy="276" rx="130" ry="44" fill="#fae0ae" opacity="0.3"/>
+
+  <!-- Far ridge — haziest, warm rim light where the sun grazes the peaks -->
+  <path d="M0,480 L0,300 L64,286 L128,302 L192,278 L256,292 L320,260 L384,278 L448,296 L512,270 L576,288 L640,276 L704,294 L768,266 L832,284 L896,270 L960,294 L1024,262 L1088,282 L1152,274 L1216,292 L1280,268 L1344,284 L1408,274 L1440,286 L1440,480 Z" fill="url(#far-ridge)"/>
+  <path d="M0,300 L64,286 L128,302 L192,278 L256,292 L320,260 L384,278 L448,296 L512,270 L576,288 L640,276 L704,294 L768,266 L832,284 L896,270 L960,294 L1024,262 L1088,282 L1152,274 L1216,292 L1280,268 L1344,284 L1408,274 L1440,286" fill="none" stroke="url(#rim-light)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Mid ridge -->
+  <path d="M0,480 L0,278 L72,262 L144,286 L216,240 L288,270 L360,248 L432,278 L504,254 L576,282 L648,246 L720,266 L792,284 L864,258 L936,274 L1008,240 L1080,270 L1152,256 L1224,282 L1296,264 L1368,286 L1440,268 L1440,480 Z" fill="url(#mid-ridge)"/>
+
+  <!-- Near ridge — darkest, closest to the viewer -->
+  <path d="M0,480 L0,326 L56,312 L112,336 L168,298 L224,320 L280,302 L336,328 L392,292 L448,318 L504,300 L560,326 L616,294 L672,316 L728,332 L784,306 L840,322 L896,290 L952,312 L1008,332 L1064,304 L1120,324 L1176,308 L1232,330 L1288,312 L1344,332 L1400,316 L1440,328 L1440,480 Z" fill="url(#near-ridge)"/>
+
+  <!-- Pine-texture tick marks on the near ridge (hand-drawn dashes) -->
+  <g stroke="#232e4e" stroke-width="1.6" stroke-linecap="round" opacity="0.55">
+    <path d="M120,330 L124,320 M126,332 L131,322"/>
+    <path d="M352,322 L356,312 M358,324 L362,314"/>
+    <path d="M540,294 L544,285 M546,296 L550,287"/>
+    <path d="M896,284 L900,275 M902,286 L906,277"/>
+    <path d="M1176,302 L1180,293 M1182,304 L1186,295"/>
+    <path d="M1344,326 L1348,317 M1350,328 L1354,319"/>
+  </g>
+</svg>

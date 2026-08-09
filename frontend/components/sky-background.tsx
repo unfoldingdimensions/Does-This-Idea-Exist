@@ -32,10 +32,15 @@ export function SkyBackground() {
   const eveningO = useTransform(scrollYProgress, [0, 0.35, 1], [0, 0.75, 1]);
   // The dusk band deepens — the archive darkens toward evening.
   const duskO = useTransform(scrollYProgress, [0, 0.4, 1], [0.45, 0.75, 1]);
+  // The horizon finale: the mountain ridge / ocean silhouette rises into
+  // view over the final stretch of the page.
+  const silhouetteO = useTransform(scrollYProgress, [0.45, 1], [0, 1]);
 
-  // Night (dark): the moon lifts a little higher, stars drift up as night deepens.
-  const moonY = useTransform(scrollYProgress, [0, 1], ["0vh", "-6vh"]);
-  const moonO = useTransform(scrollYProgress, [0, 0.5, 1], [0.8, 0.95, 1]);
+  // Night (dark): the moon sinks toward the ridge as you scroll, setting
+  // behind the mountains at the bottom of the page exactly like the sun does
+  // in light mode. It brightens a touch as it descends (atmospheric glow).
+  const moonY = useTransform(scrollYProgress, [0, 1], ["0vh", "42vh"]);
+  const moonO = useTransform(scrollYProgress, [0, 0.5, 1], [0.8, 0.92, 1]);
   const starO = useTransform(scrollYProgress, [0, 0.3, 1], [0.15, 0.6, 0.9]);
 
   // Deterministic star positions (SSR == client, no hydration mismatch).
@@ -114,6 +119,14 @@ export function SkyBackground() {
           ))}
         </motion.div>
       </div>
+
+      {/* Mountain ridge — shared by both themes: the sun settles behind it in
+          light mode, it frames the moon-lit sky in dark mode. Fades in over
+          the final stretch of the page. */}
+      <motion.div
+        className="sky-silhouette sky-silhouette--mountain"
+        style={{ opacity: reduce ? 1 : silhouetteO }}
+      />
     </div>
   );
 }

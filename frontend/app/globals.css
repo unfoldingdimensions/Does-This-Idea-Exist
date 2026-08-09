@@ -348,6 +348,32 @@
     border-radius: 9999px;
     background: var(--sky-star);
   }
+  /* Horizon silhouette — hand-drawn SVG asset, bottom-anchored, shared by
+     both themes: the sun (light) sinks behind the mountain ridge; in dark
+     mode the ridge frames the moon-lit sky. Rides the bottom 42vh of the
+     viewport and fades in over the final stretch of scroll (driven from
+     sky-background.tsx). */
+  .sky-silhouette {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 42vh;
+    background-repeat: no-repeat;
+    background-position: bottom center;
+    background-size: cover;
+    pointer-events: none;
+  }
+  .sky-silhouette--mountain {
+    background-image: url("/sky/mountain-sunset.svg");
+  }
+  .dark .sky-silhouette--mountain {
+    /* Moonlit variant — same ridge, no sun halo, cool rim light. The sunset
+       SVG carries a warm glow above the peaks for the light-mode sun; in
+       dark mode that halo has no sun behind it, so we swap in the night
+       ridge instead. */
+    background-image: url("/sky/mountain-night.svg");
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
