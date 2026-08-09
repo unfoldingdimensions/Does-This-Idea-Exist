@@ -20,8 +20,10 @@ function initials(name: string): string {
     .join("");
 }
 
+export { initials };
+
 /** Status pill: green Verified / red Dead / grey Unverified — the trust signal. */
-function StatusPill({ startup }: { startup: Startup }) {
+export function StatusPill({ startup }: { startup: Startup }) {
   if (startup.status === "dead" || startup.status === "pivoted") {
     return (
       <Badge variant="secondary" className="gap-1 border-destructive/20 bg-destructive/10 text-[11px] text-destructive">

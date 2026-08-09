@@ -11,6 +11,7 @@ import { AddStartupDialog } from "@/components/add-startup-dialog";
 import { AdminPanel } from "@/components/admin-panel";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { FilterBar } from "@/components/filter-bar";
+import { StartupDetail } from "@/components/startup-detail";
 import { fetchStartups, fetchCategories, fetchStats, runVerification, markVerified } from "@/lib/api";
 import { filterStartups, sortStartups, foundedYear } from "@/lib/search";
 import type { SortKey } from "@/lib/search";
@@ -30,6 +31,7 @@ export default function HomePage() {
   const [loading, setLoading] = React.useState(true);
   const [online, setOnline] = React.useState(true);
   const [verifying, setVerifying] = React.useState(false);
+  const [detail, setDetail] = React.useState<Startup | null>(null);
 
   const loadAll = React.useCallback(() => {
     // setState only inside .then callbacks (react-hooks v7: no synchronous setState in effects)
@@ -122,6 +124,7 @@ export default function HomePage() {
       const updated = await markVerified(s.id);
       toast.success(`${updated.name} marked verified`);
       setStartups((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+      setDetail((d) => (d && d.id === updated.id ? updated : d)); // keep the open modal in sync
       void loadAll();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to mark verified");
@@ -246,10 +249,24 @@ export default function HomePage() {
         ) : (
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
             {results.map((s) => (
-              <StartupCard key={s.id} startup={s} onVerified={handleMarkVerified} />
+              <StartupCard
+                key={s.id}
+                startup={s}
+                onVerified={handleMarkVerified}
+                onDetails={setDetail}
+              />
             ))}
           </div>
         )}
+
+        {/* Detail modal */}
+        <StartupDetail
+          startup={detail}
+          startups={startups}
+          onClose={() => setDetail(null)}
+          onNavigate={setDetail}
+          onVerified={handleMarkVerified}
+        />
       </main>
 
       {/* Footer */}
