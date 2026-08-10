@@ -16,6 +16,18 @@ UPDATABLE = [
 ]
 
 
+def _text(value) -> str:
+    """Coerce an LLM profile value to trimmed text.
+
+    deepseek-v4-flash occasionally emits numbers for string fields
+    ({"name": 2024}) — str() keeps the seed path alive instead of crashing
+    on .strip(). None/empty → "" (falls through to the caller's fallback).
+    """
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
 def _build_evidence(parts: dict) -> str:
     return json.dumps({k: v for k, v in parts.items() if v}, ensure_ascii=False)
 
@@ -52,14 +64,14 @@ def seed_from_github(github_url: str, reuse_profile: bool = False) -> dict:
         profile = llm.llm_json(
             "Generate a startup profile from this GitHub repo evidence:\n" + evidence
         )
-        name = (profile.get("name") or repo["name"] or "").strip()
+        name = _text(profile.get("name")) or _text(repo["name"]) or ""
         if not name:
             raise RuntimeError("LLM returned no name")
         values = {
             "name": name,
-            "tagline": (profile.get("tagline") or "").strip(),
-            "description": (profile.get("description") or "").strip(),
-            "category": (profile.get("category") or "other").strip(),
+            "tagline": _text(profile.get("tagline")),
+            "description": _text(profile.get("description")),
+            "category": _text(profile.get("category")) or "other",
             "website_url": website_url,
             "github_url": repo["html_url"],
             "founded": repo["created_at"] or None,
@@ -103,10 +115,10 @@ def seed_from_website(
         if name_hint:
             user = f"The startup's name is: {name_hint}\n" + user
         profile = llm.llm_json(user)
-        name = (profile.get("name") or name_hint or domain or "").strip()
+        name = _text(profile.get("name")) or _text(name_hint) or domain or ""
         if not name:
             raise RuntimeError("LLM returned no name")
-        llm_founded_raw = (profile.get("founded") or "").strip()
+        llm_founded_raw = _text(profile.get("founded"))
         if llm_founded_raw and llm_founded_raw.lower() != "null":
             founded = ws._normalize_date(llm_founded_raw)
             if not founded and len(llm_founded_raw) == 4 and llm_founded_raw.isdigit():
@@ -115,9 +127,9 @@ def seed_from_website(
             founded = ws.wayback_first_snapshot(domain) or ws.rdap_registration_date(domain)
         values = {
             "name": name,
-            "tagline": (profile.get("tagline") or "").strip(),
-            "description": (profile.get("description") or "").strip(),
-            "category": (profile.get("category") or "other").strip(),
+            "tagline": _text(profile.get("tagline")),
+            "description": _text(profile.get("description")),
+            "category": _text(profile.get("category")) or "other",
             "website_url": page["final_url"],
             "github_url": None,
             "founded": founded,
@@ -131,13 +143,18 @@ def seed_from_website(
 
 
 def _upsert(conn: sqlite3.Connection, values: dict, existing) -> dict:
+    """Insert or update a startup row. The returned dict carries `_inserted`
+    (True when a new row was created) so the admin seeder can classify each
+    candidate as new vs "all exist" (upsert refresh, LLM skipped)."""
     if existing:
         fields = [k for k in UPDATABLE if values.get(k) is not None]
         set_sql = ", ".join(f"{k} = ?" for k in fields) + ", updated_at = datetime('now')"
         conn.execute(f"UPDATE startups SET {set_sql} WHERE id = ?", [values[k] for k in fields] + [existing["id"]])
         conn.commit()
         row = conn.execute("SELECT * FROM startups WHERE id = ?", (existing["id"],)).fetchone()
-        return dict(row)
+        result = dict(row)
+        result["_inserted"] = False
+        return result
     fields = [k for k in UPDATABLE if values.get(k) is not None]
     cols = ", ".join(fields)
     qmarks = ", ".join("?" for _ in fields)
@@ -146,4 +163,6 @@ def _upsert(conn: sqlite3.Connection, values: dict, existing) -> dict:
     )
     conn.commit()
     row = conn.execute("SELECT * FROM startups WHERE id = ?", (cur.lastrowid,)).fetchone()
-    return dict(row)
+    result = dict(row)
+    result["_inserted"] = True
+    return result

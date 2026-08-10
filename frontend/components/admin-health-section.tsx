@@ -1,0 +1,309 @@
+"use client";
+
+import * as React from "react";
+import { CheckCircle2, Loader2, Play, RefreshCw, TriangleAlert } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { AdminUnauthorized, approveSuggested, currentVerification, runVerification, verificationStatus } from "@/lib/api";
+import type { VerifyJob } from "@/lib/types";
+import { BucketItem, SummaryRow } from "@/components/admin-shared";
+
+/** Website Health Check section — the automated liveness pass. Same progress
+ * bar + breakdown as before, plus three expandable output buckets
+ * (Already verified / Suggested verified / Failed) with open-link and
+ * Mark-verified actions on Suggested + Failed rows. */
+export function HealthCheckSection({
+  expanded,
+  onToggle,
+  onSeeded,
+  onLocked,
+}: {
+  expanded: Set<string>;
+  onToggle: (key: string) => void;
+  onSeeded: () => void;
+  onLocked: (msg?: string) => void;
+}) {
+  const [job, setJob] = React.useState<VerifyJob | null>(null);
+  const [starting, setStarting] = React.useState(false);
+  const [confirm, setConfirm] = React.useState<{ id: number; name: string } | null>(null);
+  const [approving, setApproving] = React.useState(false);
+
+  const pct =
+    job && job.total > 0 ? Math.min(100, Math.round((job.done / job.total) * 100)) : 0;
+  const b = job?.breakdown ?? { verified: 0, unverified: 0, dead: 0 };
+  const result = job?.result;
+
+  const pollRef = React.useRef<((jobId: string) => void) | null>(null);
+  const poll = React.useCallback(
+    async (jobId: string) => {
+      const s = await verificationStatus(jobId);
+      setJob(s);
+      if (s.status === "queued" || s.status === "running") {
+        window.setTimeout(() => pollRef.current?.(jobId), 2000);
+      } else {
+        setStarting(false);
+        onSeeded();
+        if (s.status === "failed") {
+          toast.error("Verification job failed", {
+            description: s.errors[0] ?? "See the panel for details.",
+          });
+        } else {
+          toast.success(`Verified ${s.result?.ok ?? 0}/${s.total} · ${s.result?.flagged ?? 0} flagged`, {
+            description:
+              (s.result?.dead_flipped.length ?? 0) > 0
+                ? `Filed dead: ${s.result?.dead_flipped.join(", ")}`
+                : "No dead entries flipped.",
+          });
+        }
+      }
+    },
+    [onSeeded],
+  );
+  React.useEffect(() => {
+    pollRef.current = poll;
+  }, [poll]);
+
+  // Re-attach to an in-flight pass when the section mounts (cron-triggered or
+  // started in an earlier session — the worker keeps going server-side).
+  React.useEffect(() => {
+    let cancelled = false;
+    void currentVerification().then((active) => {
+      if (cancelled || !active) return;
+      setJob(active);
+      void poll(active.id);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [poll]);
+
+  const start = async () => {
+    if (starting || job?.status === "running" || job?.status === "queued") return;
+    setStarting(true);
+    setJob(null);
+    try {
+      const { job_id } = await runVerification();
+      void poll(job_id);
+    } catch (err) {
+      setStarting(false);
+      toast.error(err instanceof Error ? err.message : "Failed to start verification");
+    }
+  };
+
+  const approveOne = async () => {
+    if (!confirm) return;
+    setApproving(true);
+    try {
+      const r = await approveSuggested([confirm.id]);
+      toast.success(`${r.approved} website${r.approved === 1 ? "" : "s"} verified`);
+      onSeeded();
+      setConfirm(null);
+    } catch (err) {
+      if (err instanceof AdminUnauthorized) {
+        onLocked("Admin session expired — re-enter your token");
+      } else {
+        toast.error(err instanceof Error ? err.message : "Approval failed");
+      }
+    } finally {
+      setApproving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3 pt-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">
+          Walks every website + GitHub repo and files dead links after 3 consecutive
+          failures. Never touches the verified stamp — that&apos;s the Verification section&apos;s
+          job. Runs alongside seeding (separate worker).
+        </p>
+        <Button onClick={start} disabled={starting || job?.status === "running" || job?.status === "queued"} size="sm" className="shrink-0">
+          {starting ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : job?.status === "running" || job?.status === "queued" ? (
+            <RefreshCw className="h-4 w-4 animate-spin" />
+          ) : (
+            <Play className="h-4 w-4" />
+          )}
+          {job?.status === "running" || job?.status === "queued" ? "Running…" : "Run verification"}
+        </Button>
+      </div>
+
+      {job && (
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <div className="flex items-baseline justify-between text-xs">
+              <span className="font-medium text-foreground">
+                {job.done}/{job.total} checked
+              </span>
+              <span className="font-mono tabular-nums text-muted-foreground">{pct}%</span>
+            </div>
+            <Progress value={pct} className="h-1.5" />
+          </div>
+
+          {/* Breakdown — the archive composition at check time */}
+          <dl className="grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-lg bg-background/60 p-2">
+              <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Verified</dt>
+              <dd className="font-mono text-lg font-bold tabular-nums text-success">{b.verified}</dd>
+            </div>
+            <div className="rounded-lg bg-background/60 p-2">
+              <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Unverified</dt>
+              <dd className="font-mono text-lg font-bold tabular-nums text-muted-foreground">{b.unverified}</dd>
+            </div>
+            <div className="rounded-lg bg-background/60 p-2">
+              <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Dead</dt>
+              <dd className="font-mono text-lg font-bold tabular-nums text-destructive">{b.dead}</dd>
+            </div>
+          </dl>
+
+          {job.status === "running" || job.status === "queued" ? (
+            <>
+              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                {job.status === "queued" ? (
+                  <>Queued #{job.queue_position ?? "?"} — waiting for the current run to finish…</>
+                ) : job.current ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Checking {job.current}…
+                  </>
+                ) : (
+                  "Preparing…"
+                )}
+              </p>
+              {job.failed > 0 && (
+                <div className="space-y-1">
+                  <button
+                    type="button"
+                    onClick={() => onToggle(`herr:${job.id}`)}
+                    className="flex items-center gap-1 text-xs font-medium text-destructive"
+                  >
+                    <TriangleAlert className="h-3 w-3" />
+                    {job.failed} failed — show details
+                  </button>
+                  {expanded.has(`herr:${job.id}`) && (
+                    <ul className="max-h-32 space-y-1 overflow-y-auto rounded bg-background/60 p-2 text-[11px] text-muted-foreground">
+                      {job.errors.map((err, i) => (
+                        <li key={i} className="break-words font-mono text-[10px]">{err}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            /* Terminal — three expandable output buckets */
+            <div className="space-y-1.5">
+              <SummaryRow
+                label="Already verified"
+                count={result?.already_verified.length ?? 0}
+                items={(result?.already_verified ?? []).map((x) => x.name)}
+                open={expanded.has(`halready:${job.id}`)}
+                onToggle={() => onToggle(`halready:${job.id}`)}
+                tone="default"
+              />
+              <div className="rounded-lg bg-background/60">
+                <button
+                  type="button"
+                  onClick={() => onToggle(`hsuggested:${job.id}`)}
+                  disabled={(result?.suggested.length ?? 0) === 0}
+                  className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-[11px] font-medium text-foreground transition-colors hover:bg-accent/50 disabled:cursor-default"
+                >
+                  {(result?.suggested.length ?? 0) > 0 ? (
+                    expanded.has(`hsuggested:${job.id}`) ? (
+                      <CheckCircle2 className="h-3 w-3 shrink-0" />
+                    ) : (
+                      <CheckCircle2 className="h-3 w-3 shrink-0" />
+                    )
+                  ) : (
+                    <span className="w-3 shrink-0" />
+                  )}
+                  Suggested verified <span className="tabular-nums">{result?.suggested.length ?? 0}</span>
+                </button>
+                {expanded.has(`hsuggested:${job.id}`) && (result?.suggested.length ?? 0) > 0 && (
+                  <ul className="max-h-40 space-y-1 overflow-y-auto px-2 pb-2">
+                    {result?.suggested.map((x) => (
+                      <BucketItem
+                        key={x.id}
+                        name={x.name}
+                        url={x.url}
+                        onApprove={() => setConfirm({ id: x.id, name: x.name })}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="rounded-lg bg-background/60">
+                <button
+                  type="button"
+                  onClick={() => onToggle(`hfailed:${job.id}`)}
+                  disabled={(result?.failed_list.length ?? 0) === 0}
+                  className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-[11px] font-medium text-destructive transition-colors hover:bg-accent/50 disabled:cursor-default"
+                >
+                  {(result?.failed_list.length ?? 0) > 0 ? (
+                    expanded.has(`hfailed:${job.id}`) ? (
+                      <TriangleAlert className="h-3 w-3 shrink-0" />
+                    ) : (
+                      <TriangleAlert className="h-3 w-3 shrink-0" />
+                    )
+                  ) : (
+                    <span className="w-3 shrink-0" />
+                  )}
+                  Failed <span className="tabular-nums">{result?.failed_list.length ?? 0}</span>
+                </button>
+                {expanded.has(`hfailed:${job.id}`) && (result?.failed_list.length ?? 0) > 0 && (
+                  <ul className="max-h-40 space-y-1 overflow-y-auto px-2 pb-2">
+                    {result?.failed_list.map((x) => (
+                      <BucketItem
+                        key={x.id}
+                        name={x.name}
+                        url={x.url}
+                        reason={x.reason}
+                        onApprove={() => setConfirm({ id: x.id, name: x.name })}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Confirm dialog — marking verified from the buckets is a human decision */}
+      <Dialog
+        open={confirm !== null}
+        onOpenChange={(v) => {
+          if (!v && !approving) setConfirm(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Mark {confirm?.name ?? ""} as verified?</DialogTitle>
+            <DialogDescription>
+              The automated check flagged this entry, but the verified stamp is a human
+              decision — confirm this startup actually exists.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button variant="ghost" onClick={() => setConfirm(null)} disabled={approving}>
+              Cancel
+            </Button>
+            <Button onClick={approveOne} disabled={approving}>
+              {approving && <Loader2 className="h-4 w-4 animate-spin" />}
+              Confirm verified
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

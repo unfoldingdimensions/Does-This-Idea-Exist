@@ -12,7 +12,7 @@ colors:
   hairline: "oklch(0.85 0.02 80 / 0.65)"
   sage-verified: "oklch(0.49 0.09 150)"
   brick-dead: "oklch(0.53 0.135 30)"
-  charcoal: "oklch(0.212 0.012 60)"
+  charcoal: "oklch(0.215 0.014 262)"
   warm-beige-text: "oklch(0.93 0.024 85)"
   beige-primary: "oklch(0.88 0.03 85)"
 typography:
@@ -89,7 +89,7 @@ components:
 
 **Creative North Star: "The Archive Behind Frosted Glass"**
 
-IdeaExists is a verification-first directory of startups — the product answers one question: *does this startup exist?* The Warm Glass world makes that archive literal: the data lives behind frosted panels you can see dimly before you open them, and every surface reads like a hand-kept card catalog touched by warm light. Light mode is a warm beige desk under deep navy ink; dark mode is a charcoal reading room where the beige comes back as candlelit text. The glass is never cold 2021-dashboard blue-white — it is translucent warmth over calm bases, hairline-bordered, with a soft top-edge highlight like light catching a pane.
+IdeaExists is a verification-first directory of startups — the product answers one question: *does this startup exist?* The Warm Glass world makes that archive literal: the data lives behind frosted panels you can see dimly before you open them, and every surface reads like a hand-kept card catalog touched by warm light. Light mode is a warm beige desk under deep navy ink; dark mode is a cool charcoal reading room where the beige comes back as candlelit text, sitting under the same indigo night as the sky. The glass is never cold 2021-dashboard blue-white — it is translucent warmth over calm bases, hairline-bordered, with a soft top-edge highlight like light catching a pane.
 
 The system is deliberately restrained: glass without blob gradients, ease-out motion without bounce, one morphing hero interaction, cards that expand with shared-layout motion. Personality lives in the details — mono "ledger" data runs, deterministic-hue initial avatars, worded status tooltips, and dry-warm curator copy — never in decoration. The interface recedes so the archive and its trust layer lead.
 
@@ -116,7 +116,7 @@ The palette is warm-neutral with a single deep navy anchor (light) that inverts 
 - **Warm Grey Soft** (oklch(0.92 0.018 82)): muted fills, hover beds.
 - **Deep Beige** (oklch(0.885 0.022 82)): accent/hover tint.
 - **Hairline** (oklch(0.85 0.02 80 / 0.65)): borders and dividers — the glass edge.
-- **Charcoal** (oklch(0.212 0.012 60)): dark background — warm charcoal, not black.
+- **Charcoal** (oklch(0.215 0.014 262)): dark background — cool charcoal reading-room base, deliberately in the same 262 family as the moon-night sky so cards, popovers and glass never read brown against it.
 - **Warm Beige Text** (oklch(0.93 0.024 85)): dark-mode foreground.
 
 ### Named Rules
@@ -198,9 +198,10 @@ The form language is **pill + soft card.** Everything interactive that sits in a
 - **State:** `aria-pressed` on the active chip; wraps to a second row on desktop, scrolls on mobile; the active chip auto-scrolls into view.
 
 ### Status Pill (the trust layer)
-- **Style:** dot (6px) + label (+ icon for Verified/Dead); verified = sage tint bg + sage text, dead = brick tint + brick text, unverified = grey.
-- **State:** **The unverified pill is a two-step button** — first click arms it ("Confirm?" with a navy dot, tooltip "Click again to confirm — this stamps the entry as human-verified"), second click fires mark-verified; auto-disarms after 4s. The human gate never flips on a stray click.
-- **Tooltip:** worded microcopy on every status ("A human checked this on <date> — it's alive." / "Checked 3 times, link dead each time. Filed, never deleted.").
+- **Style:** dot (6px) + label (+ icon for Verified/Dead); verified = sage tint bg + sage text, dead = brick tint + brick text, unverified = grey. Full pill, px-2.5 py-0.5.
+- **State:** **The pill is a button in every state** (verified, unverified, dead) — the trust layer is editable by the curator, not a read-only badge. Clicking opens a small glass menu with the three trust states (Verified / Unverified / Dead, current state checked); picking one raises a themed confirm dialog ("Mark X as verified?" / "Mark X as dead?") with **Discard / Confirm** — the human gate never flips on a stray click. Confirm copy states the consequence (verify: "reversible — you can unverify it later"; dead: "stays in the archive, never deleted"). All three transitions are reversible: verifying a filed-dead entry revives it to active.
+- **Tooltip:** worded microcopy on every status lives in the menu header ("A human checked this on <date> — it's alive." / "Checked 3 times, link dead each time. Filed, never deleted."); the read-only badge (no status handler wired) keeps the hover tooltip instead.
+- **Endpoints:** `POST /api/startups/{id}/verify` (sets verified + verified_at, revives dead → active), `POST /api/startups/{id}/unverify` (clears the stamp), `POST /api/startups/{id}/dead` (status='dead', clears the stamp). All three return the updated row.
 
 ### Search Field
 - **Style:** full pill inside the discovery bar, glass-white field, mono text, placeholder "Search the archive…", `focus-within:ring-2 ring/50`.
@@ -216,7 +217,16 @@ The form language is **pill + soft card.** Everything interactive that sits in a
 
 ### Navigation
 - **Header:** sticky frosted bar (bg-background/55 + backdrop-blur-xl, hairline bottom border), h-14, max-w-6xl; brand wordmark "IdeaExists" in Space Grotesk bold + tagline (sm+); right cluster = split "Add startup" button + theme toggle.
-- **Footer:** frosted bar, mono stamps (startups/verified counts with live dots), mantra "Dead is a status, not an erasure. Kept by a human, checked weekly.", privacy line, admin gear + "Run verification" on the right.
+- **Footer:** frosted bar, mono stamps (startups/verified counts with live dots), mantra "Dead is a status, not an erasure. Kept by a human, checked weekly.", privacy line, admin gear on the right (single entry point — verification lives inside the panel).
+
+### Admin Panel (vertical settings surface)
+- **Dialog:** `sm:max-w-2xl`, charcoal glass-strong surface; content scrolls inside the dialog (`max-h-[65vh] overflow-y-auto`) when the queue is long.
+- **Unlock:** password input for `ADMIN_TOKEN`; the token persists in `sessionStorage` for the tab.
+- **Sections:** three collapsible rows (chevron headers, one open at a time) — **Seeding** / **Verification** / **Website Health Check** — each with a sub-tab split (Run · Seed summary / Approve · Verification summary).
+- **Seeding:** five equal-width glass source tabs (Famous list / GitHub search / URL list / Top Startups / Design library) + per-run cap input (1–500). Run button reads "Queue seed" while a run is active. **In progress** cards: source label, queue position badge ("queued #N"), mono `done/total · % · ok · exist · failed` counts, slim progress bar, "Fetching <url>…" line while running, expandable red failure list. **The seed queue is serial** — the seed worker drains FIFO and never runs two sources in parallel (contamination guard); verification runs on a separate worker at the same time.
+- **Verification (human gate):** header shows last verification date + verified count; the **suggested-verified queue** lists alive-but-unstamped entries (scrollable `max-h-72`), each row = name (truncate) + external "open" link + **Mark verified**; a **Mark all** button bulk-approves; **every approval is behind the themed confirm dialog**. **Verification summary** shows persisted runs with Already/Suggested/Failed expandable buckets.
+- **Website Health Check:** Run button + live progress bar + Verified/Unverified/Dead breakdown + current-check line; on completion, three expandable buckets (Already verified / Suggested verified / Failed) — Suggested + Failed rows get open-link + Mark verified.
+- **Persistence:** every job writes to the `jobs` table (JSON columns) as it runs and on completion — summaries survive backend restarts; interrupted jobs are marked `failed (interrupted)` at startup. The panel polls `/api/admin/seed/jobs` every 2s while any job is active (even when closed, so a finishing run refreshes the archive), and re-attaches on reopen.
 
 ### Signature Component: Morphing Discovery Bar
 The product's focal interaction: a single glass panel (max-w-3xl, rounded-[1.75rem] — a 28px radius that reads as a pill on one row and stays correct when chips wrap) containing (a) an always-visible search input (h-11, glass-white field, mono, with a clear-× when a query is active) and (b) a category chip row whose active pill **morphs** between chips via shared-layout motion (ease-out 0.35s, zero-duration under reduced motion). Chips **wrap to a second row on desktop** so no category hides behind scroll; on mobile the row scrolls horizontally (thin visible scrollbar + wheel + drag), and the active chip auto-scrolls into view on selection. LayoutGroup-wrapped so the panel transitions smoothly; this is the one hero moment and it must stay the only one.

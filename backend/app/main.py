@@ -1,5 +1,6 @@
 """IdeaExists API — local FastAPI backend (:8020)."""
 import hmac
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
@@ -8,11 +9,41 @@ from pydantic import BaseModel
 
 from . import config, db, enrich, seeder, verify
 
+log = logging.getLogger("ideasexist")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
+    seeder.recover_interrupted_jobs()  # restart recovery: queued/running → failed(interrupted)
+    _maybe_auto_verify()
     yield
+
+
+def _maybe_auto_verify() -> None:
+    """Set-and-forget: if the archive hasn't been checked recently (or at all),
+    enqueue a verification pass at startup. Fails quietly on any guard — the
+    weekly cron + the manual button are the primary triggers."""
+    days = config.VERIFY_AUTO_STALE_DAYS
+    if days <= 0:
+        return
+    conn = db.connect()
+    try:
+        # Stale = never checked, or last check older than the threshold.
+        stale = conn.execute(
+            "SELECT COUNT(*) AS c FROM startups "
+            "WHERE last_checked IS NULL OR last_checked < datetime('now', ?)",
+            (f"-{days} days",),
+        ).fetchone()["c"]
+    finally:
+        conn.close()
+    if stale == 0:
+        return
+    try:
+        job_id = verify.start_verification()
+    except RuntimeError:
+        return  # a pass is already queued/running — nothing to do
+    log.info("auto-verify: %s stale entries → verify job %s", stale, job_id)
 
 
 app = FastAPI(title="IdeaExists API", version="0.1.0", lifespan=lifespan)
@@ -69,6 +100,38 @@ def seed_status(job_id: str) -> dict:
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
+
+
+@admin.get("/seed/jobs")
+def seed_jobs() -> list[dict]:
+    """Every seed job — active first (running, then queued), then finished.
+    The panel re-attaches to live progress on open via this list."""
+    return seeder.list_jobs()
+
+
+class ApproveIn(BaseModel):
+    ids: list[int] | None = None
+    approve_all: bool = False
+
+
+@admin.get("/verify/suggested")
+def admin_suggested() -> list[dict]:
+    """Human-approval queue — entries the automated check considers alive (or
+    never checked) that no human has stamped yet."""
+    return verify.list_suggested()
+
+
+@admin.post("/verify/approve")
+def admin_approve(body: ApproveIn) -> dict:
+    """Bulk human gate: stamp verified=1 on the given ids or every suggested
+    row. The ONLY bulk writer of verified=1 — automation never stamps."""
+    if body.approve_all:
+        n = verify.approve_suggested(approve_all=True)
+    elif body.ids:
+        n = verify.approve_suggested(ids=body.ids)
+    else:
+        raise HTTPException(status_code=400, detail="Provide ids or approve_all=true")
+    return {"approved": n}
 
 
 @app.get("/api/health")
@@ -137,16 +200,78 @@ def seed_website(body: WebsiteSeedIn) -> dict:
 
 @app.post("/api/verify/run")
 def run_verification() -> dict:
-    return verify.run_verification()
+    """Enqueue a verification pass — returns immediately with a job_id; poll
+    /api/verify/status/{job_id} for progress. Serialized on the seed queue."""
+    try:
+        job_id = verify.start_verification()
+    except RuntimeError as exc:  # a verify pass is already queued/running
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"job_id": job_id}
+
+
+@app.get("/api/verify/status/{job_id}")
+def verify_status(job_id: str) -> dict:
+    job = verify.get_verify_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+@app.get("/api/verify/current")
+def verify_current() -> dict | None:
+    """The active (queued/running) verification job, or None. Lets the panel
+    re-attach to a pass already in flight (cron-triggered or from an earlier
+    click) instead of starting a second one."""
+    return verify.get_active_verify_job()
 
 
 @app.post("/api/startups/{startup_id}/verify")
 def mark_verified(startup_id: int) -> dict:
-    """Human gate: confirm a startup exists → verified badge + verified_at."""
+    """Human gate: confirm a startup exists → verified badge + verified_at.
+
+    Also revives a filed entry: a human confirming a dead site is alive
+    un-files it (status back to 'active') — the trust layer is reversible.
+    """
     conn = db.connect()
     try:
         cur = conn.execute(
-            "UPDATE startups SET verified = 1, verified_at = datetime('now') WHERE id = ?",
+            "UPDATE startups SET verified = 1, verified_at = datetime('now'), status = 'active' WHERE id = ?",
+            (startup_id,),
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Startup not found")
+        conn.commit()
+        row = conn.execute("SELECT * FROM startups WHERE id = ?", (startup_id,)).fetchone()
+        return dict(row)
+    finally:
+        conn.close()
+
+
+@app.post("/api/startups/{startup_id}/unverify")
+def mark_unverified(startup_id: int) -> dict:
+    """Human gate: revoke the verified stamp → back to unverified (active)."""
+    conn = db.connect()
+    try:
+        cur = conn.execute(
+            "UPDATE startups SET verified = 0, verified_at = NULL, status = 'active' WHERE id = ?",
+            (startup_id,),
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Startup not found")
+        conn.commit()
+        row = conn.execute("SELECT * FROM startups WHERE id = ?", (startup_id,)).fetchone()
+        return dict(row)
+    finally:
+        conn.close()
+
+
+@app.post("/api/startups/{startup_id}/dead")
+def mark_dead(startup_id: int) -> dict:
+    """Human gate: file as dead — checked and gone. Filed, never deleted."""
+    conn = db.connect()
+    try:
+        cur = conn.execute(
+            "UPDATE startups SET status = 'dead', verified = 0, verified_at = NULL WHERE id = ?",
             (startup_id,),
         )
         if cur.rowcount == 0:

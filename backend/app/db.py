@@ -36,6 +36,27 @@ CREATE TABLE IF NOT EXISTS verify_log (
   github_ok INTEGER,
   notes TEXT
 );
+CREATE TABLE IF NOT EXISTS jobs (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  source TEXT NOT NULL,
+  params_json TEXT,
+  status TEXT NOT NULL,
+  total INTEGER DEFAULT 0,
+  done INTEGER DEFAULT 0,
+  ok INTEGER DEFAULT 0,
+  skipped INTEGER DEFAULT 0,
+  failed INTEGER DEFAULT 0,
+  errors_json TEXT,
+  ok_urls_json TEXT,
+  skipped_urls_json TEXT,
+  current TEXT,
+  created_at REAL,
+  started_at REAL,
+  finished_at REAL,
+  breakdown_json TEXT,
+  result_json TEXT
+);
 """
 
 
@@ -44,6 +65,9 @@ def connect() -> sqlite3.Connection:
     conn = sqlite3.connect(config.DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    # Parallel workers (seed ∥ verify) are both writers — wait briefly for the
+    # other's commit instead of failing with "database is locked".
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 

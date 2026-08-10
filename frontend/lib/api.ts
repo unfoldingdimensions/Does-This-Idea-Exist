@@ -1,4 +1,4 @@
-import type { CategoryCount, SeedJob, Startup, Stats, VerifyResult } from "./types";
+import type { CategoryCount, SeedJob, Startup, Stats, SuggestedStartup, VerifyJob } from "./types";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8020";
 
@@ -49,12 +49,44 @@ export function seedByWebsite(websiteUrl: string, name?: string): Promise<Startu
   });
 }
 
-export function runVerification(): Promise<VerifyResult> {
-  return json<VerifyResult>(`${API_BASE}/api/verify/run`, { method: "POST" });
+export function runVerification(): Promise<{ job_id: string }> {
+  return json<{ job_id: string }>(`${API_BASE}/api/verify/run`, { method: "POST" });
+}
+
+export function verificationStatus(jobId: string): Promise<VerifyJob> {
+  return json<VerifyJob>(`${API_BASE}/api/verify/status/${jobId}`, { cache: "no-store" });
+}
+
+export function currentVerification(): Promise<VerifyJob | null> {
+  return json<VerifyJob | null>(`${API_BASE}/api/verify/current`, { cache: "no-store" });
+}
+
+export function fetchSuggested(): Promise<SuggestedStartup[]> {
+  return adminJson<SuggestedStartup[]>(`${API_BASE}/api/admin/verify/suggested`, {
+    cache: "no-store",
+  });
+}
+
+export function approveSuggested(ids?: number[], approveAll?: boolean): Promise<{ approved: number }> {
+  return adminJson<{ approved: number }>(`${API_BASE}/api/admin/verify/approve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(
+      approveAll ? { approve_all: true } : { ids },
+    ),
+  });
 }
 
 export function markVerified(id: number): Promise<Startup> {
   return json<Startup>(`${API_BASE}/api/startups/${id}/verify`, { method: "POST" });
+}
+
+export function markUnverified(id: number): Promise<Startup> {
+  return json<Startup>(`${API_BASE}/api/startups/${id}/unverify`, { method: "POST" });
+}
+
+export function markDead(id: number): Promise<Startup> {
+  return json<Startup>(`${API_BASE}/api/startups/${id}/dead`, { method: "POST" });
 }
 
 // --- Admin (owner-only seeder) ---
@@ -126,4 +158,8 @@ export function startSeed(source: string, params: Record<string, unknown>): Prom
 
 export function seedStatus(jobId: string): Promise<SeedJob> {
   return adminJson<SeedJob>(`${API_BASE}/api/admin/seed/status/${jobId}`);
+}
+
+export function fetchSeedJobs(): Promise<SeedJob[]> {
+  return adminJson<SeedJob[]>(`${API_BASE}/api/admin/seed/jobs`);
 }

@@ -18,7 +18,6 @@ import {
   MousePointerClick,
   Palette,
   Plane,
-  RefreshCw,
   ServerCrash,
   Share2,
   ShieldCheck,
@@ -30,23 +29,23 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { StartupCard } from "@/components/startup-card";
+import { StartupCard, type StatusChoice } from "@/components/startup-card";
 import { AddStartupDialog } from "@/components/add-startup-dialog";
 import { AdminPanel } from "@/components/admin-panel";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { scrollPageToTop } from "@/components/lenis-provider";
 import { FilterBar } from "@/components/filter-bar";
 import { StartupDetail } from "@/components/startup-detail";
 import { HomeSections } from "@/components/home-sections";
 import { MorphingDiscoveryBar, type DiscoveryCategory } from "@/components/ui/morphing-discovery-bar";
 import { SplitButton } from "@/components/ui/split-button";
 import { ContinuousPagination } from "@/components/ui/continuous-pagination";
-import { fetchStartups, fetchCategories, fetchStats, runVerification, markVerified } from "@/lib/api";
+import { fetchStartups, fetchCategories, fetchStats, markVerified, markUnverified, markDead } from "@/lib/api";
 import { CountUp } from "@/components/count-up";
 import { filterStartups, sortStartups, foundedYear } from "@/lib/search";
 import type { SortKey } from "@/lib/search";
 import { formatDate, titleCase } from "@/lib/format";
 import type { CategoryCount, Startup, Stats } from "@/lib/types";
-import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 24;
 
@@ -114,7 +113,6 @@ export default function HomePage() {
   const [page, setPage] = React.useState(() => readInitialParams().page);
   const [loading, setLoading] = React.useState(true);
   const [online, setOnline] = React.useState(true);
-  const [verifying, setVerifying] = React.useState(false);
   const [detail, setDetail] = React.useState<Startup | null>(null);
   const [addOpen, setAddOpen] = React.useState(false);
   const [addTab, setAddTab] = React.useState<"github" | "website">("github");
@@ -166,6 +164,16 @@ export default function HomePage() {
     () => results.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
     [results, currentPage],
   );
+
+  // Page switch = content swap + glide back to the top, so the reader never
+  // lands mid-page (pagination sits at the bottom; without the scroll the next
+  // page opens at its own bottom — reported jank). Driven through Lenis so the
+  // glide matches the app's inertial feel; instant under reduced motion.
+  const changePage = (p: number) => {
+    if (p === currentPage) return;
+    setPage(p);
+    scrollPageToTop();
+  };
 
   // Filter/sort changes reset to page 1 — done in the setters (no effects).
   const changeQuery = (q: string) => {
@@ -237,34 +245,26 @@ export default function HomePage() {
     void loadAll();
   };
 
-  const handleVerify = async () => {
-    if (verifying) return;
-    setVerifying(true);
+  const handleStatusChange = async (s: Startup, choice: StatusChoice) => {
     try {
-      const r = await runVerification();
-      toast.success(`Verified ${r.ok}/${r.checked} · ${r.flagged} flagged`, {
-        description:
-          r.dead_flipped.length > 0
-            ? `Archived: ${r.dead_flipped.join(", ")}`
-            : "No dead entries flipped.",
-      });
-      await loadAll();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Verification failed");
-    } finally {
-      setVerifying(false);
-    }
-  };
-
-  const handleMarkVerified = async (s: Startup) => {
-    try {
-      const updated = await markVerified(s.id);
-      toast.success(`${updated.name} marked verified`);
+      const updated =
+        choice === "verified"
+          ? await markVerified(s.id)
+          : choice === "unverified"
+            ? await markUnverified(s.id)
+            : await markDead(s.id);
+      toast.success(
+        choice === "dead"
+          ? `${updated.name} filed as dead`
+          : choice === "unverified"
+            ? `${updated.name} marked unverified`
+            : `${updated.name} marked verified`,
+      );
       setStartups((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
       setDetail((d) => (d && d.id === updated.id ? updated : d)); // keep the open modal in sync
       void loadAll();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to mark verified");
+      toast.error(err instanceof Error ? err.message : "Status update failed");
     }
   };
 
@@ -427,12 +427,12 @@ export default function HomePage() {
                 <StartupCard
                   key={s.id}
                   startup={s}
-                  onVerified={handleMarkVerified}
+                  onStatusChange={handleStatusChange}
                   onDetails={setDetail}
                 />
               ))}
             </div>
-            <ContinuousPagination page={page} totalPages={totalPages} onPageChange={setPage} />
+            <ContinuousPagination page={page} totalPages={totalPages} onPageChange={changePage} />
           </>
         )}
 
@@ -442,7 +442,7 @@ export default function HomePage() {
           startups={startups}
           onClose={() => setDetail(null)}
           onNavigate={setDetail}
-          onVerified={handleMarkVerified}
+          onStatusChange={handleStatusChange}
         />
 
         {/* Add dialog — controlled by split-button / empty state */}
@@ -482,16 +482,6 @@ export default function HomePage() {
           </span>
           <div className="ml-auto flex items-center gap-1.5">
             <AdminPanel onSeeded={() => void loadAll()} />
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 gap-1.5 text-xs"
-              onClick={handleVerify}
-              disabled={verifying || !online}
-            >
-              <RefreshCw className={cn("h-3 w-3", verifying && "animate-spin")} />
-              Run verification
-            </Button>
           </div>
         </div>
       </footer>

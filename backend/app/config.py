@@ -17,6 +17,10 @@ LLM_API_KEY = os.getenv("OPENCODE_GO_API_KEY", "")
 # GitHub API: optional token for rate-limit headroom (unauth = 60 req/hr, plenty at this scale)
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "") or None
 
+# Auto-verify: kick a verification pass at startup if last_checked is older
+# than this many days (0 disables). Set-and-forget for a local-first app.
+VERIFY_AUTO_STALE_DAYS = int(os.getenv("VERIFY_AUTO_STALE_DAYS", "7"))
+
 # Admin seeder gate: single owner token ("knows it's me"). Empty = admin disabled.
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
 

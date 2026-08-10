@@ -1,13 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, ChevronRight, Loader2, Settings2, TriangleAlert } from "lucide-react";
+import { HeartPulse, Loader2, Settings2, Sprout, Stamp } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Progress } from "@/components/ui/progress";
 import {
   Dialog,
   DialogContent,
@@ -16,53 +14,61 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AdminUnauthorized,
   adminCheck,
   clearAdminToken,
+  fetchSeedJobs,
   getAdminToken,
-  seedStatus,
   setAdminToken,
-  startSeed,
 } from "@/lib/api";
 import type { SeedJob } from "@/lib/types";
+import { ACTIVE, SectionHeader } from "@/components/admin-shared";
+import { SeedSection } from "@/components/admin-seed-section";
+import { VerificationSection } from "@/components/admin-verify-section";
+import { HealthCheckSection } from "@/components/admin-health-section";
 
-const SOURCE_LABELS: Record<string, string> = {
-  famous: "Famous list",
-  github_search: "GitHub search",
-  url_list: "URL list",
-  topstartups: "Top Startups",
-  design_library: "Design library",
-};
+export type AdminSection = "seed" | "verify" | "health";
 
-type SeedSource =
-  | "famous"
-  | "github_search"
-  | "url_list"
-  | "topstartups"
-  | "design_library";
-
-/** Owner-only seeder: token unlock → source tabs → live job progress. Failures are loud. */
-export function AdminPanel({ onSeeded }: { onSeeded: () => void }) {
+/** Owner-only admin: vertical settings surface with three collapsible sections
+ * — Seeding (serial queue + seed summary), Verification (human gate: suggested
+ * queue + verify summary), Website Health Check (automated pass + buckets).
+ * Seed and verify jobs run on separate workers, so a seed and a verification
+ * can run at the same time; jobs persist to the jobs table and survive
+ * backend restarts. */
+export function AdminPanel({
+  onSeeded,
+  initialSection = "seed",
+}: {
+  onSeeded: () => void;
+  initialSection?: AdminSection;
+}) {
   const [open, setOpen] = React.useState(false);
   const [token, setToken] = React.useState<string | null>(() => getAdminToken());
   const [tokenInput, setTokenInput] = React.useState("");
   const [unlocking, setUnlocking] = React.useState(false);
   const [unlockMsg, setUnlockMsg] = React.useState("");
+  const [section, setSection] = React.useState<AdminSection>(initialSection);
+  const [jobs, setJobs] = React.useState<SeedJob[]>([]);
+  const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
 
-  const [source, setSource] = React.useState<SeedSource>("famous");
-  const [cap, setCap] = React.useState("30");
-  const [query, setQuery] = React.useState("stars:>10000");
-  const [urls, setUrls] = React.useState("");
-  const [busy, setBusy] = React.useState(false);
-  const [job, setJob] = React.useState<SeedJob | null>(null);
-  const [showErrors, setShowErrors] = React.useState(false);
+  const toggle = (key: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  const activeJobs = React.useMemo(
+    () => jobs.filter((j) => ACTIVE.has(j.status)),
+    [jobs],
+  );
 
   const handleLocked = (msg?: string) => {
     clearAdminToken();
     setToken(null);
-    setJob(null);
+    setJobs([]);
     if (msg) setUnlockMsg(msg);
   };
 
@@ -76,6 +82,7 @@ export function AdminPanel({ onSeeded }: { onSeeded: () => void }) {
       setAdminToken(tokenInput.trim());
       setToken(tokenInput.trim());
       setTokenInput("");
+      void refreshJobs();
     } catch (err) {
       setUnlockMsg(err instanceof Error ? err.message : "Unlock failed");
     } finally {
@@ -83,83 +90,96 @@ export function AdminPanel({ onSeeded }: { onSeeded: () => void }) {
     }
   };
 
-  const poll = async (jobId: string) => {
+  // Re-attach on every open: jobs keep going server-side (seed and verify
+  // workers), and reopening must show live progress + persisted history.
+  // Also keep the last-known active ids so a finishing run fires onSeeded
+  // exactly once.
+  const lastActiveIds = React.useRef<Set<string>>(new Set());
+  const refreshJobs = React.useCallback(async () => {
     try {
-      const s = await seedStatus(jobId);
-      setJob(s);
-      if (s.status === "queued" || s.status === "running") {
-        window.setTimeout(() => {
-          void poll(jobId);
-        }, 1500);
-      } else {
-        setBusy(false);
+      const list = await fetchSeedJobs();
+      setJobs(list);
+      const nowActive = new Set(
+        list.filter((j) => ACTIVE.has(j.status)).map((j) => j.id),
+      );
+      const justFinished = list.filter(
+        (j) =>
+          lastActiveIds.current.has(j.id) &&
+          !ACTIVE.has(j.status) &&
+          !nowActive.has(j.id),
+      );
+      lastActiveIds.current = nowActive;
+      if (justFinished.length > 0) {
         onSeeded();
-        if (s.status === "failed" || s.failed > 0) {
-          toast.error(`Seed finished — ${s.done} done · ${s.failed} failed`, {
-            description: s.errors[0] ?? "See the error list in the panel.",
-          });
-        } else {
-          toast.success(`Seed complete — ${s.ok} added/updated`);
+        for (const j of justFinished) {
+          if (j.kind === "verify") {
+            toast.success(
+              `Verification complete — ${j.result?.ok ?? j.ok}/${j.total} ok · ${j.failed} failed`,
+            );
+          } else if (j.status === "failed" || j.failed > 0) {
+            toast.error(`Seed finished — ${j.done} done · ${j.failed} failed`, {
+              description: j.errors[0] ?? "See the run summary in the panel.",
+            });
+          } else {
+            toast.success(
+              `Seed complete — ${j.ok} added · ${j.skipped} already on file`,
+            );
+          }
         }
       }
     } catch (err) {
-      setBusy(false);
       if (err instanceof AdminUnauthorized) {
         handleLocked("Admin session expired — re-enter your token");
         toast.error("Admin session expired");
-      } else {
-        toast.error(err instanceof Error ? err.message : "Failed to read seed status");
       }
     }
-  };
+  }, [onSeeded]);
 
-  const run = async () => {
-    const capNum = Number(cap);
-    if (!Number.isInteger(capNum) || capNum < 1 || capNum > 500) {
-      toast.error("Cap must be a whole number between 1 and 500");
-      return;
-    }
-    const params: Record<string, unknown> = { cap: capNum };
-    if (source === "github_search") params.query = query.trim();
-    if (source === "url_list") params.urls = urls;
-    setBusy(true);
-    setJob(null);
-    setShowErrors(false);
-    try {
-      const { job_id } = await startSeed(source, params);
-      void poll(job_id);
-    } catch (err) {
-      setBusy(false);
-      if (err instanceof AdminUnauthorized) {
-        handleLocked("Admin session expired — re-enter your token");
-        toast.error("Admin session expired");
-      } else {
-        toast.error(err instanceof Error ? err.message : "Failed to start seed");
-      }
-    }
-  };
+  React.useEffect(() => {
+    // Poll while any job is active — even with the panel closed, so a finishing
+    // run refreshes the archive (onSeeded) and reopen shows the result. The
+    // initial refresh happens in the open/unlock handlers (not here — react-hooks
+    // v7 forbids synchronous setState in effect bodies; the interval callback
+    // runs async, which is allowed).
+    if (!token || activeJobs.length === 0) return;
+    const t = window.setInterval(() => void refreshJobs(), 2000);
+    return () => window.clearInterval(t);
+  }, [token, activeJobs.length, refreshJobs]);
 
-  const progress = job && job.total > 0 ? Math.round((job.done / job.total) * 100) : 0;
+  const sections: { key: AdminSection; icon: React.ReactNode; title: string }[] = [
+    { key: "seed", icon: <Sprout className="h-4 w-4" />, title: "Seeding" },
+    { key: "verify", icon: <Stamp className="h-4 w-4" />, title: "Verification" },
+    { key: "health", icon: <HeartPulse className="h-4 w-4" />, title: "Website Health Check" },
+  ];
 
   return (
     <Dialog
       open={open}
       onOpenChange={(v) => {
         setOpen(v);
-        if (!v) setJob(null);
+        // Re-attach on every open — the workers keep going server-side.
+        if (v && token) void refreshJobs();
+        if (v) setSection(initialSection);
       }}
     >
       <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label="Admin panel" title="Admin — seeder" className="h-9 w-9">
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Admin panel"
+          title="Admin — settings"
+          className="h-9 w-9"
+        >
           <Settings2 className="h-4 w-4" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Admin — Seeder</DialogTitle>
+          <DialogTitle>Admin — settings</DialogTitle>
           <DialogDescription>
-            Batch-fetch startups from GitHub, the famous list, or pasted URLs. New entries start
-            unverified — review them before marking verified.
+            Seeding (one source at a time), the human verification gate, and the
+            automated website health check. Seed and verify runs work in parallel;
+            every run&apos;s history is kept across restarts.
           </DialogDescription>
         </DialogHeader>
 
@@ -184,123 +204,58 @@ export function AdminPanel({ onSeeded }: { onSeeded: () => void }) {
             </Button>
           </form>
         ) : (
-          <div className="space-y-4 pt-2">
-            <Tabs
-              value={source}
-              onValueChange={(v) => setSource(v as SeedSource)}
-            >
-              <TabsList className="grid w-full grid-cols-5 gap-1">
-                <TabsTrigger value="famous">Famous list</TabsTrigger>
-                <TabsTrigger value="github_search">GitHub search</TabsTrigger>
-                <TabsTrigger value="url_list">URL list</TabsTrigger>
-                <TabsTrigger value="topstartups">Top Startups</TabsTrigger>
-                <TabsTrigger value="design_library">Design library</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="famous" className="space-y-2 pt-2">
-                <p className="text-xs text-muted-foreground">
-                  Seeds from the bundled list of ~65 well-known startups
-                  (backend/data/seed_famous.json). Re-runs skip the LLM for entries already in the
-                  database.
-                </p>
-              </TabsContent>
-              <TabsContent value="github_search" className="space-y-2 pt-2">
-                <Label htmlFor="gh-q">GitHub search query</Label>
-                <Input
-                  id="gh-q"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="stars:>10000"
+          <div className="max-h-[65vh] space-y-2 overflow-y-auto pr-1 pt-2">
+            {sections.map((s) => (
+              <section key={s.key} className="space-y-2">
+                <SectionHeader
+                  icon={s.icon}
+                  title={s.title}
+                  open={section === s.key}
+                  onToggle={() => setSection(section === s.key ? "seed" : s.key)}
+                  badge={
+                    s.key === "seed" && activeJobs.some((j) => j.kind === "seed")
+                      ? `${activeJobs.filter((j) => j.kind === "seed").length} active`
+                      : undefined
+                  }
                 />
-                <p className="text-xs text-muted-foreground">
-                  Hottest repos matching the query, sorted by stars. Examples:{" "}
-                  <code>stars:&gt;50000</code>, <code>topic:dev-tools stars:&gt;1000</code>.
-                </p>
-              </TabsContent>
-              <TabsContent value="url_list" className="space-y-2 pt-2">
-                <Label htmlFor="urls">URLs — one per line (websites or GitHub repos)</Label>
-                <Textarea
-                  id="urls"
-                  rows={5}
-                  value={urls}
-                  onChange={(e) => setUrls(e.target.value)}
-                  placeholder={"https://example.com\nhttps://github.com/owner/repo"}
-                />
-              </TabsContent>
-              <TabsContent value="topstartups" className="space-y-2 pt-2">
-                <p className="text-xs text-muted-foreground">
-                  Scrapes topstartups.io (1,259 funded startups, ~20 per page) — company
-                  name + website per card, utm params stripped. Use a cap below ~40 per run
-                  to keep each batch quick.
-                </p>
-              </TabsContent>
-              <TabsContent value="design_library" className="space-y-2 pt-2">
-                <p className="text-xs text-muted-foreground">
-                  Seeds 201 curated product sites from the design-scope reference library
-                  (backend/data/seed_design_library.json) — real homepages captured with
-                  design fingerprints. Website-only; re-runs skip the LLM for entries
-                  already in the database.
-                </p>
-              </TabsContent>
-            </Tabs>
-
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="cap">Cap (per run)</Label>
-                <Input
-                  id="cap"
-                  type="number"
-                  min={1}
-                  max={500}
-                  value={cap}
-                  onChange={(e) => setCap(e.target.value)}
-                  className="w-28"
-                />
-              </div>
-              <Button onClick={run} disabled={busy} className="ml-auto">
-                {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-                Run seed
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">1–500 · pull 30+ in testing</p>
-
-            {job && (
-              <div className="space-y-2 rounded-lg bg-muted/40 p-3">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-medium">{SOURCE_LABELS[job.source] ?? job.source}</span>
-                  <span className="text-muted-foreground">
-                    {job.done}/{job.total} · <span className="text-success">{job.ok} ok</span>
-                    {job.failed > 0 && <span className="text-destructive"> · {job.failed} failed</span>}
-                  </span>
-                </div>
-                <Progress value={progress} className="h-1.5" />
-                {job.status === "running" && job.current && (
-                  <p className="truncate text-[11px] text-muted-foreground">Working on {job.current}</p>
-                )}
-                {job.failed > 0 && (
-                  <div className="space-y-1">
-                    <button
-                      type="button"
-                      onClick={() => setShowErrors((v) => !v)}
-                      className="flex items-center gap-1 text-xs font-medium text-destructive"
-                    >
-                      {showErrors ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                      <TriangleAlert className="h-3 w-3" />
-                      {job.failed} failed — show details
-                    </button>
-                    {showErrors && (
-                      <ul className="max-h-32 space-y-1 overflow-y-auto rounded bg-background/60 p-2 text-[11px] text-muted-foreground">
-                        {job.errors.map((err, i) => (
-                          <li key={i} className="break-words">
-                            {err}
-                          </li>
-                        ))}
-                      </ul>
+                {section === s.key && (
+                  <div className="rounded-lg bg-background/60 p-3">
+                    {s.key === "seed" && (
+                      <SeedSection
+                        jobs={jobs}
+                        expanded={expanded}
+                        onToggle={toggle}
+                        onSeeded={() => void refreshJobs()}
+                        onLocked={handleLocked}
+                      />
+                    )}
+                    {s.key === "verify" && (
+                      <VerificationSection
+                        jobs={jobs}
+                        expanded={expanded}
+                        onToggle={toggle}
+                        onSeeded={() => {
+                          onSeeded();
+                          void refreshJobs();
+                        }}
+                        onLocked={handleLocked}
+                      />
+                    )}
+                    {s.key === "health" && (
+                      <HealthCheckSection
+                        expanded={expanded}
+                        onToggle={toggle}
+                        onSeeded={() => {
+                          onSeeded();
+                          void refreshJobs();
+                        }}
+                        onLocked={handleLocked}
+                      />
                     )}
                   </div>
                 )}
-              </div>
-            )}
+              </section>
+            ))}
           </div>
         )}
       </DialogContent>
