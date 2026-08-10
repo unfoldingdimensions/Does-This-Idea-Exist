@@ -17,3 +17,7 @@ backend/data/*
 
 # misc
 .DS_Store
+
+# QA output
+.dogfood-output/
+dogfood-output/
