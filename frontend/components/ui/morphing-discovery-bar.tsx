@@ -121,30 +121,37 @@ export const MorphingDiscoveryBar: React.FC<MorphingDiscoveryBarProps> = ({
           <motion.div
             layout
             transition={morph}
-            className="relative flex h-11 w-44 shrink-0 items-center gap-2 rounded-full bg-background/80 px-4 transition-shadow focus-within:ring-2 focus-within:ring-ring/50 sm:w-64"
+            className="relative flex h-11 w-44 shrink-0 items-center gap-2 rounded-full bg-background/80 px-4 transition-shadow sm:w-64"
           >
-            <Search size={16} strokeWidth={2.5} className="shrink-0 text-muted-foreground" />
-            <input
-              aria-label="Search startups"
-              placeholder={placeholder}
-              className={cn(
-                "h-full w-full bg-transparent font-mono text-sm font-medium text-foreground outline-none placeholder:text-muted-foreground",
-                query && "pr-6",
+            {/* The ring target is a plain (non-motion) wrapper that owns the
+                input: framer-motion's layout projection writes an inline
+                transparent box-shadow on motion elements, which would clobber
+                a ring on this pill. :focus-within on the wrapper matches when
+                the input inside it is focused. */}
+            <div className="search-focus-ring flex h-full w-full items-center gap-2 rounded-full">
+              <Search size={16} strokeWidth={2.5} className="shrink-0 text-muted-foreground" />
+              <input
+                aria-label="Search startups"
+                placeholder={placeholder}
+                className={cn(
+                  "h-full w-full bg-transparent font-mono text-sm font-medium text-foreground outline-none placeholder:text-muted-foreground",
+                  query && "pr-6",
+                )}
+                value={query}
+                onChange={(e) => onQueryChange(e.target.value)}
+              />
+              {query && (
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  title="Clear search"
+                  onClick={() => onQueryChange("")}
+                  className="absolute right-2.5 flex size-5 items-center justify-center rounded-full bg-muted text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <X size={12} strokeWidth={2.5} />
+                </button>
               )}
-              value={query}
-              onChange={(e) => onQueryChange(e.target.value)}
-            />
-            {query && (
-              <button
-                type="button"
-                aria-label="Clear search"
-                title="Clear search"
-                onClick={() => onQueryChange("")}
-                className="absolute right-2.5 flex size-5 items-center justify-center rounded-full bg-muted text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                <X size={12} strokeWidth={2.5} />
-              </button>
-            )}
+            </div>
           </motion.div>
 
           {/* Category bar — All + top 3 inline, "More" opens the rest.

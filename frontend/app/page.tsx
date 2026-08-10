@@ -33,7 +33,7 @@ import { StartupCard, type StatusChoice } from "@/components/startup-card";
 import { AddStartupDialog } from "@/components/add-startup-dialog";
 import { AdminPanel } from "@/components/admin-panel";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { scrollPageToTop } from "@/components/lenis-provider";
+import { scrollPageToTop } from "@/components/scroll-utils";
 import { FilterBar } from "@/components/filter-bar";
 import { StartupDetail } from "@/components/startup-detail";
 import { HomeSections } from "@/components/home-sections";

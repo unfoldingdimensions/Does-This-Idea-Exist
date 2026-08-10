@@ -21,3 +21,6 @@ backend/data/*
 # QA output
 .dogfood-output/
 dogfood-output/
+
+# lighthouse QA artifacts
+scripts/lh-*.json

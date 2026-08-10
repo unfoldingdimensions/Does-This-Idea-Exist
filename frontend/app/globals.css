@@ -391,3 +391,12 @@
     backdrop-filter: none;
   }
 }
+
+/* Visible keyboard-focus indicator for the search pill (WCAG SC 2.4.7).
+   Hand-written box-shadow — the Tailwind `ring-*` utilities with the `ring`
+   token compile to a transparent shadow on this element (Tailwind v4
+   color-mix quirk: only the /30 tier renders; /50, /60 and full resolve to
+   oklab(0 0 0 / 0)). Plain CSS avoids the utility chain entirely. */
+.search-focus-ring:focus-within {
+  box-shadow: 0 0 0 2px var(--ring);
+}
