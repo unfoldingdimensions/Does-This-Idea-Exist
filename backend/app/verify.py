@@ -8,11 +8,10 @@ tri-state: a genuine 404 counts as a failure, but a rate-limit (403/429) is a
 SKIP — it never increments check_failures, so three rate-limited runs can't
 wrongly dead-flip healthy repos.
 """
-import httpx
 import time
 import uuid
 
-from . import db, github as gh
+from . import db, github as gh, netguard
 
 UA_BROWSER = {
     "User-Agent": (
@@ -31,9 +30,13 @@ def check_url_ok(url: str) -> tuple[bool, str]:
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
     try:
-        r = httpx.get(url, headers=UA_BROWSER, follow_redirects=True, timeout=15)
+        r = netguard.safe_get(url, headers=UA_BROWSER, timeout=15)
         ok = 200 <= r.status_code < 400
         return ok, f"HTTP {r.status_code}"
+    except netguard.BlockedAddressError as exc:
+        # SSRF guard refusal (non-public target). Counts as a failure with an
+        # honest note — a junk internal URL must not masquerade as alive.
+        return False, str(exc)[:80]
     except Exception as exc:  # noqa: BLE001 — report any failure, keep the pass going
         return False, str(exc)[:80]
 

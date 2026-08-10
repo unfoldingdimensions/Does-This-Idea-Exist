@@ -1,9 +1,12 @@
 """IdeaExists API — local FastAPI backend (:8020)."""
 import hmac
 import logging
+import threading
+import time
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -55,6 +58,66 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    """Minimal security headers on every API response (additive)."""
+    resp = await call_next(request)
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "no-referrer")
+    resp.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    return resp
+
+
+# --- Rate limiting: per-IP sliding window on mutating/admin endpoints ---
+_RATE: dict[tuple[str, str], deque] = defaultdict(deque)
+_RATE_LOCK = threading.Lock()
+
+
+def rate_limited(bucket: str, limit: int, window_s: float = 60.0):
+    """FastAPI dependency — at most `limit` requests per IP per window.
+
+    Read endpoints (search/stats/job polling) stay unlimited; this guards the
+    token gate (brute force) and the mutating endpoints (abuse / cost burn).
+    """
+
+    def dep(request: Request) -> None:
+        if not config.RATE_LIMIT_ENABLED:
+            return
+        key = (bucket, request.client.host if request.client else "unknown")
+        now = time.monotonic()
+        with _RATE_LOCK:
+            q = _RATE[key]
+            while q and now - q[0] > window_s:
+                q.popleft()
+            if len(q) >= limit:
+                raise HTTPException(status_code=429, detail="Too many requests — slow down a little")
+            q.append(now)
+
+    return dep
+
+
+# --- Failed-auth lockout: counts *failed* admin-token checks per IP so a
+# brute-force guesser burns quota, while legitimate (successful) usage and
+# read polling are never throttled. ---
+_FAILS: dict[tuple[str, str], deque] = defaultdict(deque)
+_FAILS_LOCK = threading.Lock()
+
+
+def _note_failed_auth(request: Request, bucket: str = "admin", limit: int = 10, window_s: float = 60.0) -> None:
+    if not config.RATE_LIMIT_ENABLED:
+        return
+    key = (bucket, request.client.host if request.client else "unknown")
+    now = time.monotonic()
+    with _FAILS_LOCK:
+        q = _FAILS[key]
+        while q and now - q[0] > window_s:
+            q.popleft()
+        q.append(now)
+        if len(q) > limit:
+            raise HTTPException(status_code=429, detail="Too many failed attempts — try again later")
+
+
 class GithubSeedIn(BaseModel):
     github_url: str
 
@@ -69,23 +132,35 @@ class SeedIn(BaseModel):
     params: dict = {}
 
 
-def require_admin(x_admin_token: str | None = Header(default=None)) -> None:
-    """Owner gate: ADMIN_TOKEN from the environment — fails loudly (403), never silently."""
+def require_admin(request: Request, x_admin_token: str | None = Header(default=None)) -> None:
+    """Owner gate: ADMIN_TOKEN from the environment — fails loudly (403), never
+    silently. Failed attempts are counted per IP (10/min) so brute-forcing the
+    token is throttled to a crawl."""
     if not config.ADMIN_TOKEN:
         raise HTTPException(403, "Admin disabled — set ADMIN_TOKEN in backend/.env")
     if not x_admin_token or not hmac.compare_digest(x_admin_token, config.ADMIN_TOKEN):
+        _note_failed_auth(request)
         raise HTTPException(403, "Invalid admin token")
+
+
+def require_mutation_auth(request: Request, x_admin_token: str | None = Header(default=None)) -> None:
+    """Mutations stay open by default (local-first UX — the status pill and Add
+    dialog work without unlocking admin). When MUTATION_AUTH=1 they demand the
+    same admin token as the admin router. Hosting MUST set MUTATION_AUTH=1."""
+    if not config.MUTATION_AUTH:
+        return
+    require_admin(request, x_admin_token)
 
 
 admin = APIRouter(prefix="/api/admin", dependencies=[Depends(require_admin)])
 
 
-@admin.get("/check")
+@admin.get("/check", dependencies=[Depends(rate_limited("admin_check", 20, 60))])
 def admin_check() -> dict:
     return {"ok": True}
 
 
-@admin.post("/seed")
+@admin.post("/seed", dependencies=[Depends(rate_limited("admin_seed", 20, 60))])
 def start_seed(body: SeedIn) -> dict:
     try:
         job_id = seeder.start_job(body.source, body.params)
@@ -121,7 +196,7 @@ def admin_suggested() -> list[dict]:
     return verify.list_suggested()
 
 
-@admin.post("/verify/approve")
+@admin.post("/verify/approve", dependencies=[Depends(rate_limited("approve", 60, 60))])
 def admin_approve(body: ApproveIn) -> dict:
     """Bulk human gate: stamp verified=1 on the given ids or every suggested
     row. The ONLY bulk writer of verified=1 — automation never stamps."""
@@ -139,8 +214,7 @@ def health() -> dict:
     return {
         "ok": True,
         "llm_model": config.LLM_MODEL,
-        "llm_configured": bool(config.LLM_API_KEY),
-        "db": str(config.DB_PATH),
+        "db": config.DB_PATH.name,
     }
 
 
@@ -178,7 +252,7 @@ def categories() -> list[dict]:
         conn.close()
 
 
-@app.post("/api/seed/github")
+@app.post("/api/seed/github", dependencies=[Depends(require_mutation_auth), Depends(rate_limited("seed_url", 20, 60))])
 def seed_github(body: GithubSeedIn) -> dict:
     try:
         return enrich.seed_from_github(body.github_url)
@@ -188,7 +262,7 @@ def seed_github(body: GithubSeedIn) -> dict:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
-@app.post("/api/seed/website")
+@app.post("/api/seed/website", dependencies=[Depends(require_mutation_auth), Depends(rate_limited("seed_url", 20, 60))])
 def seed_website(body: WebsiteSeedIn) -> dict:
     try:
         return enrich.seed_from_website(body.website_url, body.name)
@@ -198,7 +272,7 @@ def seed_website(body: WebsiteSeedIn) -> dict:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
-@app.post("/api/verify/run")
+@app.post("/api/verify/run", dependencies=[Depends(require_mutation_auth), Depends(rate_limited("verify_run", 10, 60))])
 def run_verification() -> dict:
     """Enqueue a verification pass — returns immediately with a job_id; poll
     /api/verify/status/{job_id} for progress. Serialized on the seed queue."""
@@ -225,7 +299,7 @@ def verify_current() -> dict | None:
     return verify.get_active_verify_job()
 
 
-@app.post("/api/startups/{startup_id}/verify")
+@app.post("/api/startups/{startup_id}/verify", dependencies=[Depends(require_mutation_auth), Depends(rate_limited("mutate", 60, 60))])
 def mark_verified(startup_id: int) -> dict:
     """Human gate: confirm a startup exists → verified badge + verified_at.
 
@@ -247,7 +321,7 @@ def mark_verified(startup_id: int) -> dict:
         conn.close()
 
 
-@app.post("/api/startups/{startup_id}/unverify")
+@app.post("/api/startups/{startup_id}/unverify", dependencies=[Depends(require_mutation_auth), Depends(rate_limited("mutate", 60, 60))])
 def mark_unverified(startup_id: int) -> dict:
     """Human gate: revoke the verified stamp → back to unverified (active)."""
     conn = db.connect()
@@ -265,7 +339,7 @@ def mark_unverified(startup_id: int) -> dict:
         conn.close()
 
 
-@app.post("/api/startups/{startup_id}/dead")
+@app.post("/api/startups/{startup_id}/dead", dependencies=[Depends(require_mutation_auth), Depends(rate_limited("mutate", 60, 60))])
 def mark_dead(startup_id: int) -> dict:
     """Human gate: file as dead — checked and gone. Filed, never deleted."""
     conn = db.connect()

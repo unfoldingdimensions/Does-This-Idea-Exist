@@ -78,15 +78,26 @@ export function approveSuggested(ids?: number[], approveAll?: boolean): Promise<
 }
 
 export function markVerified(id: number): Promise<Startup> {
-  return json<Startup>(`${API_BASE}/api/startups/${id}/verify`, { method: "POST" });
+  // Sends the admin token when unlocked (MUTATION_AUTH=1 mode); no token →
+  // no header → today's open local behavior.
+  return json<Startup>(`${API_BASE}/api/startups/${id}/verify`, {
+    method: "POST",
+    headers: adminHeaders(),
+  });
 }
 
 export function markUnverified(id: number): Promise<Startup> {
-  return json<Startup>(`${API_BASE}/api/startups/${id}/unverify`, { method: "POST" });
+  return json<Startup>(`${API_BASE}/api/startups/${id}/unverify`, {
+    method: "POST",
+    headers: adminHeaders(),
+  });
 }
 
 export function markDead(id: number): Promise<Startup> {
-  return json<Startup>(`${API_BASE}/api/startups/${id}/dead`, { method: "POST" });
+  return json<Startup>(`${API_BASE}/api/startups/${id}/dead`, {
+    method: "POST",
+    headers: adminHeaders(),
+  });
 }
 
 // --- Admin (owner-only seeder) ---

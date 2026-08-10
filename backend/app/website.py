@@ -7,6 +7,8 @@ from html.parser import HTMLParser
 
 import httpx
 
+from . import netguard
+
 log = logging.getLogger("ideasexist")
 
 UA_BROWSER = {
@@ -61,12 +63,14 @@ def _meta(html_str: str, name: str) -> str:
 
 
 def fetch_homepage(url: str) -> dict:
-    """Fetch a homepage; return final_url, title, meta description, visible text."""
+    """Fetch a homepage; return final_url, title, meta description, visible text.
+
+    Goes through the SSRF guard (netguard.safe_get): only public http(s)
+    targets, every redirect hop validated, 2 MB body cap.
+    """
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
-    r = httpx.get(
-        url, headers=UA_BROWSER, follow_redirects=True, timeout=25
-    )
+    r = netguard.safe_get(url, headers=UA_BROWSER, timeout=25)
     if r.status_code >= 400:
         raise ValueError(f"Website unreachable (HTTP {r.status_code}): {url}")
     text = r.text or ""

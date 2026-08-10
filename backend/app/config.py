@@ -24,4 +24,11 @@ VERIFY_AUTO_STALE_DAYS = int(os.getenv("VERIFY_AUTO_STALE_DAYS", "7"))
 # Admin seeder gate: single owner token ("knows it's me"). Empty = admin disabled.
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
 
+# Security posture knobs (all additive — defaults preserve the local-first UX):
+# MUTATION_AUTH=1 requires the admin token on the status-flip / seed / verify-run
+# endpoints (default off = open, today's behavior). Hosting MUST set it to 1.
+MUTATION_AUTH = os.getenv("MUTATION_AUTH", "").strip().lower() in ("1", "true", "yes", "on")
+# Per-IP sliding-window rate limiting on mutating + admin endpoints (default on).
+RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "1").strip().lower() in ("1", "true", "yes", "on")
+
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:3023")

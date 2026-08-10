@@ -15,6 +15,28 @@ UPDATABLE = [
     "founded", "stars", "language", "source",
 ]
 
+# LLM output bounds (L1 hardening): the evidence text is attacker-influenced
+# (anyone can point a seed at their own site), so the LLM profile is untrusted
+# input. Length caps keep the DB sane; the category whitelist mirrors the
+# system prompt's enum and falls back to "other".
+CATEGORIES = {
+    "productivity", "ai", "devtools", "desktop", "freelance", "finance",
+    "health", "education", "ecommerce", "social", "media", "other",
+}
+NAME_MAX, TAGLINE_MAX, DESCRIPTION_MAX = 120, 300, 4000
+
+
+def _clean_profile(profile: dict) -> dict:
+    """Bound and whitelist an LLM profile before it touches the DB."""
+    return {
+        "name": _text(profile.get("name"))[:NAME_MAX],
+        "tagline": _text(profile.get("tagline"))[:TAGLINE_MAX],
+        "description": _text(profile.get("description"))[:DESCRIPTION_MAX],
+        "category": _text(profile.get("category"))[:40].lower(),
+        "founded": profile.get("founded"),
+    }
+
+
 
 def _text(value) -> str:
     """Coerce an LLM profile value to trimmed text.
@@ -61,8 +83,10 @@ def seed_from_github(github_url: str, reuse_profile: bool = False) -> dict:
             "repo_created_at": repo["created_at"],
             "homepage": repo["homepage"],
         })
-        profile = llm.llm_json(
-            "Generate a startup profile from this GitHub repo evidence:\n" + evidence
+        profile = _clean_profile(
+            llm.llm_json(
+                "Generate a startup profile from this GitHub repo evidence:\n" + evidence
+            )
         )
         name = _text(profile.get("name")) or _text(repo["name"]) or ""
         if not name:
@@ -114,7 +138,7 @@ def seed_from_website(
         user = "Generate a startup profile from this website evidence:\n" + evidence
         if name_hint:
             user = f"The startup's name is: {name_hint}\n" + user
-        profile = llm.llm_json(user)
+        profile = _clean_profile(llm.llm_json(user))
         name = _text(profile.get("name")) or _text(name_hint) or domain or ""
         if not name:
             raise RuntimeError("LLM returned no name")
