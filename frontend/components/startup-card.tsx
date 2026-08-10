@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ExternalLink, FolderGit2, Star, ShieldCheck, Archive } from "lucide-react";
+import { Check, ExternalLink, FolderGit2, Star, ShieldCheck, Archive } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,15 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { HueAvatar } from "@/components/hue-avatar";
 import type { Startup } from "@/lib/types";
 import { foundedYear } from "@/lib/search";
@@ -19,50 +28,81 @@ import { cn } from "@/lib/utils";
 
 export { initials } from "@/lib/initials";
 
+export type StatusChoice = "verified" | "unverified" | "dead";
+
+const STATUS_OPTIONS: {
+  value: StatusChoice;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    value: "verified",
+    label: "Verified",
+    hint: "A human checked this one. It's alive.",
+  },
+  {
+    value: "unverified",
+    label: "Unverified",
+    hint: "Filed, awaiting a human.",
+  },
+  {
+    value: "dead",
+    label: "Dead",
+    hint: "Checked, gone. Filed, never deleted.",
+  },
+];
+
+/** Copy for the themed confirm dialog, keyed by the choice being applied. */
+const CONFIRM_COPY: Record<
+  StatusChoice,
+  { title: (name: string) => string; body: (name: string) => string }
+> = {
+  verified: {
+    title: (name) => `Mark ${name} as verified?`,
+    body: (name) =>
+      `Stamps ${name} as human-checked and alive. This is reversible — you can unverify it later.`,
+  },
+  unverified: {
+    title: (name) => `Mark ${name} as unverified?`,
+    body: (name) =>
+      `Clears the verified stamp on ${name}. It returns to "filed, awaiting a human".`,
+  },
+  dead: {
+    title: (name) => `Mark ${name} as dead?`,
+    body: (name) =>
+      `Files ${name} as dead — checked and gone. It stays in the archive, never deleted.`,
+  },
+};
+
 /**
  * Status pill with a 6px status dot + worded tooltip — the trust layer as
- * visible card copy (research memo R-1/R-24). The Unverified pill is the
- * "Mark verified" affordance: click it to confirm the startup exists.
- * Verified copy uses the full date and never wraps mid-date (R-3 voice).
+ * visible card copy (research memo R-1/R-24). When `onStatusChange` is wired
+ * the pill is a button in every state: clicking it opens a small menu with the
+ * three trust states (Verified / Unverified / Dead); picking one raises a
+ * themed confirm dialog so the human gate never flips on a stray click.
  */
 export function StatusPill({
   startup,
-  onMarkVerified,
+  onStatusChange,
 }: {
   startup: Startup;
-  onMarkVerified?: (s: Startup) => void;
+  onStatusChange?: (s: Startup, choice: StatusChoice) => void;
 }) {
   const dead = startup.status === "dead" || startup.status === "pivoted";
   const verified = !dead && startup.verified === 1;
+  const current: StatusChoice = dead ? "dead" : verified ? "verified" : "unverified";
 
-  // Two-step confirm for the human-gate action: first click arms ("Confirm?"),
-  // second click verifies; auto-disarms after 4s so a stray click can't flip
-  // an entry's status (critique P2 — trust actions need a confirmation beat).
-  const [confirming, setConfirming] = React.useState(false);
-  const confirmTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  React.useEffect(() => {
-    return () => {
-      if (confirmTimer.current) clearTimeout(confirmTimer.current);
-    };
-  }, []);
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const [pending, setPending] = React.useState<StatusChoice | null>(null);
 
-  const armConfirm = () => {
-    if (confirming) return;
-    setConfirming(true);
-    if (confirmTimer.current) clearTimeout(confirmTimer.current);
-    confirmTimer.current = setTimeout(() => setConfirming(false), 4000);
-  };
-
-  const label = dead ? "Dead" : verified ? "Verified" : confirming ? "Confirm?" : "Unverified";
+  const label = STATUS_OPTIONS.find((o) => o.value === current)?.label ?? "Unverified";
   const hint = dead
     ? "Checked 3 times, link dead each time. Filed, never deleted."
     : verified
       ? startup.verified_at
         ? `A human checked this on ${formatDate(startup.verified_at)} — it's alive.`
         : "A human checked this one. It's alive."
-      : confirming
-        ? "Click again to confirm — this stamps the entry as human-verified."
-        : "Not yet confirmed — click to verify it.";
+      : "Not yet confirmed — click to change its status.";
 
   const pillClass = cn(
     "gap-1.5 text-[11px]",
@@ -71,31 +111,27 @@ export function StatusPill({
     !dead && !verified && "text-muted-foreground",
   );
 
-  // Unverified → the pill is a button (mark-verified affordance, two-step).
-  if (!dead && !verified && onMarkVerified) {
+  const confirm = pending ? CONFIRM_COPY[pending] : null;
+
+  // No status handler → the pill is a plain badge (read-only context).
+  if (!onStatusChange) {
     return (
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={() => (confirming ? onMarkVerified(startup) : armConfirm())}
-              className={cn(
-                "inline-flex items-center rounded-full border bg-secondary/60 px-2.5 py-0.5 text-[11px] font-medium transition-colors",
-                confirming
-                  ? "border-primary/50 text-foreground"
-                  : "hover:border-primary/40 hover:text-foreground",
-              )}
-            >
+            <Badge variant="secondary" className={pillClass}>
               <span
                 aria-hidden
                 className={cn(
-                  "mr-1.5 size-1.5 rounded-full",
-                  confirming ? "bg-primary" : "bg-muted-foreground/60",
+                  "size-1.5 rounded-full",
+                  dead && "bg-destructive",
+                  verified && "bg-success",
+                  !dead && !verified && "bg-muted-foreground/60",
                 )}
               />
+              {dead ? <Archive className="h-3 w-3" /> : verified ? <ShieldCheck className="h-3 w-3" /> : null}
               {label}
-            </button>
+            </Badge>
           </TooltipTrigger>
           <TooltipContent side="top" className="max-w-[90vw] whitespace-nowrap text-xs">
             {hint}
@@ -106,37 +142,105 @@ export function StatusPill({
   }
 
   return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Badge variant="secondary" className={pillClass}>
+    <>
+      <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            className={cn(
+              "inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors",
+              pillClass,
+              "hover:border-primary/40 hover:text-foreground",
+            )}
+          >
             <span
               aria-hidden
               className={cn(
                 "size-1.5 rounded-full",
                 dead && "bg-destructive",
                 verified && "bg-success",
+                !dead && !verified && "bg-muted-foreground/60",
               )}
             />
             {dead ? <Archive className="h-3 w-3" /> : verified ? <ShieldCheck className="h-3 w-3" /> : null}
             {label}
-          </Badge>
-        </TooltipTrigger>
-        <TooltipContent side="top" className="max-w-[90vw] whitespace-nowrap text-xs">
-          {hint}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="end" sideOffset={6} className="w-44 p-1">
+          <div className="px-2.5 pb-1.5 pt-1 text-[11px] text-muted-foreground">{hint}</div>
+          <div role="menu" className="flex flex-col gap-0.5">
+            {STATUS_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setPending(opt.value);
+                }}
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium transition-colors",
+                  opt.value === current
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                )}
+              >
+                <span
+                  aria-hidden
+                  className={cn(
+                    "size-1.5 rounded-full",
+                    opt.value === "dead" && "bg-destructive",
+                    opt.value === "verified" && "bg-success",
+                    opt.value === "unverified" && "bg-muted-foreground/60",
+                  )}
+                />
+                {opt.label}
+                {opt.value === current && <Check className="ml-auto h-3 w-3" />}
+              </button>
+            ))}
+          </div>
+        </PopoverContent>
+      </Popover>
+
+      <Dialog open={pending !== null} onOpenChange={(o) => !o && setPending(null)}>
+        <DialogContent className="sm:max-w-sm" showCloseButton={false}>
+          {confirm && (
+            <>
+              <DialogHeader>
+                <DialogTitle>{confirm.title(startup.name)}</DialogTitle>
+                <DialogDescription>{confirm.body(startup.name)}</DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setPending(null)}>
+                  Discard
+                </Button>
+                <Button
+                  variant={pending === "dead" ? "destructive" : "default"}
+                  onClick={() => {
+                    if (pending) onStatusChange(startup, pending);
+                    setPending(null);
+                  }}
+                >
+                  {pending === "dead" ? "File as dead" : pending === "unverified" ? "Clear stamp" : "Confirm verified"}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
 export function StartupCard({
   startup,
-  onVerified,
+  onStatusChange,
   onDetails,
 }: {
   startup: Startup;
-  onVerified?: (s: Startup) => void;
+  onStatusChange?: (s: Startup, choice: StatusChoice) => void;
   onDetails?: (s: Startup) => void;
 }) {
   const dead = startup.status === "dead" || startup.status === "pivoted";
@@ -175,7 +279,7 @@ export function StartupCard({
             <button
               type="button"
               onClick={() => onDetails?.(startup)}
-              className="truncate text-left text-sm font-bold leading-tight hover:text-primary hover:underline"
+              className="block w-full truncate text-left text-sm font-bold leading-tight hover:text-primary hover:underline"
               title="View details"
             >
               {startup.name}
@@ -186,7 +290,7 @@ export function StartupCard({
               {startup.last_checked && <>checked {shortDate(startup.last_checked)}</>}
             </p>
           </div>
-          <StatusPill startup={startup} onMarkVerified={onVerified} />
+          <StatusPill startup={startup} onStatusChange={onStatusChange} />
         </div>
 
         {startup.tagline && (

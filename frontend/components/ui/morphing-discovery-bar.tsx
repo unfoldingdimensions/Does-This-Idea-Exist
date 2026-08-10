@@ -171,13 +171,18 @@ export const MorphingDiscoveryBar: React.FC<MorphingDiscoveryBarProps> = ({
                     active ? "text-primary-foreground" : "text-foreground hover:bg-accent/60",
                   )}
                 >
-                  {active && (
-                    <motion.span
-                      layoutId="discovery-pill-bg"
-                      className="absolute inset-0 z-[-1] rounded-full bg-primary shadow-sm"
-                      transition={morph}
-                    />
-                  )}
+                  <AnimatePresence initial={false}>
+                    {active && (
+                      <motion.span
+                        layoutId="discovery-pill-bg"
+                        className="absolute inset-0 z-[-1] rounded-full bg-primary shadow-sm"
+                        transition={morph}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                      />
+                    )}
+                  </AnimatePresence>
                   {cat.icon && <span className="opacity-80">{cat.icon}</span>}
                   <span>{cat.label}</span>
                   {typeof cat.count === "number" && (
@@ -216,13 +221,17 @@ export const MorphingDiscoveryBar: React.FC<MorphingDiscoveryBarProps> = ({
                   activeInMore ? "text-primary-foreground" : "text-foreground hover:bg-accent/60",
                 )}
               >
-                {activeInMore && (
-                  <motion.span
-                    layoutId="discovery-pill-bg"
-                    className="absolute inset-0 z-[-1] rounded-full bg-primary shadow-sm"
-                    transition={morph}
-                  />
-                )}
+                <AnimatePresence initial={false}>
+                  {activeInMore && (
+                    <motion.span
+                      className="absolute inset-0 z-[-1] rounded-full bg-primary shadow-sm"
+                      transition={morph}
+                      initial={{ opacity: 0, scale: 0.92 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.92 }}
+                    />
+                  )}
+                </AnimatePresence>
                 <span>More</span>
                 <ChevronDown
                   className={cn(

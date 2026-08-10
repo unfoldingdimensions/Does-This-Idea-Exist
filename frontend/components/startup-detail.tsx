@@ -5,7 +5,7 @@ import { ExternalLink, FolderGit2, ShieldCheck, X } from "lucide-react";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { HueAvatar } from "@/components/hue-avatar";
-import { StatusPill } from "@/components/startup-card";
+import { StatusPill, type StatusChoice } from "@/components/startup-card";
 import { formatDate, titleCase } from "@/lib/format";
 import type { Startup } from "@/lib/types";
 
@@ -24,13 +24,13 @@ export function StartupDetail({
   startups,
   onClose,
   onNavigate,
-  onVerified,
+  onStatusChange,
 }: {
   startup: Startup | null;
   startups: Startup[];
   onClose: () => void;
   onNavigate: (s: Startup) => void;
-  onVerified?: (s: Startup) => void;
+  onStatusChange?: (s: Startup, choice: StatusChoice) => void;
 }) {
   const reduce = useReducedMotion();
   const panelRef = React.useRef<HTMLDivElement>(null);
@@ -105,7 +105,7 @@ export function StartupDetail({
                 </p>
               </div>
               <div className="absolute right-4 top-4 flex items-center gap-2">
-                <StatusPill startup={startup} onMarkVerified={onVerified} />
+                <StatusPill startup={startup} onStatusChange={onStatusChange} />
                 <Button
                   variant="ghost"
                   size="icon"
@@ -192,18 +192,6 @@ export function StartupDetail({
                     </a>
                   </Button>
                 )}
-                {startup.status !== "dead" &&
-                  startup.status !== "pivoted" &&
-                  startup.verified !== 1 && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="ml-auto h-8 gap-1.5 text-xs"
-                      onClick={() => onVerified?.(startup)}
-                    >
-                      <ShieldCheck className="h-3 w-3" /> Mark verified
-                    </Button>
-                  )}
               </div>
 
               {similar.length > 0 && (
