@@ -253,7 +253,7 @@ export function StartupCard({
   const year = foundedYear(startup.founded);
   const [expanded, setExpanded] = React.useState(false);
   const description = startup.description ?? "";
-  const showToggle = description.length > 140;
+  const showToggle = description.length > 200;
   const reduce = useReducedMotion();
 
   // Clamped (3-line) height of the description, measured on first toggle so the

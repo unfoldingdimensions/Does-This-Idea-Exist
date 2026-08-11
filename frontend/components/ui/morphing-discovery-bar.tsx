@@ -66,6 +66,8 @@ export const MorphingDiscoveryBar: React.FC<MorphingDiscoveryBarProps> = ({
   /* --- "More" dropdown state (hover-open, click toggles for touch/keyboard) --- */
   const [moreOpen, setMoreOpen] = React.useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
+  const moreBtnRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const moreTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const openMore = () => {
@@ -75,6 +77,32 @@ export const MorphingDiscoveryBar: React.FC<MorphingDiscoveryBarProps> = ({
   const closeMore = () => {
     moreTimer.current = setTimeout(() => setMoreOpen(false), 150);
   };
+
+  // Keyboard parity (P9): Escape closes and returns focus to the More button;
+  // ArrowUp/Down cycle the items (from the button or within the list).
+  React.useEffect(() => {
+    if (!moreOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      const items = dropdownRef.current
+        ? [...dropdownRef.current.querySelectorAll<HTMLButtonElement>("button")]
+        : [];
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMoreOpen(false);
+        moreBtnRef.current?.focus();
+        return;
+      }
+      if (items.length === 0 || (e.key !== "ArrowDown" && e.key !== "ArrowUp")) return;
+      e.preventDefault();
+      const active = document.activeElement as HTMLElement | null;
+      const idx = active ? items.indexOf(active as HTMLButtonElement) : -1;
+      const next =
+        e.key === "ArrowDown" ? (idx + 1) % items.length : idx <= 0 ? items.length - 1 : idx - 1;
+      items[next].focus();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [moreOpen]);
 
   // Close on outside click (touch / click-away).
   React.useEffect(() => {
@@ -115,13 +143,13 @@ export const MorphingDiscoveryBar: React.FC<MorphingDiscoveryBarProps> = ({
         <motion.div
           layout
           transition={morph}
-          className="glass flex w-full max-w-3xl items-center gap-1 rounded-[1.75rem] p-1.5"
+          className="glass flex w-full max-w-3xl flex-col items-center gap-1 rounded-[1.75rem] p-1.5 sm:flex-row"
         >
           {/* Search input — always visible */}
           <motion.div
             layout
             transition={morph}
-            className="relative flex h-11 w-44 shrink-0 items-center gap-2 rounded-full bg-background/80 px-4 transition-shadow sm:w-64"
+            className="relative flex h-11 w-full shrink-0 items-center gap-2 rounded-full bg-background/80 px-4 transition-shadow sm:w-64"
           >
             {/* The ring target is a plain (non-motion) wrapper that owns the
                 input: framer-motion's layout projection writes an inline
@@ -161,7 +189,7 @@ export const MorphingDiscoveryBar: React.FC<MorphingDiscoveryBarProps> = ({
             layout
             transition={morph}
             onWheel={onChipsWheel}
-            className="chip-scroll flex min-w-0 flex-1 flex-nowrap items-center gap-0.5 overflow-x-auto py-0.5"
+            className="chip-scroll flex w-full min-w-0 flex-1 flex-nowrap items-center gap-0.5 overflow-x-auto py-0.5"
           >
             {visibleChips.map((cat) => {
               const active = (cat.id === "__all" ? null : cat.id) === value;
@@ -218,6 +246,7 @@ export const MorphingDiscoveryBar: React.FC<MorphingDiscoveryBarProps> = ({
               onMouseLeave={closeMore}
             >
               <motion.button
+                ref={moreBtnRef}
                 type="button"
                 layout
                 onClick={() => setMoreOpen((v) => !v)}
@@ -253,6 +282,7 @@ export const MorphingDiscoveryBar: React.FC<MorphingDiscoveryBarProps> = ({
                 {moreOpen && (
                   <motion.div
                     key="more-dropdown"
+                    ref={dropdownRef}
                     initial={reduce ? false : { opacity: 0, y: -6, scale: 0.97, filter: "blur(3px)" }}
                     animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
                     exit={{ opacity: 0, y: -4, scale: 0.97, filter: "blur(3px)" }}

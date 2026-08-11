@@ -10,7 +10,8 @@ import { cn } from "@/lib/utils";
  * framer-motion → motion/react, springs → ease-out (antislop), tokens → glass.
  */
 export interface ContinuousPaginationProps {
-  page: number;
+  /** The clamped page the grid actually shows — never the raw URL value. */
+  currentPage: number;
   totalPages: number;
   onPageChange: (page: number) => void;
 }
@@ -32,16 +33,16 @@ function pageWindow(page: number, totalPages: number): (number | "…")[] {
   return out;
 }
 
-export function ContinuousPagination({ page, totalPages, onPageChange }: ContinuousPaginationProps) {
+export function ContinuousPagination({ currentPage, totalPages, onPageChange }: ContinuousPaginationProps) {
   if (totalPages <= 1) return null;
-  const pages = pageWindow(page, totalPages);
+  const pages = pageWindow(currentPage, totalPages);
 
   return (
     <nav aria-label="Pagination" className="flex items-center justify-center gap-1.5 py-8">
       <button
         type="button"
-        onClick={() => onPageChange(page - 1)}
-        disabled={page <= 1}
+        onClick={() => onPageChange(currentPage - 1)}
+        disabled={currentPage <= 1}
         aria-label="Previous page"
         className="glass flex h-11 w-11 items-center justify-center rounded-full text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
       >
@@ -60,14 +61,14 @@ export function ContinuousPagination({ page, totalPages, onPageChange }: Continu
               type="button"
               onClick={() => onPageChange(p)}
               aria-label={`Page ${p}`}
-              aria-current={p === page ? "page" : undefined}
+              aria-current={p === currentPage ? "page" : undefined}
               className={cn(
                 "relative z-10 flex h-11 w-11 items-center justify-center rounded-full text-sm font-medium transition-colors",
-                p === page
+                p === currentPage
                   ? "bg-primary font-bold text-primary-foreground"
                   : "glass text-foreground hover:bg-accent",
               )}
-              whileHover={p === page ? undefined : { y: -2 }}
+              whileHover={p === currentPage ? undefined : { y: -2 }}
               whileTap={{ scale: 0.94 }}
               transition={{ type: "tween", ease: EASE, duration: 0.18 }}
             >
@@ -79,8 +80,8 @@ export function ContinuousPagination({ page, totalPages, onPageChange }: Continu
 
       <button
         type="button"
-        onClick={() => onPageChange(page + 1)}
-        disabled={page >= totalPages}
+        onClick={() => onPageChange(currentPage + 1)}
+        disabled={currentPage >= totalPages}
         aria-label="Next page"
         className="glass flex h-11 w-11 items-center justify-center rounded-full text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
       >

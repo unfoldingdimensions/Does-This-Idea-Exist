@@ -50,7 +50,7 @@ export function AdminPanel({
   const [tokenInput, setTokenInput] = React.useState("");
   const [unlocking, setUnlocking] = React.useState(false);
   const [unlockMsg, setUnlockMsg] = React.useState("");
-  const [section, setSection] = React.useState<AdminSection>(initialSection);
+  const [section, setSection] = React.useState<AdminSection | null>(initialSection);
   const [jobs, setJobs] = React.useState<SeedJob[]>([]);
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
 
@@ -211,7 +211,7 @@ export function AdminPanel({
                   icon={s.icon}
                   title={s.title}
                   open={section === s.key}
-                  onToggle={() => setSection(section === s.key ? "seed" : s.key)}
+                  onToggle={() => setSection(section === s.key ? null : s.key)}
                   badge={
                     s.key === "seed" && activeJobs.some((j) => j.kind === "seed")
                       ? `${activeJobs.filter((j) => j.kind === "seed").length} active`

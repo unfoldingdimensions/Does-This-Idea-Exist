@@ -40,14 +40,46 @@ export function StartupDetail({
   // Focus the panel on open; restore focus to the trigger ONLY when the modal
   // closes (a wasOpen flag — similar-item swaps change `startup` and must not
   // yank focus out of the panel mid-navigation). Scroll-lock body while open.
+  // The keydown handler lives at document level: Escape must work even after
+  // focus walks out of the panel (there was no trap — see the P9 finding), and
+  // Tab cycles inside the panel so focus never escapes an aria-modal dialog.
   React.useEffect(() => {
     if (startup) {
       wasOpen.current = true;
       lastFocused.current = document.activeElement as HTMLElement | null;
       document.body.style.overflow = "hidden";
       const t = setTimeout(() => panelRef.current?.focus(), 30);
+
+      const onKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+          return;
+        }
+        if (e.key !== "Tab") return;
+        const panel = panelRef.current;
+        if (!panel) return;
+        const focusables = [...panel.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        )];
+        if (focusables.length === 0) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        const active = document.activeElement as HTMLElement | null;
+        if (e.shiftKey) {
+          if (active === first || !panel.contains(active)) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else if (active === last || !panel.contains(active)) {
+          e.preventDefault();
+          first.focus();
+        }
+      };
+      document.addEventListener("keydown", onKeyDown);
       return () => {
         clearTimeout(t);
+        document.removeEventListener("keydown", onKeyDown);
         document.body.style.overflow = "";
         if (wasOpen.current) {
           wasOpen.current = false;
@@ -56,13 +88,41 @@ export function StartupDetail({
       };
     }
     return undefined;
-  }, [startup]);
+  }, [startup, onClose]);
 
   const similar = React.useMemo(() => {
     if (!startup) return [];
+    // "More like this" must actually be similarity, not the first four rows in
+    // API order (the P9 finding: CodeCrafters → BloomTech/Brightwheel/...).
+    // Score same-category filings: shared language +2, same trust state +1,
+    // shared significant tagline words +1 each; stars break ties.
+    const STOP = new Set([
+      "with", "from", "that", "this", "your", "the", "and", "for", "you",
+      "are", "not", "its", "all", "has", "have", "was", "were", "will",
+      "into", "their", "they", "them", "what", "when", "where", "who",
+    ]);
+    const words = new Set(
+      (startup.tagline ?? "")
+        .toLowerCase()
+        .split(/\W+/)
+        .filter((w) => w.length > 3 && !STOP.has(w)),
+    );
     return startups
       .filter((s) => s.category === startup.category && s.id !== startup.id)
-      .slice(0, 4);
+      .map((s) => {
+        let score = 0;
+        if (s.language && startup.language && s.language === startup.language) score += 2;
+        if (s.verified === 1 && startup.verified === 1) score += 1;
+        if (s.tagline) {
+          for (const w of words) {
+            if (s.tagline.toLowerCase().includes(w)) score += 1;
+          }
+        }
+        return { s, score };
+      })
+      .sort((a, b) => b.score - a.score || (b.s.stars ?? 0) - (a.s.stars ?? 0))
+      .slice(0, 4)
+      .map((x) => x.s);
   }, [startups, startup]);
 
   return (
@@ -85,7 +145,6 @@ export function StartupDetail({
             role="dialog"
             aria-modal="true"
             aria-label={`${startup.name} details`}
-            onKeyDown={(e) => e.key === "Escape" && onClose()}
             layoutId={reduce ? undefined : `startup-${startup.id}`}
             initial={reduce ? { opacity: 0, scale: 0.97 } : { opacity: 0 }}
             animate={reduce ? { opacity: 1, scale: 1 } : { opacity: 1 }}

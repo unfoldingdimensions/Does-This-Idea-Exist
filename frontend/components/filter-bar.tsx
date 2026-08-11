@@ -20,6 +20,12 @@ const SORT_LABELS: Record<SortKey, string> = {
   founded: "Founded date",
 };
 
+// While a query is active the default sort is relevance (search.ts keeps Fuse
+// ranking when sort==="top"), so the select must say so — "Top (stars)" would
+// be a lie, and picking it would be a no-op. "Relevance" replaces it until the
+// query clears.
+const RELEVANCE_VALUE = "relevance";
+
 const STATUS_OPTIONS = [
   { value: "all", label: "All statuses" },
   { value: "verified", label: "Verified" },
@@ -38,6 +44,7 @@ export function FilterBar({
   count,
   onClear,
   showClear = false,
+  searching = false,
 }: {
   sort: SortKey;
   onSort: (k: SortKey) => void;
@@ -49,7 +56,19 @@ export function FilterBar({
   count: number;
   onClear: () => void;
   showClear?: boolean;
+  searching?: boolean;
 }) {
+  // While searching on the default sort, the select's value/options present
+  // "Relevance"; choosing any other sort exits it (mapped back to "top").
+  const relevanceActive = searching && sort === "top";
+  const sortValue = relevanceActive ? RELEVANCE_VALUE : sort;
+  const sortOptions: { value: string; label: string }[] = relevanceActive
+    ? [
+        { value: RELEVANCE_VALUE, label: "Relevance" },
+        ...Object.entries(SORT_LABELS).map(([v, l]) => ({ value: v, label: l })),
+      ]
+    : Object.entries(SORT_LABELS).map(([v, l]) => ({ value: v, label: l }));
+
   return (
     <div className="flex flex-wrap items-center gap-2 pb-6">
       <span
@@ -84,14 +103,14 @@ export function FilterBar({
             ))}
           </SelectContent>
         </Select>
-        <Select value={sort} onValueChange={(v) => onSort(v as SortKey)}>
+        <Select value={sortValue} onValueChange={(v) => onSort(v === RELEVANCE_VALUE ? "top" : (v as SortKey))}>
           <SelectTrigger className="glass h-8 w-36 rounded-full text-xs" aria-label="Sort startups">
             <SelectValue placeholder="Sort" />
           </SelectTrigger>
           <SelectContent position="popper" align="start">
-            {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
-              <SelectItem key={k} value={k}>
-                {SORT_LABELS[k]}
+            {sortOptions.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
               </SelectItem>
             ))}
           </SelectContent>
