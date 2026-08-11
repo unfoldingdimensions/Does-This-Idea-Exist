@@ -86,8 +86,10 @@ export function sortStartups(startups: Startup[], key: SortKey = "top"): Startup
       return arr.sort((a, b) => a.name.localeCompare(b.name));
     case "founded":
       return arr.sort((a, b) => ts(b.founded) - ts(a.founded) || starsTiebreak(a, b));
-    default: // top
-      return arr.sort((a, b) => starsTiebreak(a, b) || a.name.localeCompare(b.name));
+    default: // top — trust-weighted: verified first, then stars, then name
+      return arr.sort(
+        (a, b) => (b.verified - a.verified) || starsTiebreak(a, b) || a.name.localeCompare(b.name),
+      );
   }
 }
 

@@ -67,13 +67,22 @@ export function fetchSuggested(): Promise<SuggestedStartup[]> {
   });
 }
 
-export function approveSuggested(ids?: number[], approveAll?: boolean): Promise<{ approved: number }> {
+export function approveSuggested(
+  ids?: number[],
+  approveAll?: boolean,
+  createdAfter?: string,
+  createdBefore?: string,
+): Promise<{ approved: number }> {
+  let body: Record<string, unknown>;
+  if (createdAfter || createdBefore) {
+    body = { created_after: createdAfter, created_before: createdBefore };
+  } else {
+    body = approveAll ? { approve_all: true } : { ids };
+  }
   return adminJson<{ approved: number }>(`${API_BASE}/api/admin/verify/approve`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(
-      approveAll ? { approve_all: true } : { ids },
-    ),
+    body: JSON.stringify(body),
   });
 }
 

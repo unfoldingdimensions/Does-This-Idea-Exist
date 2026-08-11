@@ -50,6 +50,7 @@ export interface SuggestedStartup {
   github_url: string | null;
   category: string;
   last_checked: string | null;
+  created_at: string;
 }
 
 export interface VerifyJob {

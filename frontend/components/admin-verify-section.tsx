@@ -31,6 +31,20 @@ function fmtDate(iso: string | null | undefined): string {
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
+/** "2026-08-11" → "Aug 11, 2026" (created_at is UTC "YYYY-MM-DD HH:MM:SS"). */
+function dayLabel(day: string): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return day;
+  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+/** Next UTC day as "YYYY-MM-DD" — the batch window is [day 00:00:00, nextDay 00:00:00). */
+function nextUtcDay(day: string): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 /** Verification section — the human gate. The machine nominates alive-but-
  * unverified entries as "suggested verified"; the curator stamps them one-by-one
  * or in bulk (every approval behind a confirm dialog). The summary sub-tab
@@ -54,7 +68,10 @@ export function VerificationSection({
   const [approvingId, setApprovingId] = React.useState<number | null>(null);
   const [approvingAll, setApprovingAll] = React.useState(false);
   const [confirm, setConfirm] = React.useState<
-    { kind: "all" } | { kind: "one"; id: number; name: string } | null
+    | { kind: "all" }
+    | { kind: "batch"; day: string; count: number }
+    | { kind: "one"; id: number; name: string }
+    | null
   >(null);
 
   const refresh = React.useCallback(async () => {
@@ -106,6 +123,32 @@ export function VerificationSection({
       toast.error(err instanceof Error ? err.message : "Approval failed");
     }
   };
+
+  /** Approve one created-day batch — the "approve this seed run" boundary:
+   * every suggested row created that UTC day gets stamped in one action. */
+  const approveBatch = async (day: string) => {
+    setApprovingAll(true);
+    try {
+      const r = await approveSuggested(undefined, false, `${day} 00:00:00`, `${nextUtcDay(day)} 00:00:00`);
+      afterApprove(r.approved);
+    } catch (err) {
+      setApprovingAll(false);
+      toast.error(err instanceof Error ? err.message : "Batch approval failed");
+    }
+  };
+
+  // Suggested rows grouped by created day (UTC) — one batch per seed run day.
+  const groups = React.useMemo(() => {
+    const byDay = new Map<string, SuggestedStartup[]>();
+    for (const s of suggested) {
+      const day = (s.created_at ?? "").slice(0, 10);
+      if (!day) continue;
+      const arr = byDay.get(day) ?? [];
+      arr.push(s);
+      byDay.set(day, arr);
+    }
+    return [...byDay.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  }, [suggested]);
 
   const verifyJobs = React.useMemo(() => jobs.filter((j) => j.kind === "verify"), [jobs]);
   const lastVerified = stats?.last_checked ?? null;
@@ -159,17 +202,37 @@ export function VerificationSection({
               yet.
             </p>
           ) : (
-            <ul className="max-h-72 space-y-1 overflow-y-auto pr-1">
-              {suggested.map((s) => (
-                <BucketItem
-                  key={s.id}
-                  name={s.name}
-                  url={s.website_url ?? s.github_url ?? ""}
-                  onApprove={() => setConfirm({ kind: "one", id: s.id, name: s.name })}
-                  approving={approvingId === s.id}
-                />
+            <div className="max-h-72 space-y-3 overflow-y-auto pr-1">
+              {groups.map(([day, items]) => (
+                <div key={day} className="space-y-1">
+                  <div className="flex items-center justify-between pt-0.5">
+                    <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                      {dayLabel(day)} · {items.length}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 gap-1 px-2 text-[10px]"
+                      onClick={() => setConfirm({ kind: "batch", day, count: items.length })}
+                      disabled={approvingAll}
+                    >
+                      Approve batch
+                    </Button>
+                  </div>
+                  <ul className="space-y-1">
+                    {items.map((s) => (
+                      <BucketItem
+                        key={s.id}
+                        name={s.name}
+                        url={s.website_url ?? s.github_url ?? ""}
+                        onApprove={() => setConfirm({ kind: "one", id: s.id, name: s.name })}
+                        approving={approvingId === s.id}
+                      />
+                    ))}
+                  </ul>
+                </div>
               ))}
-            </ul>
+            </div>
           )}
         </TabsContent>
 
@@ -243,12 +306,16 @@ export function VerificationSection({
             <DialogTitle>
               {confirm?.kind === "all"
                 ? `Approve all ${suggested.length} suggested?`
-                : `Mark ${confirm?.kind === "one" ? confirm.name : ""} as verified?`}
+                : confirm?.kind === "batch"
+                  ? `Approve ${confirm.count} from ${dayLabel(confirm.day)}?`
+                  : `Mark ${confirm?.kind === "one" ? confirm.name : ""} as verified?`}
             </DialogTitle>
             <DialogDescription>
               {confirm?.kind === "all"
                 ? "Every entry the automated check found alive gets the human-verified stamp. This is a human decision — you can still unverify any of them from the status pill."
-                : "Confirm this startup actually exists — the verified badge is the human-gate stamp."}
+                : confirm?.kind === "batch"
+                  ? `Every suggested entry created on ${dayLabel(confirm.day)} gets the human-verified stamp — one action per seed batch. Reversible from the status pill.`
+                  : "Confirm this startup actually exists — the verified badge is the human-gate stamp."}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:justify-end">
@@ -256,9 +323,12 @@ export function VerificationSection({
               Cancel
             </Button>
             <Button
-              onClick={() =>
-                confirm?.kind === "all" ? void approveAll() : confirm && void approveOne(confirm.id)
-              }
+              onClick={() => {
+                if (!confirm) return;
+                if (confirm.kind === "all") void approveAll();
+                else if (confirm.kind === "batch") void approveBatch(confirm.day);
+                else void approveOne(confirm.id);
+              }}
               disabled={approvingAll || approvingId !== null}
             >
               {(approvingAll || approvingId !== null) && (

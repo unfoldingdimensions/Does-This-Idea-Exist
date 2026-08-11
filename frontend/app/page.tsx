@@ -3,27 +3,21 @@
 import * as React from "react";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import {
-  BarChart3,
-  BrainCircuit,
+  Briefcase,
   Building2,
   Code2,
-  Coins,
+  Film,
   FolderGit2,
-  Gamepad2,
   Globe,
   GraduationCap,
   HeartPulse,
   Landmark,
-  Megaphone,
-  MousePointerClick,
-  Palette,
-  Plane,
+  Monitor,
   ServerCrash,
   Share2,
   ShieldCheck,
   ShoppingBag,
   Sparkles,
-  UtensilsCrossed,
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -75,26 +69,22 @@ function readInitialParams(): {
   };
 }
 
-/** Lucide icon per known category — one icon set (MIT), fallback Sparkles. */
+/** Lucide icon per known category — mirrors the backend whitelist
+ * (enrich.CATEGORIES): productivity, ai, devtools, desktop, freelance,
+ * finance, health, education, ecommerce, social, media, other. Unknown →
+ * Sparkles fallback (kept in sync with the LLM prompt's enum). */
 const CATEGORY_ICONS: Record<string, React.ReactNode> = {
   ai: <Sparkles className="h-3.5 w-3.5" />,
-  "developer-tools": <Code2 className="h-3.5 w-3.5" />,
-  design: <Palette className="h-3.5 w-3.5" />,
-  fintech: <Landmark className="h-3.5 w-3.5" />,
+  devtools: <Code2 className="h-3.5 w-3.5" />,
+  desktop: <Monitor className="h-3.5 w-3.5" />,
+  freelance: <Briefcase className="h-3.5 w-3.5" />,
+  finance: <Landmark className="h-3.5 w-3.5" />,
   productivity: <Zap className="h-3.5 w-3.5" />,
-  "machine-learning": <BrainCircuit className="h-3.5 w-3.5" />,
-  marketing: <Megaphone className="h-3.5 w-3.5" />,
-  "social-media": <Share2 className="h-3.5 w-3.5" />,
   health: <HeartPulse className="h-3.5 w-3.5" />,
-  "e-commerce": <ShoppingBag className="h-3.5 w-3.5" />,
   education: <GraduationCap className="h-3.5 w-3.5" />,
-  analytics: <BarChart3 className="h-3.5 w-3.5" />,
-  "no-code": <MousePointerClick className="h-3.5 w-3.5" />,
-  crypto: <Coins className="h-3.5 w-3.5" />,
-  gaming: <Gamepad2 className="h-3.5 w-3.5" />,
-  food: <UtensilsCrossed className="h-3.5 w-3.5" />,
-  travel: <Plane className="h-3.5 w-3.5" />,
-  "open-source": <FolderGit2 className="h-3.5 w-3.5" />,
+  ecommerce: <ShoppingBag className="h-3.5 w-3.5" />,
+  social: <Share2 className="h-3.5 w-3.5" />,
+  media: <Film className="h-3.5 w-3.5" />,
 };
 
 function categoryIcon(id: string): React.ReactNode {
