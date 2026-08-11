@@ -26,7 +26,7 @@ export interface MorphingDiscoveryBarProps {
 }
 
 /* ---------- Motion ---------- */
-const EASE = [0.22, 1, 0.36, 1] as const;
+import { EASE } from "@/lib/motion";
 
 /**
  * Discovery bar — always-visible search input + a compact category bar:

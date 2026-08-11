@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-10T00:00:00.000Z",
+  "generatedAt": "2026-08-11T22:30:00.000Z",
   "title": "Design System: IdeaExists",
   "extensions": {
     "colorMeta": {
@@ -14,7 +14,8 @@
       "sage-verified": { "role": "status", "displayName": "Sage Verified", "canonical": "oklch(0.49 0.09 150)", "tonalRamp": ["oklch(0.22 0.09 150)", "oklch(0.32 0.09 150)", "oklch(0.42 0.09 150)", "oklch(0.49 0.09 150)", "oklch(0.58 0.09 150)", "oklch(0.68 0.09 150)", "oklch(0.79 0.08 150)", "oklch(0.9 0.06 150)"] },
       "brick-dead": { "role": "status", "displayName": "Brick Dead", "canonical": "oklch(0.53 0.135 30)", "tonalRamp": ["oklch(0.25 0.13 30)", "oklch(0.36 0.135 30)", "oklch(0.46 0.135 30)", "oklch(0.53 0.135 30)", "oklch(0.62 0.13 30)", "oklch(0.72 0.12 30)", "oklch(0.83 0.1 30)", "oklch(0.93 0.07 30)"] },
       "charcoal": { "role": "neutral", "displayName": "Charcoal", "canonical": "oklch(0.212 0.012 60)", "tonalRamp": ["oklch(0.12 0.012 60)", "oklch(0.17 0.012 60)", "oklch(0.212 0.012 60)", "oklch(0.28 0.012 60)", "oklch(0.36 0.012 60)", "oklch(0.46 0.012 60)", "oklch(0.58 0.012 60)", "oklch(0.72 0.014 60)"] },
-      "beige-primary": { "role": "primary", "displayName": "Beige Primary", "canonical": "oklch(0.88 0.03 85)", "tonalRamp": ["oklch(0.4 0.03 85)", "oklch(0.52 0.03 85)", "oklch(0.64 0.03 85)", "oklch(0.74 0.03 85)", "oklch(0.88 0.03 85)", "oklch(0.92 0.028 85)", "oklch(0.95 0.024 85)", "oklch(0.975 0.018 85)"] }
+      "beige-primary": { "role": "primary", "displayName": "Beige Primary", "canonical": "oklch(0.88 0.03 85)", "tonalRamp": ["oklch(0.4 0.03 85)", "oklch(0.52 0.03 85)", "oklch(0.64 0.03 85)", "oklch(0.74 0.03 85)", "oklch(0.88 0.03 85)", "oklch(0.92 0.028 85)", "oklch(0.95 0.024 85)", "oklch(0.975 0.018 85)"] },
+      "stamp-gold": { "role": "accent", "displayName": "Stamp Gold", "canonical": "oklch(0.6 0.11 70)", "tonalRamp": ["oklch(0.3 0.09 70)", "oklch(0.38 0.1 70)", "oklch(0.47 0.105 70)", "oklch(0.55 0.11 70)", "oklch(0.6 0.11 70)", "oklch(0.68 0.105 72)", "oklch(0.77 0.1 75)", "oklch(0.87 0.09 78)"] }
     },
     "typographyMeta": {
       "display": { "displayName": "Display", "purpose": "Hero question and section headers only — the archive's voice." },
@@ -27,9 +28,13 @@
       { "name": "inset-highlight", "value": "inset 0 1px 0 0 oklch(1 0 0 / 0.45)", "purpose": "The top-edge light catch that makes glass read as glass." }
     ],
     "motion": [
-      { "name": "ease-standard", "value": "cubic-bezier(0.22, 1, 0.36, 1)", "purpose": "The only easing allowed. Duration 0.35s, transform/opacity only." },
-      { "name": "entrance-stagger", "value": "40-80ms per card", "purpose": "Card grid reveal stagger." },
-      { "name": "hover-lift", "value": "translateY(-2px)", "purpose": "Subtle card lift on hover — never scale." }
+      { "name": "ease-standard", "value": "cubic-bezier(0.22, 1, 0.36, 1)", "purpose": "The default easing. Duration 0.35s, transform/opacity only." },
+      { "name": "entrance-stagger", "value": "45ms per card, capped at index 12", "purpose": "Card grid deal-in stagger (deal-in keyframe + animation-delay)." },
+      { "name": "spring-settle", "value": "spring { stiffness: 500, damping: 40, mass: 0.8 }", "purpose": "Critically damped, no visible overshoot — shared-layout pills + admin accordion only." },
+      { "name": "spring-stamp", "value": "spring { stiffness: 600, damping: 12, mass: 0.6 }", "purpose": "The one sanctioned overshoot — the verify stamp rebounding off paper. Verify stamp only." },
+      { "name": "deal-tilt", "value": "rotate(±0.7deg) alternating", "purpose": "Card dealing tilt — CSS-only, transform, consumed by deal-in." },
+      { "name": "live-ring", "value": "scale(1 → 2.6) fading, ≤3 iterations", "purpose": "The live dot's one-time wave on load — a greeting, not a heartbeat." },
+      { "name": "hover-lift", "value": "translateY(-2px)", "purpose": "Subtle card lift on hover — never scale. Dead cards lift y:-1." }
     ],
     "breakpoints": [
       { "name": "sm", "value": "640px" },
@@ -58,7 +63,7 @@
       "name": "Status Pill",
       "kind": "chip",
       "refersTo": "status-pill",
-      "description": "The trust layer. Dot + label + icon; worded tooltip on hover. The unverified variant is a two-step button (first click arms 'Confirm?', second fires mark-verified — the human gate never flips on a stray click).",
+      "description": "The trust layer. Dot + label + icon; worded tooltip on hover. When the curator is unlocked the pill is a button in every state: clicking opens a small menu with the three trust states (Verified / Unverified / Dead, current state checked); picking one raises a themed confirm dialog so the human gate never flips on a stray click. Read-only visitors get the worded hint via a popover.",
       "html": "<span class=\"ds-status ds-status-verified\"><span class=\"ds-dot\"></span><svg width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z\"/><path d=\"m9 12 2 2 4-4\"/></svg>Verified</span>",
       "css": ".ds-status { display: inline-flex; align-items: center; gap: 5px; padding: 2px 10px; border-radius: 9999px; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 11px; font-weight: 500; border: 1px solid; } .ds-dot { width: 6px; height: 6px; border-radius: 9999px; } .ds-status-verified { background: oklch(0.49 0.09 150 / 0.12); border-color: oklch(0.49 0.09 150 / 0.25); color: oklch(0.49 0.09 150); } .ds-status-verified .ds-dot { background: oklch(0.49 0.09 150); } .ds-status-dead { background: oklch(0.53 0.135 30 / 0.1); border-color: oklch(0.53 0.135 30 / 0.2); color: oklch(0.53 0.135 30); } .ds-status-dead .ds-dot { background: oklch(0.53 0.135 30); } .ds-status-unverified { background: oklch(0.92 0.018 82); border-color: oklch(0.85 0.02 80 / 0.65); color: oklch(0.5 0.02 78); } .ds-status-unverified .ds-dot { background: oklch(0.5 0.02 78 / 0.6); } .dark .ds-status-verified { color: oklch(0.72 0.105 150); background: oklch(0.72 0.105 150 / 0.15); } .dark .ds-status-dead { color: oklch(0.66 0.15 30); } .dark .ds-status-unverified { color: oklch(0.78 0.024 80); background: oklch(1 0 0 / 0.06); }"
     },
@@ -106,8 +111,9 @@
       "One signature interaction: the morphing discovery bar; one signature motion system: ease-out only, reduced-motion safe"
     ],
     "rules": [
-      { "name": "The Status-Is-Sacred Rule", "body": "Only three colors may carry semantic meaning — sage (verified), brick (dead), warm grey (unverified) — and they must always appear with a label and/or icon, never as color alone. No decorative use of these three, ever.", "section": "colors" },
-      { "name": "The One Anchor Rule", "body": "Saturation is reserved for the status layer. The chrome is warm neutrals + one anchor hue per theme; introducing a second loud accent breaks the archive's calm and is a smell.", "section": "colors" },
+      { "name": "The Status-Is-Sacred Rule", "body": "Only three colors may carry semantic meaning — sage (verified), brick (dead), warm grey (unverified) — and they must always appear with a label and/or icon, never as color alone. No decorative use of these three, ever. Decorative archival stamps (e.g. the FILED stamp on dead cards) may carry a status hue only when aria-hidden AND the card still shows its status pill.", "section": "colors" },
+      { "name": "The One Anchor + One Wink Rule", "body": "Saturation is reserved for the status layer. The chrome is warm neutrals + one anchor hue per theme + one non-status accent (stamp-gold, derived from the Sky's gold family) for chrome delight only — never on or near a status, never the sole carrier of meaning. Introducing a second loud accent breaks the archive's calm and is a smell.", "section": "colors" },
+      { "name": "The Micro-Delight Rule", "body": "Personality is many small ≤500ms responses, each bound to a real state change. Nothing plays without user action; nothing runs forever.", "section": "motion" },
       { "name": "The Ledger Rule", "body": "If it is a fact with a number or a date, it is set in Geist Mono with tabular figures. If it is prose, it is Jakarta. If it is the hero or a section title, it is Space Grotesk. Three voices, no exceptions.", "section": "typography" },
       { "name": "The No-Spooky-Shadow Rule", "body": "Shadow is ambient pooling, never a hard cast. No shadow-lg-style drop shadows, no elevation ladder — a panel is either glass or overlay-glass, and nothing floats above glass.", "section": "elevation" }
     ],
@@ -116,11 +122,12 @@
       "Do give every status a dot + label + worded tooltip; the trust layer is visible card copy, not hidden metadata.",
       "Do keep dead entries on the page — filed treatment (desaturate/fade), never deleted, never joked about.",
       "Do use ease-out [0.22, 1, 0.36, 1] for motion, 0.35s, transform/opacity only; respect prefers-reduced-motion (opacity-only or zero-duration).",
+      "Do bind every micro-delight to a real state change — nothing plays without user action, nothing runs forever.",
       "Do let the warm base show through — cards are translucent glass on beige/charcoal, not opaque white boxes."
     ],
     "donts": [
-      "Don't add gradients, blob backdrops, or cold blue-white glass — the antislop tell this world exists to avoid.",
-      "Don't use bounce or spring easing anywhere in this project.",
+      "Don't add gradients, blob backdrops, or cold blue-white glass — the antislop tell this world exists to avoid. Sanctioned exceptions: the authored Sky layer (atmosphere with its own tokens and motion rules) and the paper-grain layer (a single feTurbulence texture at 3.5–5% opacity, never inside .glass).",
+      "Don't use bounce or spring easing anywhere — except the two named springs (spring-settle, spring-stamp) where the Motion section sanctions them.",
       "Don't use the status colors (sage/brick/grey) decoratively, or without their label/icon.",
       "Don't fetch favicons or external avatars for cards — the archive is local and the privacy line is a brand promise.",
       "Don't center more elements to 'fix' the hero — asymmetry comes from left-aligned ledger rules, not more centering.",

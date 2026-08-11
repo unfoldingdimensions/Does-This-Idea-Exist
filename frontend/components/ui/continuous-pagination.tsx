@@ -15,7 +15,7 @@ export interface ContinuousPaginationProps {
   onPageChange: (page: number) => void;
 }
 
-const EASE = [0.22, 1, 0.36, 1] as const;
+import { EASE } from "@/lib/motion";
 
 /** Windowed page list: 1 … (p-1) p (p+1) … total — never more than ~7 buttons. */
 function pageWindow(page: number, totalPages: number): (number | "…")[] {

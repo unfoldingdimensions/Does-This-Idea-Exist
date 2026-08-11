@@ -9,7 +9,7 @@ import { StatusPill, type StatusChoice } from "@/components/startup-card";
 import { formatDate, titleCase } from "@/lib/format";
 import type { Startup } from "@/lib/types";
 
-const EASE = [0.22, 1, 0.36, 1] as const;
+import { EASE } from "@/lib/motion";
 
 /**
  * Detail modal — the card's shared-layout expansion into a frosted dossier

@@ -11,6 +11,9 @@
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-display);
   --font-display: var(--font-display);
+  /* The archive's easing curve, exposed to CSS-only motion (mirrors
+     frontend/lib/motion.ts EASE — keep the two in sync). */
+  --ease-archive: cubic-bezier(0.22, 1, 0.36, 1);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -134,6 +137,11 @@
   --scrollbar-thumb: oklch(0.55 0.02 78 / 0.6);
   --scrollbar-thumb-hover: oklch(0.47 0.02 78 / 0.75);
   --scrollbar-track: oklch(0.93 0.016 82 / 0.6);
+
+  /* The Wink — stamp-gold chrome delight (One Anchor + One Wink rule):
+     never on or near a status, never the sole carrier of meaning. */
+  --stamp-gold: oklch(0.6 0.11 70);
+  --grain-opacity: 0.04;
 }
 
 .dark {
@@ -202,6 +210,10 @@
   --scrollbar-thumb: oklch(0.93 0.024 85 / 0.38);
   --scrollbar-thumb-hover: oklch(0.93 0.024 85 / 0.55);
   --scrollbar-track: oklch(1 0 0 / 0.06);
+
+  /* The Wink, dark — brighter gold on charcoal. */
+  --stamp-gold: oklch(0.8 0.1 80);
+  --grain-opacity: 0.05;
 }
 
 @layer base {
@@ -389,6 +401,64 @@
   .glass-strong {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
+  }
+  /* The single CSS-side kill switch: every keyframed piece (deal-in,
+     reveal-in, live-ring, skeleton sweep, star twinkle, sky pulses) dies
+     here. JS motion is handled separately via useReducedMotion. */
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+  }
+}
+
+/* ---- Micro-delight keyframes (CSS-only motion; JS equivalent in motion.ts).
+   All transform/opacity, all finite or gated by the reduced-motion block
+   above. Consumed by Phase 10 components. ---- */
+
+/* Cards dealt onto the desk: rise + straighten with a ±0.7deg alternating tilt. */
+@keyframes deal-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) rotate(var(--deal-tilt, 0deg));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) rotate(0deg);
+  }
+}
+
+/* Staged hero reveal: subhead, discovery bar, ledger line assemble beneath the h1. */
+@keyframes reveal-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* The live dot waves once (capped at 3 iterations in the component). */
+@keyframes live-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+/* Skeleton sweep — one composited translateX (no background-position repaint). */
+@keyframes skeleton-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
   }
 }
 

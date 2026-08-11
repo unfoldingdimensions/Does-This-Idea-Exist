@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { seedByGithub, seedByWebsite } from "@/lib/api";
 import type { Startup } from "@/lib/types";
 
-const EASE = [0.22, 1, 0.36, 1] as const;
+import { EASE } from "@/lib/motion";
 
 /**
  * Add a startup — frosted glass modal (Watermelon create-community pattern,

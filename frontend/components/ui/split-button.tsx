@@ -23,7 +23,7 @@ export interface SplitButtonProps {
   options: SplitButtonOption[];
 }
 
-const EASE = [0.22, 1, 0.36, 1] as const;
+import { EASE } from "@/lib/motion";
 
 export function SplitButton({ mainLabel, options }: SplitButtonProps) {
   const [open, setOpen] = useState(false);

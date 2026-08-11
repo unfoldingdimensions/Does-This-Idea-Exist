@@ -21,6 +21,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { HueAvatar } from "@/components/hue-avatar";
+import { EASE } from "@/lib/motion";
 import type { Startup } from "@/lib/types";
 import { foundedYear } from "@/lib/search";
 import { formatDate, shortDate, titleCase } from "@/lib/format";
@@ -274,7 +275,7 @@ export function StartupCard({
       layoutId={`startup-${startup.id}`}
       whileHover={reduce ? undefined : { y: -2 }}
       whileTap={reduce ? undefined : { scale: 0.99 }}
-      transition={{ type: "tween", ease: [0.22, 1, 0.36, 1], duration: 0.35 }}
+      transition={{ type: "tween", ease: EASE, duration: 0.35 }}
       className={cn("glass flex h-full flex-col rounded-2xl", dead && "opacity-85 saturate-[0.55]")}
     >
       <div className="flex h-full flex-col gap-2.5 p-4">
@@ -313,7 +314,7 @@ export function StartupCard({
               transition={
                 reduce
                   ? { duration: 0 }
-                  : { type: "tween", ease: [0.22, 1, 0.36, 1], duration: 0.32 }
+                  : { type: "tween", ease: EASE, duration: 0.32 }
               }
               className="overflow-hidden"
             >

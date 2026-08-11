@@ -120,9 +120,9 @@ The palette is warm-neutral with a single deep navy anchor (light) that inverts 
 - **Warm Beige Text** (oklch(0.93 0.024 85)): dark-mode foreground.
 
 ### Named Rules
-**The Status-Is-Sacred Rule.** Only three colors may carry semantic meaning — sage (verified), brick (dead), warm grey (unverified) — and they must always appear with a label and/or icon, never as color alone. No decorative use of these three, ever.
+**The Status-Is-Sacred Rule.** Only three colors may carry semantic meaning — sage (verified), brick (dead), warm grey (unverified) — and they must always appear with a label and/or icon, never as color alone. No decorative use of these three, ever. Decorative archival stamps (e.g. the FILED stamp on dead cards) may carry a status hue only when `aria-hidden` AND the card still shows its status pill.
 
-**The One Anchor Rule.** Saturation is reserved for the status layer. The chrome is warm neutrals + one anchor hue per theme; introducing a second loud accent breaks the archive's calm and is a smell.
+**The One Anchor + One Wink Rule.** Saturation is reserved for the status layer. The chrome is warm neutrals + one anchor hue per theme + **one** non-status accent (`stamp-gold`, derived from the Sky's existing gold family) for chrome delight only — never on or near a status, never the sole carrier of meaning. Introducing a second loud accent breaks the archive's calm and is a smell.
 
 ## Typography
 
@@ -163,7 +163,11 @@ A fixed, scroll-linked sky sits behind the archive at `z-[-1]` (`sky-background.
 
 ## Motion
 
-One authored moment per interaction, exponential ease-out (`[0.22, 1, 0.36, 1]`), transform/opacity/blur only. Every open/close animates (dropdowns fade+scale+blur ~180ms, dialogs via tw-animate-css, theme-toggle icon crossfades ~220ms), cards lift on hover (`translateY(-2px)`), and page scroll is inertial via Lenis (lerp 0.09, stopped while modals lock scroll). Everything respects `prefers-reduced-motion` — zero-duration or no effect. No bounce, no springs.
+One authored moment per interaction. The default is exponential ease-out (`[0.22, 1, 0.36, 1]`), transform/opacity/blur only. Every open/close animates (dropdowns fade+scale+blur ~180ms, dialogs via tw-animate-css, theme-toggle icon crossfades ~220ms), cards lift on hover (`translateY(-2px)`), and page scroll is inertial via Lenis (lerp 0.09, stopped while modals lock scroll). Everything respects `prefers-reduced-motion` — zero-duration or no effect.
+
+**Two named springs are sanctioned, and nothing else:** `spring-settle` (critically damped, no visible overshoot) for shared-layout pills and the admin accordion; `spring-stamp` (the one permitted overshoot — a rubber stamp rebounding off paper) for the verify stamp only. Springs never run on hover and never on grid entrances.
+
+**The Micro-Delight Rule.** Personality is many small ≤500ms responses, each bound to a real state change. Nothing plays without user action; nothing runs forever.
 
 ## Layout
 
@@ -195,7 +199,7 @@ The form language is **pill + soft card.** Everything interactive that sits in a
 
 ### Category Chips
 - **Style:** transparent, archive-navy text, full pill; active state = sliding Archive Navy pill (shared-layout `layoutId` morph) with warm paper text + count in `primary-foreground/70`. Icons allowed (lucide, one set).
-- **State:** `aria-pressed` on the active chip; wraps to a second row on desktop, scrolls on mobile; the active chip auto-scrolls into view.
+- **State:** `aria-pressed` on the active chip; the row shows **All + top 3 categories inline** with a **More** dropdown for every remaining category (hover-open on desktop, click toggles for touch/keyboard); on mobile the row scrolls horizontally (thin visible scrollbar + wheel + drag), and the active chip auto-scrolls into view.
 
 ### Status Pill (the trust layer)
 - **Style:** dot (6px) + label (+ icon for Verified/Dead); verified = sage tint bg + sage text, dead = brick tint + brick text, unverified = grey. Full pill, px-2.5 py-0.5.
@@ -229,7 +233,11 @@ The form language is **pill + soft card.** Everything interactive that sits in a
 - **Persistence:** every job writes to the `jobs` table (JSON columns) as it runs and on completion — summaries survive backend restarts; interrupted jobs are marked `failed (interrupted)` at startup. The panel polls `/api/admin/seed/jobs` every 2s while any job is active (even when closed, so a finishing run refreshes the archive), and re-attaches on reopen.
 
 ### Signature Component: Morphing Discovery Bar
-The product's focal interaction: a single glass panel (max-w-3xl, rounded-[1.75rem] — a 28px radius that reads as a pill on one row and stays correct when chips wrap) containing (a) an always-visible search input (h-11, glass-white field, mono, with a clear-× when a query is active) and (b) a category chip row whose active pill **morphs** between chips via shared-layout motion (ease-out 0.35s, zero-duration under reduced motion). Chips **wrap to a second row on desktop** so no category hides behind scroll; on mobile the row scrolls horizontally (thin visible scrollbar + wheel + drag), and the active chip auto-scrolls into view on selection. LayoutGroup-wrapped so the panel transitions smoothly; this is the one hero moment and it must stay the only one.
+The product's focal interaction: a single glass panel (max-w-3xl, rounded-[1.75rem]) containing (a) an always-visible search input (h-11, glass-white field, mono, with a clear-× when a query is active) and (b) a category chip row whose active pill **morphs** between chips via shared-layout motion (ease-out 0.35s, zero-duration under reduced motion). The row shows **All + top 3 categories inline**; every remaining category lives behind a **More** dropdown (hover-open on desktop, click toggles for touch/keyboard, Escape/arrows on keyboard). On mobile the row scrolls horizontally (thin visible scrollbar + wheel + drag), and the active chip auto-scrolls into view on selection. LayoutGroup-wrapped so the panel transitions smoothly; this is the one hero moment and it must stay the only one.
+
+### Loading
+
+Skeletons mirror real card anatomy and height (avatar block, header lines, pill, tagline/description bars, badges, action pills) so the loading→loaded swap never shifts layout (a CLS guard). Skeleton surfaces carry **no `backdrop-filter`** — glass blur on placeholders costs the LCP window and buys nothing.
 
 ## Do's and Don'ts
 
@@ -241,8 +249,8 @@ The product's focal interaction: a single glass panel (max-w-3xl, rounded-[1.75r
 - **Do** let the warm base show through — cards are translucent glass on beige/charcoal, not opaque white boxes.
 
 ### Don't:
-- **Don't** add decorative gradients, blob backdrops, or cold blue-white glass — the antislop tell this world exists to avoid. The single exception is the authored Sky layer (see above): an atmosphere with its own tokens and motion rules, never a random gradient.
-- **Don't** use bounce or spring easing anywhere in this project.
+- **Don't** add decorative gradients, blob backdrops, or cold blue-white glass — the antislop tell this world exists to avoid. Sanctioned exceptions: the authored Sky layer (an atmosphere with its own tokens and motion rules, see above) and the paper-grain layer (a single feTurbulence texture at 3.5–5% opacity, never inside `.glass`).
+- **Don't** use bounce or spring easing anywhere in this project — except the two named springs in the Motion section (`spring-settle`, `spring-stamp`), used only where that section sanctions them.
 - **Don't** use the status colors (sage/brick/grey) decoratively, or without their label/icon.
 - **Don't** fetch favicons or external avatars for cards — the archive is local and the privacy line is a brand promise.
 - **Don't** center more elements to "fix" the hero — asymmetry comes from left-aligned ledger rules, not more centering.
