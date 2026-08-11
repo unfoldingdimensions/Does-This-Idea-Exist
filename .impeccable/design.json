@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-11T22:30:00.000Z",
+  "generatedAt": "2026-08-12T01:30:00.000Z",
   "title": "Design System: IdeaExists",
   "extensions": {
     "colorMeta": {
@@ -123,6 +123,7 @@
       "Do keep dead entries on the page — filed treatment (desaturate/fade), never deleted, never joked about.",
       "Do use ease-out [0.22, 1, 0.36, 1] for motion, 0.35s, transform/opacity only; respect prefers-reduced-motion (opacity-only or zero-duration).",
       "Do bind every micro-delight to a real state change — nothing plays without user action, nothing runs forever.",
+      "Do speak the curator's voice in toasts — name the thing and what happened to it, never the HTTP verb; errors say what didn't happen, not that something 'failed'.",
       "Do let the warm base show through — cards are translucent glass on beige/charcoal, not opaque white boxes."
     ],
     "donts": [

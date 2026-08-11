@@ -97,7 +97,7 @@ export function VerificationSection({
     setConfirm(null);
     setApprovingId(null);
     setApprovingAll(false);
-    toast.success(`${n} website${n === 1 ? "" : "s"} verified`);
+    toast.success(`${n} filing${n === 1 ? "" : "s"} stamped`);
     onSeeded(); // refresh archive + jobs
     void refresh(); // refresh the queue
   };
@@ -109,7 +109,9 @@ export function VerificationSection({
       afterApprove(r.approved);
     } catch (err) {
       setApprovingId(null);
-      toast.error(err instanceof Error ? err.message : "Approval failed");
+      toast.error("The stamp didn't take", {
+        description: err instanceof Error ? err.message : undefined,
+      });
     }
   };
 
@@ -120,7 +122,9 @@ export function VerificationSection({
       afterApprove(r.approved);
     } catch (err) {
       setApprovingAll(false);
-      toast.error(err instanceof Error ? err.message : "Approval failed");
+      toast.error("The stamp didn't take", {
+        description: err instanceof Error ? err.message : undefined,
+      });
     }
   };
 
@@ -133,7 +137,9 @@ export function VerificationSection({
       afterApprove(r.approved);
     } catch (err) {
       setApprovingAll(false);
-      toast.error(err instanceof Error ? err.message : "Batch approval failed");
+      toast.error("Couldn't stamp that batch", {
+        description: err instanceof Error ? err.message : undefined,
+      });
     }
   };
 

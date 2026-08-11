@@ -68,7 +68,7 @@ export function HealthCheckSection({
         setStarting(false);
         onSeeded();
         if (s.status === "failed") {
-          toast.error("Verification job failed", {
+          toast.error("The health pass stumbled", {
             description: s.errors[0] ?? "See the panel for details.",
           });
         } else {
@@ -114,7 +114,9 @@ export function HealthCheckSection({
       void poll(job_id);
     } catch (err) {
       setStarting(false);
-      toast.error(err instanceof Error ? err.message : "Failed to start verification");
+      toast.error("Couldn't start the pass", {
+        description: err instanceof Error ? err.message : undefined,
+      });
     }
   };
 
@@ -123,14 +125,16 @@ export function HealthCheckSection({
     setApproving(true);
     try {
       const r = await approveSuggested([confirm.id]);
-      toast.success(`${r.approved} website${r.approved === 1 ? "" : "s"} verified`);
+      toast.success(`${r.approved} filing${r.approved === 1 ? "" : "s"} stamped`);
       onSeeded();
       setConfirm(null);
     } catch (err) {
       if (err instanceof AdminUnauthorized) {
         onLocked("Admin session expired — re-enter your token");
       } else {
-        toast.error(err instanceof Error ? err.message : "Approval failed");
+        toast.error("The stamp didn't take", {
+          description: err instanceof Error ? err.message : undefined,
+        });
       }
     } finally {
       setApproving(false);

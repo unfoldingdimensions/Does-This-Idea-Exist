@@ -74,9 +74,11 @@ export function SeedSection({
     } catch (err) {
       if (err instanceof AdminUnauthorized) {
         onLocked("Admin session expired — re-enter your token");
-        toast.error("Admin session expired");
+        toast.error("Session expired — the drawer locked itself");
       } else {
-        toast.error(err instanceof Error ? err.message : "Failed to start seed");
+        toast.error("Couldn't start the run", {
+          description: err instanceof Error ? err.message : undefined,
+        });
       }
     } finally {
       setBusy(false);

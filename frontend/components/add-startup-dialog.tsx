@@ -96,11 +96,15 @@ export function AddStartupDialog({
     setStatus("Fetching repo and generating profile…");
     try {
       const entry = await seedByGithub(url);
-      toast.success(`${entry.name} added`);
+      toast.success(`${entry.name} — filed.`, {
+        description: "Unchecked until a human looks it over.",
+      });
       onAdded(entry);
       close();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Seed failed");
+      toast.error("Couldn't file that one", {
+        description: err instanceof Error ? err.message : undefined,
+      });
     } finally {
       setBusy(false);
       setStatus("");
@@ -124,11 +128,15 @@ export function AddStartupDialog({
     setStatus("Fetching homepage and generating profile…");
     try {
       const entry = await seedByWebsite(url, nameHint.trim() || undefined);
-      toast.success(`${entry.name} added`);
+      toast.success(`${entry.name} — filed.`, {
+        description: "Unchecked until a human looks it over.",
+      });
       onAdded(entry);
       close();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Seed failed");
+      toast.error("Couldn't file that one", {
+        description: err instanceof Error ? err.message : undefined,
+      });
     } finally {
       setBusy(false);
       setStatus("");

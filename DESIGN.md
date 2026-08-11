@@ -247,6 +247,7 @@ Skeletons mirror real card anatomy and height (avatar block, header lines, pill,
 - **Do** keep dead entries on the page — filed treatment (desaturate/fade), never deleted, never joked about.
 - **Do** use ease-out `[0.22, 1, 0.36, 1]` for motion, 0.35s, transform/opacity only; respect `prefers-reduced-motion` (opacity-only or zero-duration).
 - **Do** let the warm base show through — cards are translucent glass on beige/charcoal, not opaque white boxes.
+- **Do** speak the curator's voice in toasts — name the thing and what happened to it, never the HTTP verb; errors say what didn't happen, not that something "failed".
 
 ### Don't:
 - **Don't** add decorative gradients, blob backdrops, or cold blue-white glass — the antislop tell this world exists to avoid. Sanctioned exceptions: the authored Sky layer (an atmosphere with its own tokens and motion rules, see above) and the paper-grain layer (a single feTurbulence texture at 3.5–5% opacity, never inside `.glass`).

@@ -86,7 +86,7 @@ export function AdminPanel({
       setTokenInput("");
       void refreshJobs();
     } catch (err) {
-      setUnlockMsg(err instanceof Error ? err.message : "Unlock failed");
+      setUnlockMsg(err instanceof Error ? err.message : "That token didn't unlock the drawer");
     } finally {
       setUnlocking(false);
     }
@@ -119,7 +119,7 @@ export function AdminPanel({
               `Verification complete — ${j.result?.ok ?? j.ok}/${j.total} ok · ${j.failed} failed`,
             );
           } else if (j.status === "failed" || j.failed > 0) {
-            toast.error(`Seed finished — ${j.done} done · ${j.failed} failed`, {
+            toast.error(`The run finished — ${j.done} filed · ${j.failed} didn't take`, {
               description: j.errors[0] ?? "See the run summary in the panel.",
             });
           } else {
@@ -131,8 +131,8 @@ export function AdminPanel({
       }
     } catch (err) {
       if (err instanceof AdminUnauthorized) {
-        handleLocked("Admin session expired — re-enter your token");
-        toast.error("Admin session expired");
+        handleLocked("Session expired — re-enter your token to reopen the drawer");
+        toast.error("Session expired — the drawer locked itself");
       }
     }
   }, [onSeeded]);

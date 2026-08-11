@@ -241,6 +241,27 @@ export default function HomePage() {
 
   const hasAnyFilter = query !== "" || category !== null || year !== "all" || status !== "all";
 
+  // Easter egg #1 — the self-referential query: asking whether this product
+  // exists gets the archive's own Verified pill. It IS the thesis.
+  const selfQuery = /^(does this startup exist|ideaexists|is this a real startup)$/i.test(
+    query.trim(),
+  );
+
+  // Easter egg #2 — the Curator signs off after three clicks on the footer
+  // mantra. Deliberately a plain <span onClick> with no role: adding a tab
+  // stop for a joke is worse accessibility than leaving it mouse-only.
+  const mantraRef = React.useRef({ count: 0, last: 0 });
+  const handleMantraClick = () => {
+    const now = Date.now();
+    const r = mantraRef.current;
+    r.count = now - r.last > 1500 ? 1 : r.count + 1;
+    r.last = now;
+    if (r.count >= 3) {
+      r.count = 0;
+      toast("Filed by hand. Checked the dead ones twice. — The Curator");
+    }
+  };
+
   const clearFilters = () => {
     changeQuery("");
     changeCategory(null);
@@ -288,16 +309,19 @@ export default function HomePage() {
             : await markDead(s.id);
       toast.success(
         choice === "dead"
-          ? `${updated.name} filed as dead`
+          ? `${updated.name} — filed. Checked three times, gone.`
           : choice === "unverified"
-            ? `${updated.name} marked unverified`
-            : `${updated.name} marked verified`,
+            ? `${updated.name} — stamp cleared. Back to "filed, awaiting a human".`
+            : `${updated.name} — checked and alive.`,
+        choice === "verified" ? { description: "Stamped today. Reversible." } : undefined,
       );
       setStartups((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
       setDetail((d) => (d && d.id === updated.id ? updated : d)); // keep the open modal in sync
       void loadAll();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Status update failed");
+      toast.error("The stamp didn't take", {
+        description: err instanceof Error ? err.message : undefined,
+      });
     }
   };
 
@@ -472,8 +496,23 @@ export default function HomePage() {
               <CardSkeleton key={i} />
             ))}
           </div>
-        ) : paged.length === 0 ? (
+        ) : selfQuery ? (
           <div className="glass mx-auto max-w-md rounded-2xl px-6 py-12 text-center">
+            <ShieldCheck className="mx-auto h-8 w-8 text-success" />
+            <h2 className="mt-3 text-sm font-bold">Yes. You&rsquo;re looking at it.</h2>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              The thing you&rsquo;re asking about is the page you&rsquo;re on — a human-kept
+              archive of what exists, filed one entry at a time.
+            </p>
+            <div className="mt-4 flex justify-center">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-success/25 bg-success/12 px-2.5 py-0.5 text-[11px] font-medium text-success dark:bg-success/15">
+                <span className="size-1.5 rounded-full bg-success" aria-hidden />
+                <ShieldCheck className="h-3 w-3" /> Verified
+              </span>
+            </div>
+          </div>
+        ) : paged.length === 0 ? (
+            <div className="glass mx-auto max-w-md rounded-2xl px-6 py-12 text-center">
             <Building2 className="mx-auto h-8 w-8 text-muted-foreground" />
             <h2 className="mt-3 text-sm font-bold">
               {hasAnyFilter ? "Nothing in the archive matches." : "Nothing on file yet."}
@@ -564,7 +603,10 @@ export default function HomePage() {
               <CountUp value={stats?.verified ?? 0} /> verified
             </span>
           </span>
-          <span className="hidden font-mono text-[11px] tabular-nums md:inline">
+          <span
+            className="hidden font-mono text-[11px] tabular-nums md:inline"
+            onClick={handleMantraClick}
+          >
             Dead is a status, not an erasure. Kept by a human, checked weekly.
           </span>
           <span className="hidden lg:inline">
