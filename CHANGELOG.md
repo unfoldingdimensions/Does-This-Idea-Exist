@@ -6,6 +6,51 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### UX — correctness & accessibility
+
+- **Pagination shows the page it means.** The control now takes the clamped page (`currentPage`), so a deep link like `?page=999` renders the real last page with the active pill and `aria-current` instead of a dead control.
+- **Detail modal traps focus and Escape works everywhere.** Tab/Shift+Tab cycles inside the dialog (it used to walk out into the footer); Escape is handled at document level so it closes even after focus escapes; focus returns to the triggering card on close (WCAG 2.4.3).
+- **The "More" categories dropdown has keyboard parity** — Escape closes and returns focus, ArrowUp/Down cycle the items (WCAG 2.1.1).
+- **Admin section headers collapse** instead of teleporting the view to Seeding.
+- **Read-only status pills are buttons now** — keyboard- and touch-reachable, opening a popover with the worded hint + how verification works (the old span-tooltip was unreachable).
+- **Honest sort label while searching:** the select shows "Relevance" instead of claiming "Top (stars)" — and the option is no longer a silent no-op.
+- **Hero copy no longer overclaims:** "Kept by a human — checked one at a time." (317 of 1,292 verified — the old "Every listing checked by a human" contradicted the trust legend beneath it).
+- **"More like this" is actual similarity** (shared language / trust state / tagline tokens), not the alphabetically-first four in a category.
+- **Search is finally debounced and index-cached** — the Fuse index is built once per data load (memoised by array identity) and typing is debounced 150ms; measured per-keystroke jank dropped from ~120-180ms to near-instant.
+- **CountUp counts from the previous value** (a verify no longer recounts the archive from zero) and reduced-motion readers always see the current number.
+- **Show-more threshold raised** (140 → 200 chars): 21/24 cards instead of 24/24.
+
+### UX — archival whimsy (the personality pass)
+
+- **Cards deal in** — 380ms rise + straighten with an alternating ±0.7° tilt, 45ms stagger capped at index 12; skeletons mirror real card anatomy at real height (a CLS win) with a composited sweep.
+- **The verify stamp lands** — pill settle + shield icon spring (the one sanctioned overshoot) + a one-shot sage ring, armed by the curator's confirm.
+- **Dead entries are filed, not faded** — card opacity removed (an a11y win: text contrast), avatar greyscales, a rotated FILED watermark stamps the face.
+- **Hero reveals in stages** (the h1 stays instant — it's the LCP element); the live dots wave once; the header firms up under scroll; the sky breathes (star twinkle, sun/moon pulse) under paper grain.
+- **FilterBar signals state** — active facets get a dot + tint + per-facet clear-×, the count is an animated CountUp (aria-hidden digits, sr-only final number), "Clear all" animates in.
+- **The pagination pill finally slides** between pages (the shared-layout pill its docstring always promised).
+- **Offline banner became a fixed Retry pill** (no layout shift) with the dev command hidden outside development.
+- **Toasts speak the curator:** "X — checked and alive", "Couldn't file that one", "The stamp didn't take", "Session expired — the drawer locked itself". No HTTP verbs anywhere.
+- **Two easter eggs:** searching "does this startup exist" answers "Yes. You're looking at it." with a Verified pill; three clicks on the footer mantra gets the Curator's sign-off.
+- All motion is `prefers-reduced-motion` safe (single CSS kill switch + `useReducedMotion` gates) and transform/opacity only.
+
+### Scale — pagination guardrails
+
+- **`LIST_LIMIT_DEFAULT` 2000 → 3000** (the measured Fuse knee: 22ms/term @1,292 rows → 70ms @5,000; MAX stays 5000 as an explicit opt-in). The false "roughly 10x compression" comment is corrected (measured 4.2x).
+- **Truncation is now detectable and honest:** the frontend compares the list against `/api/stats` and banners both real numbers ("Showing 1,000 of 1,292 filings…") — no more silent short bodies with three counters telling two truths.
+- **SQL sinks `pivoted` alongside `dead`** (the client always did; the ORDER BY didn't — load-bearing once the LIMIT bites).
+- **Status toggles and adds refresh counts only** (categories + stats) instead of refetching the whole 225 KiB archive; seed completion still refetches everything.
+- Smoke suite pins the truncation contract, disjoint offsets, past-the-end `[]`, and the dead+pivoted SQL sink; sort-check gained a pivoted fixture (half of `DEAD_ORDER` was untested).
+
+### Data — duplicate merge
+
+- **`backend/scripts/merge_duplicates.py`** groups filings by identity key (registrable domain; GitHub hosts get owner/repo granularity), keeps the verified row + best URL, folds missing fields, deletes the rest. Dry-run by default; `--apply` takes a WAL-safe SQLite backup first. Same-name/different-home pairs (Bird, Bun, Cal.com, Fathom, Motion, Stability AI) are flagged for human review, never auto-merged.
+- **Applied:** 10 clear-cut same-home groups merged (Vue.js, GitLab, OpenAI, Apple, Tailwind CSS, Hugging Face, LangChain, Mistral, HashiCorp, Netography) — 1,292 → 1,282 rows.
+- **"×2 filings" chip** on cards whose name has multiple filings, linking to the name search — the disambiguation directory admits overlap instead of hiding it.
+
+### Design contract
+
+- `DESIGN.md` + `.impeccable/design.json`: **One Anchor + One Wink** (one non-status `stamp-gold` accent), two sanctioned springs (`spring-settle`, `spring-stamp`), the Micro-Delight Rule, paper-grain exception, chips-wrap doc drift fixed, Loading section, toast-voice Do. Shared motion language lives in `frontend/lib/motion.ts` (the seven duplicated EASE tuples are gone).
+
 ### Security
 
 - **Mutating endpoints now fail closed.** `MUTATION_AUTH` defaults to **on**, so
