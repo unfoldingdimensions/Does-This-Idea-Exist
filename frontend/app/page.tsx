@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import {
+  Archive,
   Briefcase,
   Building2,
   Code2,
@@ -152,6 +153,21 @@ export default function HomePage() {
     });
   }, []);
 
+  // Status toggles already patch the row in place — only the counters move.
+  // Refetching 225 KiB of archive per stamp was the pre-refactor behavior.
+  const refreshCounts = React.useCallback(() => {
+    return Promise.allSettled([fetchCategories(), fetchStats()]).then(([c, st]) => {
+      if (c.status === "fulfilled") setCategories(c.value);
+      if (st.status === "fulfilled") setStats(st.value);
+    });
+  }, []);
+
+  // Truncation is detectable on the wire: the list fetch carries no limit, so
+  // startups.length < stats.total means the ceiling bit (HTTP 200, short body,
+  // no error). Banner it honestly with both real numbers — and only when the
+  // archive is actually reachable, so a failed fetch can't make it lie.
+  const truncated = online && !loading && startups.length < (stats?.total ?? 0);
+
   React.useEffect(() => {
     void loadAll();
   }, [loadAll]);
@@ -296,7 +312,7 @@ export default function HomePage() {
     setQuery("");
     setCategory(null);
     setPage(1);
-    void loadAll();
+    void refreshCounts();
   };
 
   const handleStatusChange = async (s: Startup, choice: StatusChoice) => {
@@ -317,7 +333,7 @@ export default function HomePage() {
       );
       setStartups((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
       setDetail((d) => (d && d.id === updated.id ? updated : d)); // keep the open modal in sync
-      void loadAll();
+      void refreshCounts();
     } catch (err) {
       toast.error("The stamp didn't take", {
         description: err instanceof Error ? err.message : undefined,
@@ -471,6 +487,20 @@ export default function HomePage() {
           showClear={hasAnyFilter}
           searching={query.trim().length > 0}
         />
+
+        {/* Truncation banner — the ceiling bit and the frontend knows it */}
+        {truncated && (
+          <div
+            role="status"
+            className="mb-4 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-xl border border-border/40 bg-background/60 px-4 py-2 text-xs text-muted-foreground"
+          >
+            <Archive className="h-3.5 w-3.5 shrink-0" />
+            <span>
+              Showing {startups.length.toLocaleString()} of {stats!.total.toLocaleString()} filings —
+              search and filters only cover the {startups.length.toLocaleString()} shown.
+            </span>
+          </div>
+        )}
 
         {/* Freshness highlights — only on the unfiltered landing view */}
         <AnimatePresence>

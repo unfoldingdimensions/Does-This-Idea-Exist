@@ -124,7 +124,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 # /api/startups returns the whole archive on every page load (the frontend
-# filters client-side) — JSON that size compresses roughly 10x.
+# filters client-side). Measured at 1,292 rows: 950 KiB raw -> 225 KiB gzipped
+# (4.2x, not the "roughly 10x" this comment once claimed — description prose
+# doesn't compress well). JSON.parse ~1ms; ~3-5MB memory. The real cost curve
+# is client-side Fuse search (linear in rows; ~22ms/term at 1,292), so the
+# pleasant ceiling is ~3,000 rows — see LIST_LIMIT_DEFAULT.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 
@@ -318,7 +322,17 @@ def health() -> dict:
     }
 
 
-LIST_LIMIT_DEFAULT, LIST_LIMIT_MAX = 2000, 5000
+# The client holds everything and filters client-side (Fuse). The knee where
+# that architecture stops feeling instant is ~3,000 rows (measured: 22ms/term
+# at 1,292, 35ms at 2,500, 70ms at 5,000 on desktop) — so the default ceiling
+# sits at the knee, with MAX as an explicit opt-in. When the limit bites, the
+# response is truncated with HTTP 200: the frontend detects it via
+# startups.length < /api/stats.total and banners it (search/filters only cover
+# the rows shown).
+# ponytail: when the archive outgrows ~3,000 rows, move SEARCH server-side
+# (SQLite FTS5 + bm25) — not offset pagination, which the directory UX doesn't
+# need. This marker shows up in /ponytail-debt.
+LIST_LIMIT_DEFAULT, LIST_LIMIT_MAX = 3000, 5000
 
 
 def _like_escape(term: str) -> str:
@@ -338,8 +352,11 @@ def list_startups(
     limit: int = Query(LIST_LIMIT_DEFAULT, ge=1, le=LIST_LIMIT_MAX),
     offset: int = Query(0, ge=0),
 ) -> list[dict]:
-    """The archive. The frontend pulls this once and filters client-side, so the
-    default limit is a growth ceiling rather than real pagination."""
+    """The archive. The frontend pulls this once and filters client-side, so
+    the default limit is a growth ceiling rather than real pagination: once
+    the row count passes LIST_LIMIT_DEFAULT the response is truncated (still
+    HTTP 200) and the frontend detects it against /api/stats. Tombstones sink
+    first — both 'dead' AND 'pivoted' — so truncation never promotes them."""
     conn = db.connect()
     try:
         sql = "SELECT * FROM startups"
@@ -355,7 +372,7 @@ def list_startups(
             params += [f"%{_like_escape(q)}%"] * 3
         if conds:
             sql += " WHERE " + " AND ".join(conds)
-        sql += " ORDER BY CASE status WHEN 'dead' THEN 1 ELSE 0 END, name COLLATE NOCASE"
+        sql += " ORDER BY CASE status WHEN 'dead' THEN 1 WHEN 'pivoted' THEN 1 ELSE 0 END, name COLLATE NOCASE"
         sql += " LIMIT ? OFFSET ?"
         params += [limit, offset]
         return [dict(r) for r in conn.execute(sql, params).fetchall()]

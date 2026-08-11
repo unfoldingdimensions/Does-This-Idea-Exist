@@ -837,6 +837,73 @@ with TestClient(app) as c:
         len(c.get("/api/startups", params={"limit": 1}).json()) == 1,
     )
 
+    # --- Truncation contract (Phase 12) ---
+    # Bulk-insert past the default ceiling, then pin the contract the frontend
+    # banner reads: the list truncates (HTTP 200, short body) while /api/stats
+    # reports the true total. Three probe rows double as the tombstone-sink
+    # regression: TruncProbeZLive sorts AFTER the tombstones alphabetically,
+    # so the SQL ORDER BY must be what sinks them — pre-Phase-12 code (dead
+    # only, not pivoted) fails the last check.
+    conn = db.connect()
+    try:
+        conn.executemany(
+            "INSERT INTO startups (name, website_url, source) VALUES (?, ?, 'website')",
+            [(f"TruncProbe{i}", f"https://trunc{i}.example") for i in range(3100)],
+        )
+        conn.execute(
+            "INSERT INTO startups (name, website_url, source) VALUES ('TruncProbeZLive', 'https://trunc-live.example', 'website')"
+        )
+        conn.execute(
+            "UPDATE startups SET status='dead' WHERE name='TruncProbe0'"
+        )
+        conn.execute(
+            "UPDATE startups SET status='pivoted' WHERE name='TruncProbe1'"
+        )
+        conn.commit()
+        true_total = conn.execute("SELECT COUNT(*) AS c FROM startups").fetchone()["c"]
+    finally:
+        conn.close()
+    listed = c.get("/api/startups").json()
+    stats_total = c.get("/api/stats").json()["total"]
+    check(
+        "default limit truncates while /api/stats reports the true total",
+        len(listed) == main_mod.LIST_LIMIT_DEFAULT and stats_total == true_total,
+        f"listed {len(listed)} vs limit {main_mod.LIST_LIMIT_DEFAULT}; stats {stats_total} vs {true_total}",
+    )
+    check(
+        "truncation is detectable on the wire (short list < stats.total)",
+        len(listed) < stats_total,
+        f"listed {len(listed)} vs stats {stats_total}",
+    )
+    page1 = c.get("/api/startups", params={"limit": 50, "offset": 0}).json()
+    page2 = c.get("/api/startups", params={"limit": 50, "offset": 50}).json()
+    past = c.get("/api/startups", params={"limit": 50, "offset": 99999}).json()
+    ids1 = {r["id"] for r in page1}
+    ids2 = {r["id"] for r in page2}
+    check(
+        "offset pages disjointly",
+        len(page1) == 50 and len(page2) == 50 and not (ids1 & ids2),
+        f"p1={len(page1)} p2={len(page2)} overlap={ids1 & ids2}",
+    )
+    check("offset past the end returns []", past == [], f"got {len(past)}")
+    full = c.get("/api/startups", params={"limit": main_mod.LIST_LIMIT_MAX}).json()
+    idx_z = next(i for i, r in enumerate(full) if r["name"] == "TruncProbeZLive")
+    idx_d = next(i for i, r in enumerate(full) if r["name"] == "TruncProbe0")
+    idx_p = next(i for i, r in enumerate(full) if r["name"] == "TruncProbe1")
+    check(
+        "SQL sinks dead AND pivoted before live rows",
+        idx_z < idx_d and idx_z < idx_p,
+        f"live at {idx_z}, dead at {idx_d}, pivoted at {idx_p} (of {len(full)})",
+    )
+    conn = db.connect()
+    try:
+        conn.execute(
+            "DELETE FROM startups WHERE name LIKE 'TruncProbe%'"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
 print()
 if fails:
     print(f"RESULT: {len(fails)} FAILURE(S): {fails}")

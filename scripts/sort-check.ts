@@ -62,8 +62,18 @@ const charlie = row({
   founded: "2020-01-01",
   stars: 50,
 });
+// Pivoted = tombstone too (half of DEAD_ORDER was untested — Phase 12 gives
+// the predicate a second implementation in SQL, so both halves must hold).
+const pivoted = row({
+  id: 4,
+  name: "Pivoted",
+  status: "pivoted",
+  created_at: "2026-04-01T00:00:00Z",
+  founded: "2018-01-01",
+  stars: 900,
+});
 
-const input = [aardvark, beta, charlie];
+const input = [aardvark, beta, charlie, pivoted];
 const KEYS: SortKey[] = ["top", "newest", "verified", "name", "founded"];
 
 let failures = 0;
@@ -77,18 +87,19 @@ const check = (label: string, fn: () => void) => {
   }
 };
 
-// The regression itself: dead sinks under EVERY key.
+// The regression itself: BOTH tombstone kinds sink under EVERY key (input
+// order preserved among equal-key elements — dead then pivoted at the end).
 for (const key of KEYS) {
-  check(`sort=${key} sinks dead entries to the bottom`, () => {
+  check(`sort=${key} sinks dead+pivoted entries to the bottom`, () => {
     const names = sortStartups(input, key).map((s) => s.name);
-    assert.equal(names.at(-1), "Aardvark", `got ${JSON.stringify(names)}`);
+    assert.deepEqual(names.slice(-2), ["Aardvark", "Pivoted"], `got ${JSON.stringify(names)}`);
   });
 }
 
 // And the requested ordering still applies among the live entries.
 const live = (key: SortKey) =>
   sortStartups(input, key)
-    .filter((s) => s.status !== "dead")
+    .filter((s) => s.status !== "dead" && s.status !== "pivoted")
     .map((s) => s.name);
 
 check("sort=name orders live entries alphabetically", () =>
@@ -104,7 +115,7 @@ check("sort=top puts verified ahead of higher-starred unverified", () =>
   assert.deepEqual(live("top"), ["Beta", "Charlie"]),
 );
 check("sortStartups does not mutate its input", () =>
-  assert.deepEqual(input.map((s) => s.name), ["Aardvark", "Beta", "Charlie"]),
+  assert.deepEqual(input.map((s) => s.name), ["Aardvark", "Beta", "Charlie", "Pivoted"]),
 );
 
 console.log();
