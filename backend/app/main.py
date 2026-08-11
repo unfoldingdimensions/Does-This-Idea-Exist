@@ -187,6 +187,8 @@ def seed_jobs() -> list[dict]:
 class ApproveIn(BaseModel):
     ids: list[int] | None = None
     approve_all: bool = False
+    created_after: str | None = None
+    created_before: str | None = None
 
 
 @admin.get("/verify/suggested")
@@ -198,14 +200,23 @@ def admin_suggested() -> list[dict]:
 
 @admin.post("/verify/approve", dependencies=[Depends(rate_limited("approve", 60, 60))])
 def admin_approve(body: ApproveIn) -> dict:
-    """Bulk human gate: stamp verified=1 on the given ids or every suggested
-    row. The ONLY bulk writer of verified=1 — automation never stamps."""
+    """Bulk human gate: stamp verified=1 on the given ids, every suggested
+    row, or every suggested row in a created_at window (the batch boundary
+    for "approve this seed run"). The ONLY bulk writer of verified=1 —
+    automation never stamps."""
     if body.approve_all:
         n = verify.approve_suggested(approve_all=True)
     elif body.ids:
         n = verify.approve_suggested(ids=body.ids)
+    elif body.created_after or body.created_before:
+        n = verify.approve_suggested(
+            created_after=body.created_after, created_before=body.created_before
+        )
     else:
-        raise HTTPException(status_code=400, detail="Provide ids or approve_all=true")
+        raise HTTPException(
+            status_code=400,
+            detail="Provide ids, approve_all=true, or a created_after/created_before window",
+        )
     return {"approved": n}
 
 
@@ -304,12 +315,15 @@ def mark_verified(startup_id: int) -> dict:
     """Human gate: confirm a startup exists → verified badge + verified_at.
 
     Also revives a filed entry: a human confirming a dead site is alive
-    un-files it (status back to 'active') — the trust layer is reversible.
+    un-files it (status back to 'active') and RESETS the strike counter —
+    human judgment outranks automation (a revive is a fresh start, not a
+    continuation of the old streak).
     """
     conn = db.connect()
     try:
         cur = conn.execute(
-            "UPDATE startups SET verified = 1, verified_at = datetime('now'), status = 'active' WHERE id = ?",
+            "UPDATE startups SET verified = 1, verified_at = datetime('now'), "
+            "status = 'active', check_failures = 0 WHERE id = ?",
             (startup_id,),
         )
         if cur.rowcount == 0:

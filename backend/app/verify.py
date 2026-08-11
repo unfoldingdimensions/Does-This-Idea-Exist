@@ -24,21 +24,34 @@ UA_BROWSER = {
 _FILED = ("dead", "pivoted")
 
 
-def check_url_ok(url: str) -> tuple[bool, str]:
+def check_url_ok(url: str) -> tuple[bool, str, bool]:
+    """Tri-state website check: (ok, note, skipped).
+
+    A genuine 404/410 is the ONLY website signal that counts as dead — bot
+    walls (401/403), rate limits (429), and transient 5xx/network errors are
+    ambiguous (the site exists, the fetcher was refused), so they SKIP and
+    never accumulate check_failures. Three bot-walled runs must never
+    dead-flip a healthy company (real incident: WHOOP + Capterra filed dead
+    by Cloudflare 403s).
+    """
     if not url:
-        return False, "no website_url"
+        return False, "no website_url", False
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
     try:
         r = netguard.safe_get(url, headers=UA_BROWSER, timeout=15)
-        ok = 200 <= r.status_code < 400
-        return ok, f"HTTP {r.status_code}"
+        status = r.status_code
+        if status in (404, 410):
+            return False, f"HTTP {status}", False  # genuinely gone — a real strike
+        if 200 <= status < 400:
+            return True, f"HTTP {status}", False
+        return False, f"HTTP {status}", True  # wall / rate limit / transient — skip
     except netguard.BlockedAddressError as exc:
         # SSRF guard refusal (non-public target). Counts as a failure with an
         # honest note — a junk internal URL must not masquerade as alive.
-        return False, str(exc)[:80]
-    except Exception as exc:  # noqa: BLE001 — report any failure, keep the pass going
-        return False, str(exc)[:80]
+        return False, str(exc)[:80], False
+    except Exception as exc:  # noqa: BLE001 — network/parse failure → skip, never strike
+        return False, str(exc)[:80], True
 
 
 def check_github_ok(github_url: str) -> tuple[bool, str, bool]:
@@ -124,7 +137,7 @@ def list_suggested() -> list[dict]:
     conn = db.connect()
     try:
         rows = conn.execute(
-            "SELECT id, name, website_url, github_url, category, last_checked "
+            "SELECT id, name, website_url, github_url, category, last_checked, created_at "
             "FROM startups "
             "WHERE verified = 0 AND status = 'active' AND check_failures = 0 "
             "ORDER BY name"
@@ -134,16 +147,37 @@ def list_suggested() -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def approve_suggested(ids: list[int] | None = None, approve_all: bool = False) -> int:
-    """Human gate, in bulk: stamp verified=1 + verified_at on the given rows (or
-    every suggested row). The ONLY writers of verified=1 are this function and
-    the single-row /verify endpoint — automation never stamps."""
+def approve_suggested(
+    ids: list[int] | None = None,
+    approve_all: bool = False,
+    created_after: str | None = None,
+    created_before: str | None = None,
+) -> int:
+    """Human gate, in bulk: stamp verified=1 + verified_at on the given rows
+    (or every suggested row, or every suggested row in a created_at window —
+    the batch boundary for "approve this seed run"). The ONLY writers of
+    verified=1 are this function and the single-row /verify endpoint —
+    automation never stamps."""
     conn = db.connect()
     try:
-        if approve_all:
+        base = "verified = 0 AND status = 'active' AND check_failures = 0"
+        if created_after or created_before:
+            conds, params = [base], []
+            if created_after:
+                conds.append("created_at >= ?")
+                params.append(created_after)
+            if created_before:
+                conds.append("created_at < ?")
+                params.append(created_before)
             cur = conn.execute(
-                "UPDATE startups SET verified = 1, verified_at = datetime('now') "
-                "WHERE verified = 0 AND status = 'active' AND check_failures = 0"
+                f"UPDATE startups SET verified = 1, verified_at = datetime('now') "
+                f"WHERE {' AND '.join(conds)}",
+                params,
+            )
+        elif approve_all:
+            cur = conn.execute(
+                f"UPDATE startups SET verified = 1, verified_at = datetime('now') "
+                f"WHERE {base}"
             )
         else:
             ids = [int(i) for i in (ids or [])]
@@ -185,20 +219,25 @@ def run_verify_job(job: dict) -> None:
                 job["breakdown"]["unverified"] += 1
 
             notes = []
-            web_ok, web_note = check_url_ok(row["website_url"])
+            web_ok, web_note, web_skipped = check_url_ok(row["website_url"])
             notes.append(f"website: {web_note}")
             gh_ok = None
             gh_skipped = False
             if row["github_url"]:
                 gh_ok, gh_note, gh_skipped = check_github_ok(row["github_url"])
                 notes.append(f"github: {gh_note}")
-            # Real failure = website dead OR repo genuinely gone (404). A rate-
-            # limited GitHub check is a SKIP, never a failure — but a dead site
-            # is still a failure even when GitHub was skipped (site gone is real).
-            web_failed = not web_ok
+            # Real failure = website genuinely gone (404/410) OR repo genuinely
+            # gone (404). Bot walls, rate limits and transient errors are SKIPs
+            # — ambiguous signals never count as a strike.
+            web_failed = not web_ok and not web_skipped
             gh_failed = gh_ok is False and not gh_skipped
             failed = web_failed or gh_failed
-            github_skipped_only = gh_skipped and web_ok and not failed
+            inconclusive = not failed and (web_skipped or gh_skipped)
+
+            # Human-stamped rows never accumulate auto-strikes and never
+            # auto-flip — the human gate outranks robot checks. They surface
+            # in failed_list as re-check items for the curator instead.
+            human_owned = row["verified"] == 1
 
             if failed:
                 job["failed"] += 1
@@ -211,25 +250,38 @@ def run_verify_job(job: dict) -> None:
                         "reason": "; ".join(notes),
                     }
                 )
-            elif github_skipped_only:
+                if not human_owned:
+                    new_failures = row["check_failures"] + 1
+                    status = row["status"]
+                    if new_failures >= 3 and status == "active":
+                        status = "dead"
+                        dead_flipped.append(row["name"])
+                else:
+                    # Flag for human re-check, never strike: the verified stamp
+                    # stays until a human changes it.
+                    new_failures = row["check_failures"]
+                    status = row["status"]
+            elif inconclusive:
+                # Machine couldn't confirm — a non-failure pass clears the
+                # streak (3 CONSECUTIVE genuine failures flip, a skip resets).
                 job["skipped"] += 1
                 job["skipped_urls"].append(f"{row['name']} ({'; '.join(notes)})")
-            elif row["verified"] == 1:
+                new_failures = 0
+                status = row["status"]
+            elif human_owned:
                 job["already_verified"].append(
                     {"id": row["id"], "name": row["name"], "url": row["website_url"] or row["github_url"] or ""}
                 )
                 job["ok"] += 1
+                new_failures = 0
+                status = row["status"]
             else:
                 job["suggested"].append(
                     {"id": row["id"], "name": row["name"], "url": row["website_url"] or row["github_url"] or ""}
                 )
                 job["ok"] += 1
-
-            new_failures = row["check_failures"] + 1 if failed else 0
-            status = row["status"]
-            if new_failures >= 3 and status == "active":
-                status = "dead"
-                dead_flipped.append(row["name"])
+                new_failures = 0
+                status = row["status"]
             conn.execute(
                 "UPDATE startups SET check_failures = ?, last_checked = datetime('now'), status = ? WHERE id = ?",
                 (new_failures, status, row["id"]),

@@ -348,7 +348,7 @@ try:
         # sleep keeps the first pass running long enough for the 409 check.
         # (Stays stubbed for the whole client4 block — the queue test must not
         # do real network checks with 15s timeouts inside a 5s wait_job.)
-        verify_mod.check_url_ok = lambda url: (time.sleep(0.05), (True, "HTTP 200"))[1]
+        verify_mod.check_url_ok = lambda url: (time.sleep(0.05), (True, "HTTP 200", False))[1]
 
         # rate limit → skipped, check_failures untouched
         gh_mod.fetch_repo = fake_gh_rate_limited
@@ -460,7 +460,7 @@ try:
         )
         conn.commit()
         conn.close()
-        verify_mod.check_url_ok = lambda url: (True, "HTTP 200")
+        verify_mod.check_url_ok = lambda url: (True, "HTTP 200", False)
         # offline-deterministic: every github lookup is a genuine 404 (failed bucket)
         def fake_gh_404(url, **kwargs):
             raise ValueError("GitHub repo not found: test")
@@ -502,6 +502,121 @@ try:
                 len(fake) == 1 and fake[0]["status"] == "failed" and "interrupted" in fake[0]["errors"][0],
                 str(fake),
             )
+
+    # --- website tri-state: 403 skips (never strikes), 404 strikes, verified rows never flip ---
+    with TestClient(app) as client7:
+        _real_check_url = verify_mod.check_url_ok
+        _real_gh = gh_mod.fetch_repo
+
+        def fake_gh_404(url, **kwargs):
+            raise ValueError("GitHub repo not found: test")
+
+        def fresh_row(name, url, verified=0, created_at=None):
+            conn = db.connect()
+            try:
+                if created_at is not None:
+                    cur = conn.execute(
+                        "INSERT INTO startups (name, website_url, source, verified, created_at) "
+                        "VALUES (?, ?, 'website', ?, ?)",
+                        (name, url, verified, created_at),
+                    )
+                else:
+                    cur = conn.execute(
+                        "INSERT INTO startups (name, website_url, source, verified) "
+                        "VALUES (?, ?, 'website', ?)",
+                        (name, url, verified),
+                    )
+                conn.commit()
+                return cur.lastrowid
+            finally:
+                conn.close()
+
+        def cf_of(startup_id):
+            conn = db.connect()
+            try:
+                return conn.execute(
+                    "SELECT check_failures FROM startups WHERE id = ?", (startup_id,)
+                ).fetchone()["check_failures"]
+            finally:
+                conn.close()
+
+        gh_mod.fetch_repo = fake_gh_404  # offline-deterministic: every github lookup 404s
+
+        # a) website 403 (bot wall — the WHOOP/Capterra regression) → skipped, never a strike
+        wall_id = fresh_row("BotWallCo", "https://botwall.example")
+        verify_mod.check_url_ok = lambda url: (False, "HTTP 403", True)
+        vjob = client7.post("/api/verify/run").json()
+        vstat = wait_job(client7, vjob["job_id"])
+        check(
+            "403 website check skips (no strike)",
+            vstat["result"]["skipped"] >= 1 and cf_of(wall_id) == 0,
+            f"skipped={vstat['result']['skipped']} cf={cf_of(wall_id)}",
+        )
+
+        # b) website 404 → genuine failure, strike bumps
+        verify_mod.check_url_ok = lambda url: (False, "HTTP 404", False)
+        vjob = client7.post("/api/verify/run").json()
+        vstat = wait_job(client7, vjob["job_id"])
+        check(
+            "404 website check strikes (bumps check_failures)",
+            vstat["result"]["flagged"] >= 1 and cf_of(wall_id) == 1,
+            f"flagged={vstat['result']['flagged']} cf={cf_of(wall_id)}",
+        )
+
+        # c) verified row + website 404 → flagged for human re-check, never struck/flipped
+        ver_id = fresh_row("VerifiedCo", "https://verifiedco.example", verified=1)
+        vjob = client7.post("/api/verify/run").json()
+        vstat = wait_job(client7, vjob["job_id"])
+        conn = db.connect()
+        row = conn.execute(
+            "SELECT status, verified, check_failures FROM startups WHERE id = ?", (ver_id,)
+        ).fetchone()
+        conn.close()
+        flagged = any(b["name"] == "VerifiedCo" for b in vstat["result"]["failed_list"])
+        check(
+            "verified row never strikes or flips on 404",
+            row["status"] == "active" and row["verified"] == 1 and row["check_failures"] == 0 and flagged,
+            f"{dict(row)} flagged={flagged}",
+        )
+
+        # d) human revive resets the strike counter (mark_verified)
+        r = client7.post(f"/api/startups/{wall_id}/verify").json()
+        check(
+            "human revive resets strikes",
+            r["status"] == "active" and r["verified"] == 1 and r["check_failures"] == 0,
+            f"cf={r['check_failures']} status={r['status']}",
+        )
+
+        # e) approve by created_at window stamps only that batch
+        in1 = fresh_row("WindowIn", "https://windowin.example", created_at="2026-08-01 10:00:00")
+        in2 = fresh_row("WindowIn2", "https://windowin2.example", created_at="2026-08-01 11:00:00")
+        out = fresh_row("WindowOut", "https://windowout.example", created_at="2026-07-01 10:00:00")
+        r = client7.post(
+            "/api/admin/verify/approve",
+            json={"created_after": "2026-08-01 00:00:00", "created_before": "2026-08-01 12:00:00"},
+            headers={"X-Admin-Token": TOKEN},
+        ).json()
+        conn = db.connect()
+        st = {
+            i: conn.execute("SELECT verified FROM startups WHERE id = ?", (i,)).fetchone()["verified"]
+            for i in (in1, in2, out)
+        }
+        conn.close()
+        check(
+            "approve window stamps only that batch",
+            r["approved"] == 2 and st[in1] == 1 and st[in2] == 1 and st[out] == 0,
+            f"{r} {st}",
+        )
+        check(
+            "approve 400 when no mode given",
+            client7.post(
+                "/api/admin/verify/approve", json={}, headers={"X-Admin-Token": TOKEN}
+            ).status_code == 400,
+            "400",
+        )
+
+        verify_mod.check_url_ok = _real_check_url
+        gh_mod.fetch_repo = _real_gh
 
     # --- auto-verify on stale data: startup enqueues a pass when overdue ---
     _real_auto_days = config.VERIFY_AUTO_STALE_DAYS
