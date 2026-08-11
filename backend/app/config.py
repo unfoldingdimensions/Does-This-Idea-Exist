@@ -24,11 +24,21 @@ VERIFY_AUTO_STALE_DAYS = int(os.getenv("VERIFY_AUTO_STALE_DAYS", "7"))
 # Admin seeder gate: single owner token ("knows it's me"). Empty = admin disabled.
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
 
-# Security posture knobs (all additive — defaults preserve the local-first UX):
-# MUTATION_AUTH=1 requires the admin token on the status-flip / seed / verify-run
-# endpoints (default off = open, today's behavior). Hosting MUST set it to 1.
-MUTATION_AUTH = os.getenv("MUTATION_AUTH", "").strip().lower() in ("1", "true", "yes", "on")
+# Security posture knobs. MUTATION_AUTH gates the status-flip / seed /
+# verify-run endpoints behind the admin token. It defaults ON — fail closed.
+# Set MUTATION_AUTH=0 only for a throwaway local instance; the app refuses to
+# start with auth on and no ADMIN_TOKEN, so there is no silent-open state.
+MUTATION_AUTH = os.getenv("MUTATION_AUTH", "1").strip().lower() in ("1", "true", "yes", "on")
 # Per-IP sliding-window rate limiting on mutating + admin endpoints (default on).
 RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "1").strip().lower() in ("1", "true", "yes", "on")
 
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:3023")
+
+# Reverse-proxy trust for client-IP resolution. Handed to uvicorn as
+# --forwarded-allow-ips so ITS ProxyHeadersMiddleware rewrites request.client
+# (the rate limiter keys off that). Empty = trust nothing, which is the safe
+# default: "*" would let any caller spoof X-Forwarded-For and walk past the
+# per-IP limits entirely. Set it to the reverse proxy's address when hosting.
+FORWARDED_ALLOW_IPS = os.getenv("FORWARDED_ALLOW_IPS", "")
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").strip().upper()

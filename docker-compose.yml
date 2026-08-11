@@ -1,0 +1,32 @@
+# Backend only. The Next.js frontend is a static/SSR build that belongs on
+# Vercel/Netlify/CF Pages — it just needs NEXT_PUBLIC_API_BASE pointed here.
+#
+#   docker compose up --build
+#
+# Env comes from a .env file beside this one (never committed). ADMIN_TOKEN is
+# required: the app refuses to start with auth on and no token set.
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8020:8020"
+    environment:
+      # Required.
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?set ADMIN_TOKEN in .env — the app will not start without it}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3023}
+      # Secrets / optional integrations.
+      OPENCODE_GO_API_KEY: ${OPENCODE_GO_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      # Set to the reverse proxy's address when running behind one. Empty means
+      # trust no forwarded headers, which keeps per-IP rate limiting honest.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      VERIFY_AUTO_STALE_DAYS: ${VERIFY_AUTO_STALE_DAYS:-7}
+    volumes:
+      # Named volume, not a bind mount: the archive must survive `down`/`up` and
+      # image rebuilds. Back this up before any deploy.
+      - ideasexist-data:/data
+    restart: unless-stopped
+
+volumes:
+  ideasexist-data:

@@ -36,8 +36,8 @@ every seed; data lives in `backend/data/ideasexist.db` (git-ignored).
 cd backend
 python -m venv .venv && .venv/Scripts/activate   # Windows
 pip install -r requirements.txt
-cp .env.example .env                             # then fill OPENCODE_GO_API_KEY
-uvicorn app.main:app --port 8020
+cp .env.example .env                             # set ADMIN_TOKEN + OPENCODE_GO_API_KEY
+uvicorn app.main:app --port 8020 --workers 1     # --workers 1: the job queue is in-process
 
 # 2. Frontend (Next.js on :3023, second terminal)
 cd frontend
@@ -99,16 +99,18 @@ local and hosted behavior are identical.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `OPENCODE_GO_API_KEY` | — (required) | LLM provider key for profile generation |
-| `ADMIN_TOKEN` | empty | Owner token for the admin panel; empty = panel disabled |
+| `ADMIN_TOKEN` | — (**required**) | Owner token. Gates the admin panel and every mutating endpoint. The app **refuses to start** without it (see `MUTATION_AUTH`) |
+| `OPENCODE_GO_API_KEY` | — (required to seed) | LLM provider key for profile generation |
 | `LLM_BASE_URL` | `https://opencode.ai/zen/go/v1` | OpenAI-compatible endpoint |
 | `LLM_MODEL` | `deepseek-v4-flash` | Model used for profiles |
 | `GITHUB_TOKEN` | empty | Optional — raises GitHub API limits from 60 to 5,000 req/hr |
-| `DB_PATH` | `backend/data/ideasexist.db` | SQLite file location |
+| `DB_PATH` | `backend/data/ideasexist.db` | SQLite file location (`/data/ideasexist.db` in Docker) |
 | `FRONTEND_ORIGIN` | `http://localhost:3023` | CORS allow-origin |
-| `VERIFY_AUTO_STALE_DAYS` | `7` | Auto-start a verify pass at boot when entries are older than this (`0` disables) |
-| `MUTATION_AUTH` | empty | `1` requires the admin token on status-flip / seed / verify endpoints — **hosting must set `1`** |
+| `VERIFY_AUTO_STALE_DAYS` | `7` | Verification threshold — a pass is enqueued at boot and every 24h when entries are older than this (`0` disables) |
+| `MUTATION_AUTH` | `1` (**on**) | Requires the admin token on status-flip / seed / verify-run endpoints. Set `0` only for a throwaway local instance. With it on and `ADMIN_TOKEN` empty, startup fails loudly rather than 403-ing every write |
 | `RATE_LIMIT_ENABLED` | `1` | Per-IP rate limits on the admin gate + mutations (`0` disables) |
+| `FORWARDED_ALLOW_IPS` | empty | Reverse-proxy address, so uvicorn resolves the real client IP for rate limiting. Empty = trust no forwarded headers. **Never `*` on a public host** — that lets any caller spoof `X-Forwarded-For` and bypass the limits |
+| `LOG_LEVEL` | `INFO` | Log level; output goes to stdout |
 
 ### Frontend (`frontend/.env.local`)
 
@@ -121,18 +123,25 @@ local and hosted behavior are identical.
 
 | Endpoint | Purpose |
 |---|---|
+Public reads — no token:
+
+| Endpoint | Purpose |
+|---|---|
 | `GET /api/health` | liveness + model/db echo |
-| `GET /api/startups` | list (`?q=` `?category=`) |
+| `GET /api/startups` | list (`?q=` `?category=` `?limit=` `?offset=`; `limit` defaults to 2000, max 5000) |
 | `GET /api/categories` | category counts |
+| `GET /api/stats` | counts + freshness |
+
+Writes — require `X-Admin-Token` (`MUTATION_AUTH` defaults on) and are rate-limited:
+
+| Endpoint | Purpose |
+|---|---|
 | `POST /api/seed/github` `{github_url}` | fetch repo + LLM profile → upsert |
 | `POST /api/seed/website` `{website_url, name?}` | fetch homepage + Wayback date + LLM profile → upsert |
 | `POST /api/verify/run` | enqueue a verification pass → `{job_id}` |
-| `GET /api/verify/status/{job_id}` | pass progress + bucket results |
-| `GET /api/verify/current` | the active pass, or `null` |
 | `POST /api/startups/{id}/verify` | human: mark verified (also revives + resets strikes) |
 | `POST /api/startups/{id}/unverify` | human: revoke the stamp |
 | `POST /api/startups/{id}/dead` | human: file as dead |
-| `GET /api/stats` | counts + freshness |
 
 Admin routes are prefixed `/api/admin` and require the `X-Admin-Token` header:
 
@@ -142,6 +151,8 @@ Admin routes are prefixed `/api/admin` and require the `X-Admin-Token` header:
 | `POST /admin/seed` `{source, params}` | start a seed job → `{job_id}` |
 | `GET /admin/seed/status/{job_id}` | job progress |
 | `GET /admin/seed/jobs` | all jobs (live + persisted history) |
+| `GET /admin/verify/status/{job_id}` | pass progress + bucket results |
+| `GET /admin/verify/current` | the active pass, or `null` |
 | `GET /admin/verify/suggested` | human-approval queue |
 | `POST /admin/verify/approve` | stamp verified: `{ids}` · `{approve_all: true}` · `{created_after, created_before}` (per-batch) |
 
@@ -196,16 +207,31 @@ npm test
 ```
 
 Runs the backend smoke suite (in-process, throwaway SQLite DB — no live server
-or network needed) plus the frontend lint + production build. It pins the API
-surface, admin gate, queue serialization, dedup upsert, the tri-state verify
-logic, restart recovery, and the human-gate invariants.
+or network needed), a sort regression check against the real frontend module,
+and the frontend lint + production build. It pins the API surface, admin gate,
+queue serialization, dedup upsert, the tri-state verify logic, restart recovery,
+the human-gate invariants, and the security layer (auth gating, the SSRF guard,
+rate limiting, LLM-output bounds, LIKE-wildcard escaping).
+
+Note: the runner is Windows-only — it invokes `backend/.venv/Scripts/python.exe`
+and shells through `cmd.exe`. There is no CI.
 
 ## Deployment
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) — release/rollback runbook, DNS records per
-platform, and the pre-deploy checklist. **Before hosting:** set `MUTATION_AUTH=1`
-and `ADMIN_TOKEN` on the host, and pin `NEXT_PUBLIC_API_BASE` /
-`NEXT_PUBLIC_SITE_URL` at build time. Recent readiness and security reports:
+See [DEPLOYMENT.md](DEPLOYMENT.md) — container build, volume/backup handling,
+rollback, and the pre-deploy checklist.
+
+The backend ships as a container ([backend/Dockerfile](backend/Dockerfile),
+[docker-compose.yml](docker-compose.yml)) and **requires a persistent writable
+volume** at `/data`: the archive is a SQLite file, verification runs for minutes
+in background threads, and the job queue lives in process memory — so it cannot
+run on a serverless host, and it must run with `--workers 1`. The frontend is a
+normal Next.js build for Vercel/Netlify/CF Pages.
+
+**Before hosting:** set `ADMIN_TOKEN` on the host (startup fails without it),
+set `FRONTEND_ORIGIN`, set `FORWARDED_ALLOW_IPS` if behind a reverse proxy, and
+pin `NEXT_PUBLIC_API_BASE` / `NEXT_PUBLIC_SITE_URL` at build time. Recent
+readiness and security reports:
 [deploy-readiness-report.md](deploy-readiness-report.md).
 
 ## Contributing

@@ -34,7 +34,7 @@ export function fetchStats(): Promise<Stats> {
 }
 
 export function seedByGithub(githubUrl: string): Promise<Startup> {
-  return json<Startup>(`${API_BASE}/api/seed/github`, {
+  return adminJson<Startup>(`${API_BASE}/api/seed/github`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ github_url: githubUrl }),
@@ -42,7 +42,7 @@ export function seedByGithub(githubUrl: string): Promise<Startup> {
 }
 
 export function seedByWebsite(websiteUrl: string, name?: string): Promise<Startup> {
-  return json<Startup>(`${API_BASE}/api/seed/website`, {
+  return adminJson<Startup>(`${API_BASE}/api/seed/website`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ website_url: websiteUrl, name: name || null }),
@@ -50,15 +50,17 @@ export function seedByWebsite(websiteUrl: string, name?: string): Promise<Startu
 }
 
 export function runVerification(): Promise<{ job_id: string }> {
-  return json<{ job_id: string }>(`${API_BASE}/api/verify/run`, { method: "POST" });
+  return adminJson<{ job_id: string }>(`${API_BASE}/api/verify/run`, { method: "POST" });
 }
 
+// Job payloads carry error strings + seeded URLs, so these live behind the
+// admin gate on the backend.
 export function verificationStatus(jobId: string): Promise<VerifyJob> {
-  return json<VerifyJob>(`${API_BASE}/api/verify/status/${jobId}`, { cache: "no-store" });
+  return adminJson<VerifyJob>(`${API_BASE}/api/admin/verify/status/${jobId}`, { cache: "no-store" });
 }
 
 export function currentVerification(): Promise<VerifyJob | null> {
-  return json<VerifyJob | null>(`${API_BASE}/api/verify/current`, { cache: "no-store" });
+  return adminJson<VerifyJob | null>(`${API_BASE}/api/admin/verify/current`, { cache: "no-store" });
 }
 
 export function fetchSuggested(): Promise<SuggestedStartup[]> {
@@ -86,32 +88,25 @@ export function approveSuggested(
   });
 }
 
+// Mutations require the owner token (MUTATION_AUTH defaults on). adminJson —
+// not json — so a 403 surfaces as AdminUnauthorized and the caller can prompt
+// for a fresh token instead of showing an opaque error toast.
 export function markVerified(id: number): Promise<Startup> {
-  // Sends the admin token when unlocked (MUTATION_AUTH=1 mode); no token →
-  // no header → today's open local behavior.
-  return json<Startup>(`${API_BASE}/api/startups/${id}/verify`, {
-    method: "POST",
-    headers: adminHeaders(),
-  });
+  return adminJson<Startup>(`${API_BASE}/api/startups/${id}/verify`, { method: "POST" });
 }
 
 export function markUnverified(id: number): Promise<Startup> {
-  return json<Startup>(`${API_BASE}/api/startups/${id}/unverify`, {
-    method: "POST",
-    headers: adminHeaders(),
-  });
+  return adminJson<Startup>(`${API_BASE}/api/startups/${id}/unverify`, { method: "POST" });
 }
 
 export function markDead(id: number): Promise<Startup> {
-  return json<Startup>(`${API_BASE}/api/startups/${id}/dead`, {
-    method: "POST",
-    headers: adminHeaders(),
-  });
+  return adminJson<Startup>(`${API_BASE}/api/startups/${id}/dead`, { method: "POST" });
 }
 
 // --- Admin (owner-only seeder) ---
 
 const ADMIN_TOKEN_KEY = "ideasexist.admin.token";
+const tokenListeners = new Set<() => void>();
 
 export function getAdminToken(): string | null {
   if (typeof window === "undefined") return null; // SSR/prerender guard
@@ -121,11 +116,25 @@ export function getAdminToken(): string | null {
 export function setAdminToken(token: string): void {
   if (typeof window === "undefined") return;
   sessionStorage.setItem(ADMIN_TOKEN_KEY, token);
+  tokenListeners.forEach((l) => l());
 }
 
 export function clearAdminToken(): void {
   if (typeof window === "undefined") return;
   sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+  tokenListeners.forEach((l) => l());
+}
+
+/**
+ * Subscribe to lock/unlock. Write controls live all over the tree (header
+ * split-button, empty state, every card's status pill), so they read this
+ * instead of having a token prop threaded down through the grid.
+ */
+export function subscribeAdminToken(listener: () => void): () => void {
+  tokenListeners.add(listener);
+  return () => {
+    tokenListeners.delete(listener);
+  };
 }
 
 function adminHeaders(): Record<string, string> {

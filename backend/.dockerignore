@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# The archive lives on a mounted volume, never baked into the image.
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/*.db.bak-*
+data/*checkpoint.json
+data/*.log
+data/*errors.txt
+
+.env
+tests/
+scripts/

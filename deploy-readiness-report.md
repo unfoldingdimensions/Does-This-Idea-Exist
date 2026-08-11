@@ -51,6 +51,6 @@ the real gate).
 
 - Backend restarted for CORS testing, now running **default config** again (health 200).
 - Global npm: lighthouse 13.4.1, @axe-core/cli 4.12.1 installed.
-- Test row (id 422) deleted; background seeder (`backend/scripts/seed_topstartups_all.py` — now committed) added rows during the sweep (412→~420).
+- Test row (id 422) deleted; a background topstartups seeder added rows during the sweep (412→~420). (Correction: that script was never committed, and the `topstartups` source was later removed from the seeder in `6e8f6d4` — the rows it produced remain in the archive.)
 - Helper scripts kept: `scripts/contrast_lab.py`, `scripts/reflow-check.mjs` (Lighthouse JSON artifacts git-ignored).
 - All work committed this session: a11y ring, Lenis deferral, SEO files, public/ cleanup, CHANGELOG, DEPLOYMENT.md, backend security remediation.

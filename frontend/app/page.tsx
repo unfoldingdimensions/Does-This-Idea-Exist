@@ -39,6 +39,7 @@ import { CountUp } from "@/components/count-up";
 import { filterStartups, sortStartups, foundedYear } from "@/lib/search";
 import type { SortKey } from "@/lib/search";
 import { formatDate, titleCase } from "@/lib/format";
+import { useAdminToken } from "@/lib/use-admin-token";
 import type { CategoryCount, Startup, Stats } from "@/lib/types";
 
 const PAGE_SIZE = 24;
@@ -106,6 +107,7 @@ export default function HomePage() {
   const [detail, setDetail] = React.useState<Startup | null>(null);
   const [addOpen, setAddOpen] = React.useState(false);
   const [addTab, setAddTab] = React.useState<"github" | "website">("github");
+  const unlocked = useAdminToken() !== null;
   const [gridRef] = useAutoAnimate({ duration: 260 });
 
   const loadAll = React.useCallback(() => {
@@ -281,27 +283,30 @@ export default function HomePage() {
             Does this startup exist?
           </span>
           <div className="ml-auto flex items-center gap-2">
-            <SplitButton
-              mainLabel="Add startup"
-              options={[
-                {
-                  label: "By GitHub",
-                  icon: <FolderGit2 className="h-3.5 w-3.5" />,
-                  onClick: () => {
-                    setAddTab("github");
-                    setAddOpen(true);
+            {/* Seeding needs the owner token — hidden rather than shown-and-403ing. */}
+            {unlocked && (
+              <SplitButton
+                mainLabel="Add startup"
+                options={[
+                  {
+                    label: "By GitHub",
+                    icon: <FolderGit2 className="h-3.5 w-3.5" />,
+                    onClick: () => {
+                      setAddTab("github");
+                      setAddOpen(true);
+                    },
                   },
-                },
-                {
-                  label: "By website",
-                  icon: <Globe className="h-3.5 w-3.5" />,
-                  onClick: () => {
-                    setAddTab("website");
-                    setAddOpen(true);
+                  {
+                    label: "By website",
+                    icon: <Globe className="h-3.5 w-3.5" />,
+                    onClick: () => {
+                      setAddTab("website");
+                      setAddOpen(true);
+                    },
                   },
-                },
-              ]}
-            />
+                ]}
+              />
+            )}
             <ThemeToggle />
           </div>
         </div>
@@ -393,8 +398,12 @@ export default function HomePage() {
             </h2>
             <p className="mt-1 text-xs text-muted-foreground">
               {hasAnyFilter
-                ? "Try widening the net — or file it yourself. The archive grows with every seed."
-                : "Either it doesn't exist — or you're about to be the first to file it."}
+                ? unlocked
+                  ? "Try widening the net — or file it yourself. The archive grows with every seed."
+                  : "Try widening the net — this archive is curated, so entries arrive by hand."
+                : unlocked
+                  ? "Either it doesn't exist — or you're about to be the first to file it."
+                  : "Nothing has been filed here yet."}
             </p>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
               {hasAnyFilter && (
@@ -402,9 +411,11 @@ export default function HomePage() {
                   Clear filters
                 </Button>
               )}
-              <Button size="sm" className="gap-1.5" onClick={() => setAddOpen(true)}>
-                <Sparkles className="h-3.5 w-3.5" /> Add it to the archive
-              </Button>
+              {unlocked && (
+                <Button size="sm" className="gap-1.5" onClick={() => setAddOpen(true)}>
+                  <Sparkles className="h-3.5 w-3.5" /> Add it to the archive
+                </Button>
+              )}
             </div>
           </div>
         ) : (

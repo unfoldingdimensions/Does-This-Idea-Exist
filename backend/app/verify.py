@@ -8,10 +8,13 @@ tri-state: a genuine 404 counts as a failure, but a rate-limit (403/429) is a
 SKIP — it never increments check_failures, so three rate-limited runs can't
 wrongly dead-flip healthy repos.
 """
+import logging
 import time
 import uuid
 
 from . import db, github as gh, netguard
+
+log = logging.getLogger("ideasexist")
 
 UA_BROWSER = {
     "User-Agent": (
@@ -299,6 +302,15 @@ def run_verify_job(job: dict) -> None:
             # but a 10-minute lock is a stall). Tiny commits interleave fine.
             conn.commit()
             seeder._persist_job(job)  # live progress survives a restart too
+        # Retention: one verify_log row per startup per pass is ~1,300 rows a
+        # week against a table nothing queries. Keep a 90-day audit window and
+        # drop the rest — one statement beats a retention subsystem.
+        pruned = conn.execute(
+            "DELETE FROM verify_log WHERE checked_at < datetime('now', '-90 days')"
+        ).rowcount
+        conn.commit()
+        if pruned:
+            log.info("verify_log retention: pruned %s row(s) older than 90 days", pruned)
         job["result"] = {
             "checked": job["done"],
             "ok": job["ok"],
@@ -315,6 +327,9 @@ def run_verify_job(job: dict) -> None:
     except Exception as exc:  # noqa: BLE001 — job-level crash is a loud failure
         job["status"] = "failed"
         job["errors"].append(f"job: {exc}")
+        # Log as well as record: a pass that dies mid-archive otherwise leaves
+        # only a DB row nobody reads, with no traceback anywhere.
+        log.exception("verify job %s failed after %s/%s", job["id"], job["done"], job["total"])
         seeder._persist_job(job)
     finally:
         job["finished_at"] = time.time()

@@ -19,9 +19,9 @@ import {
   adminCheck,
   clearAdminToken,
   fetchSeedJobs,
-  getAdminToken,
   setAdminToken,
 } from "@/lib/api";
+import { useAdminToken } from "@/lib/use-admin-token";
 import type { SeedJob } from "@/lib/types";
 import { ACTIVE, SectionHeader } from "@/components/admin-shared";
 import { SeedSection } from "@/components/admin-seed-section";
@@ -44,7 +44,9 @@ export function AdminPanel({
   initialSection?: AdminSection;
 }) {
   const [open, setOpen] = React.useState(false);
-  const [token, setToken] = React.useState<string | null>(() => getAdminToken());
+  // Shared store, not local state: the header split-button and every card's
+  // status pill gate on the same unlock, so they all have to see it change.
+  const token = useAdminToken();
   const [tokenInput, setTokenInput] = React.useState("");
   const [unlocking, setUnlocking] = React.useState(false);
   const [unlockMsg, setUnlockMsg] = React.useState("");
@@ -66,8 +68,7 @@ export function AdminPanel({
   );
 
   const handleLocked = (msg?: string) => {
-    clearAdminToken();
-    setToken(null);
+    clearAdminToken(); // notifies every subscriber, including this component
     setJobs([]);
     if (msg) setUnlockMsg(msg);
   };
@@ -80,7 +81,6 @@ export function AdminPanel({
     try {
       await adminCheck(tokenInput.trim());
       setAdminToken(tokenInput.trim());
-      setToken(tokenInput.trim());
       setTokenInput("");
       void refreshJobs();
     } catch (err) {

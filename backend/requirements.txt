@@ -1,4 +1,10 @@
-fastapi>=0.115
-uvicorn[standard]>=0.30
-httpx>=0.27
-python-dotenv>=1.0
+# Pinned exactly — a directory that re-checks liveness on a schedule should not
+# change behavior because a transitive release landed overnight. Bump
+# deliberately, then run `python -m tests.smoke`.
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+httpx==0.28.1
+python-dotenv==1.2.2
+# Imported directly by app/main.py (request models). Arrives transitively with
+# FastAPI, but declared here because the code depends on it by name.
+pydantic==2.13.4

@@ -9,6 +9,7 @@ __pycache__/
 *.pyc
 
 # secrets & local data
+.env
 backend/.env
 frontend/.env.local
 backend/data/*
@@ -18,9 +19,20 @@ backend/data/*
 # misc
 .DS_Store
 
-# QA output
+# QA output — ad-hoc runs stay local. The reviewed reports and the screenshots
+# they cite are project history (referenced from PRODUCT.md) and stay tracked;
+# the blanket `dogfood-output/` rule used to contradict those 6 committed files.
+# Allow-listed explicitly, same pattern as backend/data above, so a stray new
+# screenshot doesn't get swept in by `git add -A`.
 .dogfood-output/
-dogfood-output/
+dogfood-output/*
+!dogfood-output/*.md
+!dogfood-output/screenshots/
+dogfood-output/screenshots/*
+!dogfood-output/screenshots/dup-zoom-search.png
+!dogfood-output/screenshots/home-dark.png
+!dogfood-output/screenshots/home-initial.png
+!dogfood-output/screenshots/search-obsidian-relevance.png
 
 # lighthouse QA artifacts
 scripts/lh-*.json

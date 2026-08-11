@@ -72,23 +72,29 @@ const ts = (iso: string | null | undefined): number => (iso ? new Date(iso).getT
 /**
  * Sort by key; every key sinks dead/pivoted entries to the bottom first (the
  * directory never promotes dead entries), then applies the requested ordering.
+ *
+ * DEAD_ORDER has to lead each comparator rather than run as a separate pre-sort
+ * pass: a second full sort() reorders the array wholesale, and stability only
+ * preserves order between elements the NEW comparator calls equal — so a
+ * pre-sort would be discarded for every key that isn't already dead-aware.
  */
 export function sortStartups(startups: Startup[], key: SortKey = "top"): Startup[] {
   const arr = [...startups];
-  arr.sort((a, b) => DEAD_ORDER(a) - DEAD_ORDER(b));
+  const dead = (a: Startup, b: Startup) => DEAD_ORDER(a) - DEAD_ORDER(b);
   const starsTiebreak = (a: Startup, b: Startup) => (b.stars ?? 0) - (a.stars ?? 0);
   switch (key) {
     case "newest":
-      return arr.sort((a, b) => ts(b.created_at) - ts(a.created_at) || starsTiebreak(a, b));
+      return arr.sort((a, b) => dead(a, b) || ts(b.created_at) - ts(a.created_at) || starsTiebreak(a, b));
     case "verified":
-      return arr.sort((a, b) => ts(b.verified_at) - ts(a.verified_at) || starsTiebreak(a, b));
+      return arr.sort((a, b) => dead(a, b) || ts(b.verified_at) - ts(a.verified_at) || starsTiebreak(a, b));
     case "name":
-      return arr.sort((a, b) => a.name.localeCompare(b.name));
+      return arr.sort((a, b) => dead(a, b) || a.name.localeCompare(b.name));
     case "founded":
-      return arr.sort((a, b) => ts(b.founded) - ts(a.founded) || starsTiebreak(a, b));
+      return arr.sort((a, b) => dead(a, b) || ts(b.founded) - ts(a.founded) || starsTiebreak(a, b));
     default: // top — trust-weighted: verified first, then stars, then name
       return arr.sort(
-        (a, b) => (b.verified - a.verified) || starsTiebreak(a, b) || a.name.localeCompare(b.name),
+        (a, b) =>
+          dead(a, b) || (b.verified - a.verified) || starsTiebreak(a, b) || a.name.localeCompare(b.name),
       );
   }
 }

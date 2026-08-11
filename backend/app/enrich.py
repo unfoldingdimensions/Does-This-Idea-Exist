@@ -32,10 +32,39 @@ def _clean_profile(profile: dict) -> dict:
         "name": _text(profile.get("name"))[:NAME_MAX],
         "tagline": _text(profile.get("tagline"))[:TAGLINE_MAX],
         "description": _text(profile.get("description"))[:DESCRIPTION_MAX],
-        "category": _text(profile.get("category"))[:40].lower(),
+        "category": _category(profile.get("category")),
         "founded": profile.get("founded"),
     }
 
+
+def _category(value) -> str:
+    """Resolve the LLM's category against CATEGORIES; anything else → "other".
+
+    The whitelist mirrors the system prompt's enum, but the model is free to
+    ignore it and the evidence text is attacker-influenced (anyone can point a
+    seed at their own site). Category also becomes a facet in the frontend
+    filter bar, which assumes this fixed set.
+    """
+    cat = _text(value)[:40].lower()
+    return cat if cat in CATEGORIES else "other"
+
+
+def _http_url(raw: str | None) -> str:
+    """Keep only http(s) URLs; return "" for anything else.
+
+    GitHub's `homepage` is owner-controlled free text that lands in
+    `website_url`, which the frontend renders straight into an href — a
+    `javascript:` value there is a click-to-execute sink, and a bare
+    `example.com` is a broken relative link. Bare hosts are common and
+    legitimate in that field, so they get https:// rather than a rejection.
+    """
+    u = (raw or "").strip()
+    if not u:
+        return ""
+    parsed = urlparse(u)
+    if parsed.scheme:  # explicit scheme must be one we allow
+        return u if parsed.scheme in ("http", "https") and parsed.hostname else ""
+    return f"https://{u}" if urlparse(f"https://{u}").hostname else ""
 
 
 def _text(value) -> str:
@@ -59,7 +88,9 @@ def seed_from_github(github_url: str, reuse_profile: bool = False) -> dict:
     conn = db.connect()
     try:
         existing = db.find_by_url(conn, github_url=repo["html_url"])
-        website_url = (repo["homepage"] or "").strip() or f"https://github.com/{repo['full_name']}"
+        # homepage is untrusted repo-owner input — fall back to the repo URL if
+        # it isn't a usable http(s) address.
+        website_url = _http_url(repo["homepage"]) or f"https://github.com/{repo['full_name']}"
         if reuse_profile and existing:
             log.info(
                 "reuse_profile: %s already exists (id=%s) — LLM skipped, metadata refreshed",

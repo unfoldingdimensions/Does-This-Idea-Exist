@@ -45,7 +45,22 @@ export function HealthCheckSection({
   const pollRef = React.useRef<((jobId: string) => void) | null>(null);
   const poll = React.useCallback(
     async (jobId: string) => {
-      const s = await verificationStatus(jobId);
+      // Every failure path has to be caught here. This runs fire-and-forget
+      // from a setTimeout, so an unhandled rejection (backend restart, job
+      // evicted → 404) would silently end polling and leave `starting` stuck
+      // true — the button disabled forever with nothing shown to the user.
+      let s;
+      try {
+        s = await verificationStatus(jobId);
+      } catch (err) {
+        setStarting(false);
+        if (err instanceof AdminUnauthorized) {
+          onLocked("Admin session expired — re-enter your token");
+        } else {
+          toast.error(err instanceof Error ? err.message : "Lost track of the verification job");
+        }
+        return;
+      }
       setJob(s);
       if (s.status === "queued" || s.status === "running") {
         window.setTimeout(() => pollRef.current?.(jobId), 2000);
@@ -66,7 +81,7 @@ export function HealthCheckSection({
         }
       }
     },
-    [onSeeded],
+    [onSeeded, onLocked],
   );
   React.useEffect(() => {
     pollRef.current = poll;
@@ -76,11 +91,15 @@ export function HealthCheckSection({
   // started in an earlier session — the worker keeps going server-side).
   React.useEffect(() => {
     let cancelled = false;
-    void currentVerification().then((active) => {
-      if (cancelled || !active) return;
-      setJob(active);
-      void poll(active.id);
-    });
+    void currentVerification()
+      .then((active) => {
+        if (cancelled || !active) return;
+        setJob(active);
+        void poll(active.id);
+      })
+      // Re-attach is best-effort: nothing in flight to show is the normal case,
+      // and a locked/expired session is handled when the panel next acts.
+      .catch(() => {});
     return () => {
       cancelled = true;
     };

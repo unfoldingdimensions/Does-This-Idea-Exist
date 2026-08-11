@@ -6,8 +6,58 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Security
+
+- **Mutating endpoints now fail closed.** `MUTATION_AUTH` defaults to **on**, so
+  all six write endpoints require the owner token. Previously the default was
+  off and hosting was expected to remember `MUTATION_AUTH=1` — one forgotten env
+  var let anyone reachable rewrite the human-verified trail and burn the LLM and
+  GitHub quotas. With auth on and `ADMIN_TOKEN` empty the app now **refuses to
+  start** rather than serving an API that 403s every write with no explanation.
+- The LLM category whitelist is actually applied. `CATEGORIES` was defined and
+  referenced nowhere, so arbitrary model output became a facet value in the
+  frontend filter bar despite two comments asserting otherwise. Off-list values
+  now resolve to `other`.
+- GitHub's `homepage` field is validated before it becomes `website_url`. It is
+  owner-controlled text that the UI renders straight into an `href`, so a
+  `javascript:` value was a click-to-execute sink and a bare `example.com` a
+  broken relative link. Only `http(s)` survives; bare hosts get `https://`.
+- `?q=` escapes LIKE metacharacters. The value was parameterized (no injection)
+  but `%`/`_` were still interpreted, so `q=%` dumped the whole table.
+- Verify job telemetry (`/api/verify/status/{id}`, `/api/verify/current`) moved
+  behind the admin gate as `/api/admin/verify/…`. Both were unauthenticated;
+  `current` scanned the entire jobs table and the payloads leak job error
+  strings and seeded URLs.
+- Added `Strict-Transport-Security` to the backend responses.
+- Rate-limiter keys are evicted once their window expires (the per-IP maps
+  previously leaked one entry per source address for the process lifetime).
+
 ### Added
 
+- **Container deployment**: `backend/Dockerfile` (python:3.11-slim, non-root,
+  stdlib healthcheck), `docker-compose.yml` (named volume for the SQLite
+  archive, env passthrough), `backend/.dockerignore`. `--workers 1` is pinned
+  and commented as a correctness constraint — the job queue is in-process, so a
+  second worker means concurrent verify passes and two writers on one DB file.
+- **Scheduled verification actually runs.** `_auto_verify_loop` re-checks
+  staleness at boot and every 24h. The previous mechanism fired only at process
+  start and relied on a cron script living outside the repo, so a long-running
+  server never re-verified.
+- Logging is configured. Four modules held an `ideasexist` logger and nothing
+  ever called `basicConfig`, so every `log.info` was discarded and errors fell
+  through to `lastResort` (bare stderr, no timestamp or level). Adds `LOG_LEVEL`,
+  stdout output, a module logger for `verify.py`, and a `log.exception` on
+  job-level verify crashes.
+- Security-layer test coverage in `backend/tests/smoke.py` (80 assertions total):
+  auth gating on all six write endpoints, the startup refusal, netguard SSRF
+  blocking, 429 rate limiting and failed-auth throttling, key eviction, the
+  category whitelist, URL validation, and LIKE escaping.
+- `scripts/sort-check.ts` — sort regression check run against the real frontend
+  module by `npm test` (Node strips the types natively).
+- `FORWARDED_ALLOW_IPS` so uvicorn's proxy-header handling resolves the real
+  client IP for rate limiting. Defaults to trusting nothing; `*` would let any
+  caller spoof `X-Forwarded-For` and bypass the limits entirely.
+- `frontend/.env.example`, and gzip compression on API responses.
 - SEO foundations: `app/robots.txt` (allow-all + sitemap), `app/sitemap.xml`
   (homepage route), canonical link, and OpenGraph/Twitter metadata — driven by
   `NEXT_PUBLIC_SITE_URL` (defaults to the local dev origin, same pattern as
@@ -26,6 +76,38 @@ All notable changes to this project are documented here. Format follows
 
 ### Fixed
 
+- **`sortStartups` discarded its dead-last ordering.** `DEAD_ORDER` ran as a
+  separate pre-sort pass that every subsequent `arr.sort()` threw away (sort
+  stability only preserves order between elements the *new* comparator calls
+  equal), so dead entries interleaved with live ones under `name`, `newest` and
+  `founded` — and landed mid-list even under `top`. `DEAD_ORDER` now leads each
+  comparator; `scripts/sort-check.ts` pins it for all five keys.
+- The health-check poller no longer hangs forever on a failed request. `poll` was
+  `async` with no try/catch and re-armed via `setTimeout`, so one 404 (backend
+  restart, evicted job) produced an unhandled rejection that silently ended
+  polling and left the button disabled with nothing shown to the user.
+- Status mutations route through `adminJson`, so a 403 surfaces as
+  `AdminUnauthorized` and re-prompts for the token instead of an opaque toast.
+- Write controls (Add-startup split button, empty-state action, status-pill menu)
+  are hidden while locked, so a public visitor never sees a control that 403s.
+- Log output no longer dies on non-Latin-1 text. The stream is reconfigured to
+  UTF-8 with replacement — startup names are international and our own notes
+  carry symbols (`repo ok, 12★`), which raised inside the log handler on a
+  cp1252 Windows console. Same fix in the test suite, which was crashing
+  mid-run on an arrow character.
+- Pinned `backend/requirements.txt` to exact versions (four `>=` bounds with no
+  lockfile meant no reproducible build) and declared `pydantic`, which
+  `app/main.py` imports directly but only received transitively.
+- `.gitignore` no longer contradicts itself: `dogfood-output/` was ignored while
+  six files under it were tracked, so the rule silently did nothing. Also ignores
+  the root `.env` that docker-compose reads.
+- `verify_log` has a 90-day retention sweep. It grew ~1,300 rows per weekly pass
+  and no code ever read it.
+- Corrected `deploy-readiness-report.md`, which cited a committed
+  `seed_topstartups_all.py` that was never committed; removed two dead one-shot
+  scripts (`poll_seed.py` pinned to a hardcoded job id, `verify_fixes.py` to an
+  absolute machine path and a port nothing serves).
+- Moved `shadcn` (a codegen CLI) from `dependencies` to `devDependencies`.
 - **False dead-flips (real incident): the website liveness check treated bot-wall
   403s as strikes, dead-filing healthy Cloudflare-fronted companies — Capterra
   and WHOOP were filed dead, Product Hunt (human-verified) sat one 403 from the

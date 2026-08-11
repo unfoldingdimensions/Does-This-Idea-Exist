@@ -1,32 +1,99 @@
-"""IdeaExists API — local FastAPI backend (:8020)."""
+"""IdeaExists API — FastAPI backend (:8020)."""
+import asyncio
 import hmac
 import logging
+import sys
 import threading
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 
-from . import config, db, enrich, seeder, verify
+from . import config
+
+# Log stream must tolerate non-Latin-1 text before anything writes to it. The
+# archive is international (startup names in any script) and our own notes carry
+# symbols like the star in "repo ok, 12★" — on a legacy Windows console
+# (cp1252) encoding those raises inside the log handler and the line is lost.
+# UTF-8 with replacement is the one place to fix it for every caller.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+# Logging is configured HERE, ahead of the sibling imports below, because
+# importing `seeder` starts its worker threads — anything logged during that
+# import would fall through to Python's lastResort handler (bare stderr, no
+# timestamp, no level) if basicConfig ran later.
+logging.basicConfig(
+    level=getattr(logging, config.LOG_LEVEL, logging.INFO),
+    format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+    stream=sys.stdout,
+)
+
+from . import db, enrich, seeder, verify  # noqa: E402 — must follow logging setup
 
 log = logging.getLogger("ideasexist")
+
+AUTO_VERIFY_INTERVAL_S = 86_400  # 24h
+
+
+def _check_auth_config() -> None:
+    """Fail fast on the one config combination that bricks the app silently:
+    auth on with no token means every write endpoint 403s forever and the logs
+    say nothing about why. Refuse to start instead of serving a dead API."""
+    if config.MUTATION_AUTH and not config.ADMIN_TOKEN:
+        raise RuntimeError(
+            "MUTATION_AUTH is on but ADMIN_TOKEN is empty — every write endpoint "
+            "would reject every request. Set ADMIN_TOKEN in the environment, or "
+            "set MUTATION_AUTH=0 for an intentionally open local instance."
+        )
+
+
+async def _auto_verify_loop() -> None:
+    """Re-check staleness every 24h (the boot check happens in `lifespan`).
+
+    Weekly liveness IS the product, and this is its only trigger inside a
+    long-running process: the previous boot-only call meant a container that
+    never restarts never re-verified. `start_verification` already refuses a
+    second in-flight pass, so an overlapping manual run is a no-op here.
+    """
+    while True:
+        await asyncio.sleep(AUTO_VERIFY_INTERVAL_S)
+        try:
+            await asyncio.to_thread(_maybe_auto_verify)  # sqlite off the event loop
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 — a bad tick must not kill the loop
+            log.exception("auto-verify tick failed")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _check_auth_config()
     db.init_db()
     seeder.recover_interrupted_jobs()  # restart recovery: queued/running → failed(interrupted)
+    log.info(
+        "starting: mutation_auth=%s rate_limit=%s admin=%s",
+        config.MUTATION_AUTH, config.RATE_LIMIT_ENABLED, bool(config.ADMIN_TOKEN),
+    )
+    # Boot check runs synchronously: by the time the app serves its first
+    # request, an overdue archive already has its pass queued. The loop then
+    # only handles the recurring ticks.
     _maybe_auto_verify()
-    yield
+    verify_task = asyncio.create_task(_auto_verify_loop())
+    try:
+        yield
+    finally:
+        verify_task.cancel()
 
 
 def _maybe_auto_verify() -> None:
     """Set-and-forget: if the archive hasn't been checked recently (or at all),
-    enqueue a verification pass at startup. Fails quietly on any guard — the
-    weekly cron + the manual button are the primary triggers."""
+    enqueue a verification pass. Fails quietly on any guard — the 24h loop
+    above and the manual button are the triggers."""
     days = config.VERIFY_AUTO_STALE_DAYS
     if days <= 0:
         return
@@ -56,6 +123,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# /api/startups returns the whole archive on every page load (the frontend
+# filters client-side) — JSON that size compresses roughly 10x.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 
 @app.middleware("http")
@@ -66,6 +136,7 @@ async def _security_headers(request: Request, call_next):
     resp.headers.setdefault("X-Frame-Options", "DENY")
     resp.headers.setdefault("Referrer-Policy", "no-referrer")
     resp.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    resp.headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
     return resp
 
 
@@ -93,8 +164,24 @@ def rate_limited(bucket: str, limit: int, window_s: float = 60.0):
             if len(q) >= limit:
                 raise HTTPException(status_code=429, detail="Too many requests — slow down a little")
             q.append(now)
+            _evict_idle(_RATE, now, window_s)
 
     return dep
+
+
+def _evict_idle(store: dict, now: float, window_s: float) -> None:
+    """Drop keys whose window has fully expired.
+
+    Without this the per-IP dicts grow forever: entries are trimmed inside
+    their window but the key itself is never removed, so every distinct source
+    IP leaks a dict entry for the life of the process. Caller holds the lock.
+
+    ponytail: full sweep per request, O(active IPs in the window) — fine at
+    this scale. If the key count ever gets large, sweep every Nth call instead.
+    """
+    stale = [k for k, q in store.items() if not q or now - q[-1] > window_s]
+    for k in stale:
+        del store[k]
 
 
 # --- Failed-auth lockout: counts *failed* admin-token checks per IP so a
@@ -114,7 +201,9 @@ def _note_failed_auth(request: Request, bucket: str = "admin", limit: int = 10, 
         while q and now - q[0] > window_s:
             q.popleft()
         q.append(now)
-        if len(q) > limit:
+        over = len(q) > limit
+        _evict_idle(_FAILS, now, window_s)
+        if over:
             raise HTTPException(status_code=429, detail="Too many failed attempts — try again later")
 
 
@@ -229,8 +318,28 @@ def health() -> dict:
     }
 
 
+LIST_LIMIT_DEFAULT, LIST_LIMIT_MAX = 2000, 5000
+
+
+def _like_escape(term: str) -> str:
+    """Escape LIKE metacharacters so a search term matches literally.
+
+    The value is already parameterized (no injection), but LIKE still
+    interprets its wildcards: `q=%` would return the entire table and
+    `%a%a%a…` is a cheap scan amplifier.
+    """
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 @app.get("/api/startups")
-def list_startups(category: str | None = None, q: str | None = None) -> list[dict]:
+def list_startups(
+    category: str | None = None,
+    q: str | None = None,
+    limit: int = Query(LIST_LIMIT_DEFAULT, ge=1, le=LIST_LIMIT_MAX),
+    offset: int = Query(0, ge=0),
+) -> list[dict]:
+    """The archive. The frontend pulls this once and filters client-side, so the
+    default limit is a growth ceiling rather than real pagination."""
     conn = db.connect()
     try:
         sql = "SELECT * FROM startups"
@@ -239,11 +348,16 @@ def list_startups(category: str | None = None, q: str | None = None) -> list[dic
             conds.append("category = ?")
             params.append(category)
         if q:
-            conds.append("(name LIKE ? OR tagline LIKE ? OR description LIKE ?)")
-            params += [f"%{q}%"] * 3
+            conds.append(
+                "(name LIKE ? ESCAPE '\\' OR tagline LIKE ? ESCAPE '\\' "
+                "OR description LIKE ? ESCAPE '\\')"
+            )
+            params += [f"%{_like_escape(q)}%"] * 3
         if conds:
             sql += " WHERE " + " AND ".join(conds)
         sql += " ORDER BY CASE status WHEN 'dead' THEN 1 ELSE 0 END, name COLLATE NOCASE"
+        sql += " LIMIT ? OFFSET ?"
+        params += [limit, offset]
         return [dict(r) for r in conn.execute(sql, params).fetchall()]
     finally:
         conn.close()
@@ -294,19 +408,24 @@ def run_verification() -> dict:
     return {"job_id": job_id}
 
 
-@app.get("/api/verify/status/{job_id}")
+@admin.get("/verify/status/{job_id}")
 def verify_status(job_id: str) -> dict:
+    """Admin-gated: the job payload carries error strings and seeded URLs."""
     job = verify.get_verify_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
 
 
-@app.get("/api/verify/current")
+@admin.get("/verify/current")
 def verify_current() -> dict | None:
     """The active (queued/running) verification job, or None. Lets the panel
-    re-attach to a pass already in flight (cron-triggered or from an earlier
-    click) instead of starting a second one."""
+    re-attach to a pass already in flight (scheduler-triggered or from an
+    earlier click) instead of starting a second one.
+
+    Admin-gated: this walks the whole jobs table and JSON-parses every row, and
+    the payload leaks job errors + seeded URLs. Only the panel consumes it.
+    """
     return verify.get_active_verify_job()
 
 

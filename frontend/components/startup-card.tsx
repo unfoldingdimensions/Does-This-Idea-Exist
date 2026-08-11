@@ -24,6 +24,7 @@ import { HueAvatar } from "@/components/hue-avatar";
 import type { Startup } from "@/lib/types";
 import { foundedYear } from "@/lib/search";
 import { formatDate, shortDate, titleCase } from "@/lib/format";
+import { useAdminToken } from "@/lib/use-admin-token";
 import { cn } from "@/lib/utils";
 
 export { initials } from "@/lib/initials";
@@ -92,6 +93,7 @@ export function StatusPill({
   const verified = !dead && startup.verified === 1;
   const current: StatusChoice = dead ? "dead" : verified ? "verified" : "unverified";
 
+  const unlocked = useAdminToken() !== null;
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [pending, setPending] = React.useState<StatusChoice | null>(null);
 
@@ -113,8 +115,11 @@ export function StatusPill({
 
   const confirm = pending ? CONFIRM_COPY[pending] : null;
 
-  // No status handler → the pill is a plain badge (read-only context).
-  if (!onStatusChange) {
+  // Plain badge when there's no status handler (read-only context) or the
+  // archive is locked — changing status needs the owner token, so a visitor
+  // gets the label without an actionable menu behind it. Gating here covers
+  // every caller: the card grid and the detail modal both route through.
+  if (!onStatusChange || !unlocked) {
     return (
       <TooltipProvider>
         <Tooltip>

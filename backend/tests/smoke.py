@@ -9,13 +9,22 @@ pins the API surface, schema bootstrap, error handling, dedup upsert, the admin
 gate, the seeder job lifecycle (with fake sources), and reuse_profile behavior.
 """
 import os
+import sys
 import tempfile
 import threading
 import time
 from itertools import islice
 from pathlib import Path
 
-_tmp = tempfile.TemporaryDirectory()
+# Test output contains arrows/stars; a legacy Windows console (cp1252) raises on
+# those mid-suite and takes the whole run down. Same fix as app/main.py.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+# ignore_cleanup_errors: daemon worker threads may still hold the sqlite handle
+# at interpreter exit, and Windows refuses to unlink an open file — teardown
+# noise only, the suite has already reported by then.
+_tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
 os.environ["DB_PATH"] = str(Path(_tmp.name) / "smoke.db")
 os.environ["ADMIN_TOKEN"] = "smoke-admin-token"
 # Pin auto-verify OFF for the whole suite (startup enqueues would race the
@@ -31,8 +40,13 @@ from app.main import app  # noqa: E402
 import app.enrich as enrich_mod  # noqa: E402
 import app.github as gh_mod  # noqa: E402
 import app.llm as llm_mod  # noqa: E402
+import app.main as main_mod  # noqa: E402 — rate-limiter internals
+from app import netguard  # noqa: E402
 
 TOKEN = "smoke-admin-token"
+# MUTATION_AUTH defaults ON, so the status-flip / seed / verify-run endpoints
+# need the owner token. The dedicated gate tests below call them WITHOUT it.
+MUT = {"X-Admin-Token": TOKEN}
 fails: list[str] = []
 
 # Capture real functions so tests that monkeypatch can restore them in order.
@@ -64,11 +78,11 @@ with TestClient(app) as client:
     check("categories start empty", client.get("/api/categories").json() == [])
     stats = client.get("/api/stats").json()
     check("stats zeroed", stats["total"] == 0 and stats["verified"] == 0, str(stats))
-    check("mark-verify 404 on unknown", client.post("/api/startups/1/verify").status_code == 404)
-    check("unverify 404 on unknown", client.post("/api/startups/1/unverify").status_code == 404)
-    check("mark-dead 404 on unknown", client.post("/api/startups/1/dead").status_code == 404)
+    check("mark-verify 404 on unknown", client.post("/api/startups/1/verify", headers=MUT).status_code == 404)
+    check("unverify 404 on unknown", client.post("/api/startups/1/unverify", headers=MUT).status_code == 404)
+    check("mark-dead 404 on unknown", client.post("/api/startups/1/dead", headers=MUT).status_code == 404)
     # async verify: POST enqueues (returns job_id), then poll status until done
-    vjob = client.post("/api/verify/run").json()
+    vjob = client.post("/api/verify/run", headers=MUT).json()
     vstat = wait_job(client, vjob["job_id"])
     check("verify/run on empty", vstat["status"] == "done" and vstat["result"]["checked"] == 0, str(vstat))
     check("verify job has breakdown", vstat["breakdown"] == {"verified": 0, "unverified": 0, "dead": 0}, str(vstat.get("breakdown")))
@@ -269,13 +283,13 @@ try:
     # (fresh TestClient — the outer `with` block has closed by this point)
     with TestClient(app) as client2:
         aid = first["id"]
-        v = client2.post(f"/api/startups/{aid}/verify").json()
+        v = client2.post(f"/api/startups/{aid}/verify", headers=MUT).json()
         check("verify sets stamp", v["verified"] == 1 and v["verified_at"] is not None, str(v))
-        u = client2.post(f"/api/startups/{aid}/unverify").json()
+        u = client2.post(f"/api/startups/{aid}/unverify", headers=MUT).json()
         check("unverify clears stamp", u["verified"] == 0 and u["verified_at"] is None and u["status"] == "active", str(u))
-        d = client2.post(f"/api/startups/{aid}/dead").json()
+        d = client2.post(f"/api/startups/{aid}/dead", headers=MUT).json()
         check("mark-dead files entry", d["status"] == "dead" and d["verified"] == 0, str(d))
-        r = client2.post(f"/api/startups/{aid}/verify").json()
+        r = client2.post(f"/api/startups/{aid}/verify", headers=MUT).json()
         check("verify revives dead entry", r["status"] == "active" and r["verified"] == 1, str(r))
 
     # --- all-exist classification: re-seeding an existing URL counts as skipped ---
@@ -353,10 +367,10 @@ try:
         # rate limit → skipped, check_failures untouched
         gh_mod.fetch_repo = fake_gh_rate_limited
         try:
-            vjob = client4.post("/api/verify/run").json()
+            vjob = client4.post("/api/verify/run", headers=MUT).json()
             # 409: a second verify while one is still queued/running (the
             # per-row sleep above keeps the first pass in flight)
-            v2 = client4.post("/api/verify/run")
+            v2 = client4.post("/api/verify/run", headers=MUT)
             check("concurrent verify rejected (409)", v2.status_code == 409, str(v2.status_code))
             vstat = wait_job(client4, vjob["job_id"])
             conn = db.connect()
@@ -373,7 +387,7 @@ try:
         # 404 → real failure, check_failures bumped
         gh_mod.fetch_repo = fake_gh_not_found
         try:
-            vjob = client4.post("/api/verify/run").json()
+            vjob = client4.post("/api/verify/run", headers=MUT).json()
             vstat = wait_job(client4, vjob["job_id"])
             conn = db.connect()
             row = conn.execute("SELECT check_failures FROM startups WHERE github_url = 'https://github.com/ghcorp/tool'").fetchone()
@@ -399,8 +413,8 @@ try:
         try:
             sjob = client4.post("/api/admin/seed", json={"source": "slow2", "params": {"cap": 1}}, headers={"X-Admin-Token": TOKEN}).json()["job_id"]
             assert slow_started2.wait(2), "slow seed never started"
-            vjob = client4.post("/api/verify/run").json()
-            vstat = client4.get(f"/api/verify/status/{vjob['job_id']}").json()
+            vjob = client4.post("/api/verify/run", headers=MUT).json()
+            vstat = client4.get(f"/api/admin/verify/status/{vjob['job_id']}", headers=MUT).json()
             # NEW behavior: seed ∥ verify run in parallel (two workers). The
             # verify starts immediately while the slow seed is still running.
             check(
@@ -466,7 +480,7 @@ try:
             raise ValueError("GitHub repo not found: test")
 
         gh_mod.fetch_repo = fake_gh_404
-        vjob = client5.post("/api/verify/run").json()
+        vjob = client5.post("/api/verify/run", headers=MUT).json()
         vstat = wait_job(client5, vjob["job_id"])
         res = vstat["result"]
         check(
@@ -545,7 +559,7 @@ try:
         # a) website 403 (bot wall — the WHOOP/Capterra regression) → skipped, never a strike
         wall_id = fresh_row("BotWallCo", "https://botwall.example")
         verify_mod.check_url_ok = lambda url: (False, "HTTP 403", True)
-        vjob = client7.post("/api/verify/run").json()
+        vjob = client7.post("/api/verify/run", headers=MUT).json()
         vstat = wait_job(client7, vjob["job_id"])
         check(
             "403 website check skips (no strike)",
@@ -555,7 +569,7 @@ try:
 
         # b) website 404 → genuine failure, strike bumps
         verify_mod.check_url_ok = lambda url: (False, "HTTP 404", False)
-        vjob = client7.post("/api/verify/run").json()
+        vjob = client7.post("/api/verify/run", headers=MUT).json()
         vstat = wait_job(client7, vjob["job_id"])
         check(
             "404 website check strikes (bumps check_failures)",
@@ -565,7 +579,7 @@ try:
 
         # c) verified row + website 404 → flagged for human re-check, never struck/flipped
         ver_id = fresh_row("VerifiedCo", "https://verifiedco.example", verified=1)
-        vjob = client7.post("/api/verify/run").json()
+        vjob = client7.post("/api/verify/run", headers=MUT).json()
         vstat = wait_job(client7, vjob["job_id"])
         conn = db.connect()
         row = conn.execute(
@@ -580,7 +594,7 @@ try:
         )
 
         # d) human revive resets the strike counter (mark_verified)
-        r = client7.post(f"/api/startups/{wall_id}/verify").json()
+        r = client7.post(f"/api/startups/{wall_id}/verify", headers=MUT).json()
         check(
             "human revive resets strikes",
             r["status"] == "active" and r["verified"] == 1 and r["check_failures"] == 0,
@@ -638,6 +652,190 @@ try:
         config.VERIFY_AUTO_STALE_DAYS = _real_auto_days
 finally:
     conn.close()
+
+# ---------------------------------------------------------------------------
+# Security layer: MUTATION_AUTH gating, the SSRF guard, rate limiting, and the
+# untrusted-input bounds. These shipped without coverage — the only checks were
+# in a manual script pointed at a server that no longer runs.
+# ---------------------------------------------------------------------------
+
+# --- MUTATION_AUTH: every write endpoint refuses an unauthenticated caller ---
+MUTATING = [
+    ("/api/seed/github", {"github_url": "https://github.com/a/b"}),
+    ("/api/seed/website", {"website_url": "https://example.com"}),
+    ("/api/verify/run", None),
+    ("/api/startups/1/verify", None),
+    ("/api/startups/1/unverify", None),
+    ("/api/startups/1/dead", None),
+]
+with TestClient(app) as c:
+    codes = {}
+    for path, body in MUTATING:
+        r = c.post(path, json=body) if body else c.post(path)
+        codes[path] = r.status_code
+    check(
+        "MUTATION_AUTH on by default: all 6 write endpoints 403 without a token",
+        all(v == 403 for v in codes.values()),
+        str(codes),
+    )
+    # With the token the gate opens — 403 must come from auth, not from a
+    # route that rejects everything (an unknown id answers 404, not 403).
+    check(
+        "write endpoints pass the gate with the token",
+        c.post("/api/startups/999999/verify", headers=MUT).status_code == 404,
+        "404 = auth passed, row absent",
+    )
+
+# --- Fail-closed config: auth on with no token must refuse to start ---
+_real_token = config.ADMIN_TOKEN
+config.ADMIN_TOKEN = ""
+try:
+    started = False
+    try:
+        with TestClient(app):
+            started = True
+    except RuntimeError as exc:
+        check(
+            "startup refuses when MUTATION_AUTH is on and ADMIN_TOKEN is empty",
+            "ADMIN_TOKEN" in str(exc),
+            str(exc)[:70],
+        )
+    if started:
+        check("startup refuses when MUTATION_AUTH is on and ADMIN_TOKEN is empty", False, "it started")
+finally:
+    config.ADMIN_TOKEN = _real_token
+
+# --- SSRF guard: non-public targets are refused before any socket is opened ---
+BLOCKED = [
+    "http://localhost:8020/",
+    "http://127.0.0.1/",
+    "http://[::1]/",
+    "http://169.254.169.254/latest/meta-data/",  # cloud metadata endpoint
+    "http://10.0.0.5/",
+    "http://192.168.1.1/",
+    "http://internal.local/",
+    "file:///etc/passwd",
+    "gopher://example.com/",
+]
+blocked_results = {}
+for target in BLOCKED:
+    try:
+        netguard.check_target(target)
+        blocked_results[target] = "ALLOWED"
+    except netguard.BlockedAddressError:
+        blocked_results[target] = "blocked"
+    except Exception as exc:  # noqa: BLE001 — any other error is also a miss
+        blocked_results[target] = f"other:{type(exc).__name__}"
+check(
+    "netguard blocks loopback/private/link-local/metadata/non-http targets",
+    all(v == "blocked" for v in blocked_results.values()),
+    str({k: v for k, v in blocked_results.items() if v != "blocked"}) or "all 9 blocked",
+)
+check(
+    "BlockedAddressError is a ValueError (existing 400/502 paths still catch it)",
+    issubclass(netguard.BlockedAddressError, ValueError),
+)
+
+# --- Rate limiting: the sliding window returns 429 and evicts idle keys ---
+with TestClient(app) as c:
+    main_mod._RATE.clear()
+    seen = [
+        c.post("/api/startups/999999/dead", headers=MUT).status_code
+        for _ in range(65)
+    ]
+    check(
+        "rate limiter returns 429 past the bucket limit (60/min)",
+        seen.count(429) > 0 and seen[0] == 404,
+        f"404s={seen.count(404)} 429s={seen.count(429)}",
+    )
+    # Failed admin auth is throttled separately so guessing the token is slow.
+    main_mod._FAILS.clear()
+    bad = [c.get("/api/admin/check", headers={"X-Admin-Token": "wrong"}).status_code for _ in range(13)]
+    check(
+        "failed-auth attempts throttle to 429 after the limit",
+        bad[0] == 403 and bad.count(429) > 0,
+        f"403s={bad.count(403)} 429s={bad.count(429)}",
+    )
+    # Keys must not accumulate forever (they used to leak one entry per IP).
+    main_mod._RATE.clear()
+    main_mod._FAILS.clear()
+    c.post("/api/startups/999999/dead", headers=MUT)
+    live_keys = len(main_mod._RATE)
+    main_mod._evict_idle(main_mod._RATE, time.monotonic() + 3600, 60.0)
+    check(
+        "rate-limiter keys are evicted once their window expires",
+        live_keys == 1 and len(main_mod._RATE) == 0,
+        f"{live_keys} key(s) during window, {len(main_mod._RATE)} after eviction",
+    )
+
+# --- LLM output bounds: the category whitelist is actually applied ---
+check(
+    "off-whitelist LLM category falls back to 'other'",
+    enrich_mod._clean_profile({"category": "crypto-casino"})["category"] == "other",
+    enrich_mod._clean_profile({"category": "crypto-casino"})["category"],
+)
+check(
+    "whitelisted category is preserved (and lowercased)",
+    enrich_mod._clean_profile({"category": "DevTools"})["category"] == "devtools",
+    enrich_mod._clean_profile({"category": "DevTools"})["category"],
+)
+check(
+    "every declared category survives the whitelist",
+    all(enrich_mod._clean_profile({"category": c})["category"] == c for c in enrich_mod.CATEGORIES),
+)
+
+# --- Untrusted GitHub homepage must never reach an href as a script URL ---
+URL_CASES = {
+    "javascript:alert(1)": "",
+    "JavaScript:alert(1)": "",
+    "data:text/html,<script>alert(1)</script>": "",
+    "file:///etc/passwd": "",
+    "": "",
+    "   ": "",
+    "https://acme.dev": "https://acme.dev",
+    "http://acme.dev/path": "http://acme.dev/path",
+    "acme.dev": "https://acme.dev",  # bare host: common in GitHub's homepage field
+}
+url_bad = {
+    raw: enrich_mod._http_url(raw)
+    for raw, want in URL_CASES.items()
+    if enrich_mod._http_url(raw) != want
+}
+check("_http_url keeps http(s), drops script/data/file schemes", not url_bad, str(url_bad))
+
+# --- LIKE wildcards in ?q= are escaped, not interpreted ---
+with TestClient(app) as c:
+    conn = db.connect()
+    try:
+        conn.execute(
+            "INSERT INTO startups (name, website_url, source) VALUES ('LikeProbe', 'https://likeprobe.example', 'website')"
+        )
+        conn.commit()
+        total = conn.execute("SELECT COUNT(*) AS c FROM startups").fetchone()["c"]
+    finally:
+        conn.close()
+    wild = c.get("/api/startups", params={"q": "%"}).json()
+    literal = c.get("/api/startups", params={"q": "LikeProbe"}).json()
+    check(
+        "q=% is a literal, not a match-everything wildcard",
+        len(wild) == 0 and len(literal) == 1 and total > 1,
+        f"q=% returned {len(wild)} of {total}; literal returned {len(literal)}",
+    )
+    check(
+        "q=_ is also literal",
+        len(c.get("/api/startups", params={"q": "_"}).json()) == 0,
+        str(len(c.get("/api/startups", params={"q": "_"}).json())),
+    )
+    # Pagination bounds are enforced by the route signature.
+    check(
+        "limit is bounded (422 past the max, 422 below 1)",
+        c.get("/api/startups", params={"limit": 99999}).status_code == 422
+        and c.get("/api/startups", params={"limit": 0}).status_code == 422,
+    )
+    check(
+        "limit/offset page the archive",
+        len(c.get("/api/startups", params={"limit": 1}).json()) == 1,
+    )
 
 print()
 if fails:

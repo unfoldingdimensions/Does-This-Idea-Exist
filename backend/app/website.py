@@ -44,8 +44,8 @@ def extract_text(html_str: str, max_chars: int = 8000) -> str:
     parser = _TextExtractor()
     try:
         parser.feed(html_str)
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 — malformed markup: keep whatever parsed
+        log.debug("html parse stopped early: %s", exc)
     text = re.sub(r"\s+", " ", " ".join(parser.parts))
     return text[:max_chars]
 
