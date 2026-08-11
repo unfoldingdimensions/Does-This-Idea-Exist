@@ -18,7 +18,6 @@ type SeedSource =
   | "famous"
   | "github_search"
   | "url_list"
-  | "topstartups"
   | "design_library";
 
 /** Seeding settings section: source form + live queue (In progress) + run
@@ -93,11 +92,10 @@ export function SeedSection({
 
       <TabsContent value="run" className="space-y-3 pt-3">
         <Tabs value={source} onValueChange={(v) => setSource(v as SeedSource)}>
-          <TabsList className="grid w-full grid-cols-5 gap-1">
+          <TabsList className="grid w-full grid-cols-4 gap-1">
             <TabsTrigger value="famous">Famous list</TabsTrigger>
             <TabsTrigger value="github_search">GitHub search</TabsTrigger>
             <TabsTrigger value="url_list">URL list</TabsTrigger>
-            <TabsTrigger value="topstartups">Top Startups</TabsTrigger>
             <TabsTrigger value="design_library">Design library</TabsTrigger>
           </TabsList>
 
@@ -130,13 +128,6 @@ export function SeedSection({
               onChange={(e) => setUrls(e.target.value)}
               placeholder={"https://example.com\nhttps://github.com/owner/repo"}
             />
-          </TabsContent>
-          <TabsContent value="topstartups" className="space-y-2 pt-2">
-            <p className="text-xs text-muted-foreground">
-              Scrapes topstartups.io (1,259 funded startups, ~20 per page) — company
-              name + website per card, utm params stripped. Use a cap below ~40 per run
-              to keep each batch quick.
-            </p>
           </TabsContent>
           <TabsContent value="design_library" className="space-y-2 pt-2">
             <p className="text-xs text-muted-foreground">

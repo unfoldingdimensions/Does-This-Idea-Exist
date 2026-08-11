@@ -46,14 +46,14 @@ npm run dev
 
 The footer gear button opens the Admin panel. Unlock with `ADMIN_TOKEN` (set in `backend/.env`
 locally, or as an environment variable on your host — **the same code works hosted; the token
-never ships in the repo**). Then run batch seeds from three sources:
+never ships in the repo**). Then run batch seeds from four sources:
 
 1. **Famous list** — bundled `backend/data/seed_famous.json` (~65 well-known startups). The
    one-click "initial incentive" seed for a fresh directory.
 2. **GitHub search** — `search/repositories` by query (e.g. `stars:>50000`), sorted by stars.
 3. **URL list** — paste websites/GitHub repos, one per line.
-4. **Top Startups** — scrapes `topstartups.io` (~1,259 funded startups, ~20/page): company
-   name + website per card, utm params stripped.
+4. **Design library** — bundled `backend/data/seed_design_library.json` (201 curated product
+   sites from the design-scope reference library).
 
 Per-run **cap** is a free-form input (default 30; pull 100+ in testing — server validates 1–500
 and returns a loud 400 outside that, it never clamps silently). Re-runs skip the LLM for entries

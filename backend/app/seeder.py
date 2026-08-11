@@ -8,10 +8,8 @@ same time, but never two seeds or two verifies. Every job is visible to the
 admin panel while queued, running, or finished. Fail-loud policy: every failure
 is logged AND recorded in job["errors"] — nothing is swallowed.
 """
-import html as html_lib
 import json
 import logging
-import re
 import sqlite3
 import threading
 import time
@@ -22,7 +20,6 @@ import httpx
 
 from . import config, db, enrich
 from .website import UA_BROWSER
-from urllib.parse import urlparse
 
 log = logging.getLogger("ideasexist")
 
@@ -398,59 +395,10 @@ def _design_library(params: dict):
         yield url, entry.get("name")
 
 
-_TOPSTARTUPS_RE = re.compile(
-    r'<a[^>]*href="([^"]+)"[^>]*id="startup-website-link"[^>]*>(.*?)</a>', re.S
-)
-
-
-def _strip_tags(text: str) -> str:
-    return html_lib.unescape(re.sub(r"<[^>]+>", "", text)).strip()
-
-
-def _topstartups(params: dict):
-    """topstartups.io — server-rendered HTML list, ?page=N pagination (~20/page, 1,259 total).
-
-    Yields (website_url, name_hint) tuples; requires the browser UA (blocks bare bots).
-    UTM params are stripped from each company-site link. The directory's own domain and
-    within-run URL repeats are skipped (scraper artifact guard — the source site is not
-    a startup, and one company should seed exactly once per run).
-    """
-    page = 1
-    seen: set[str] = set()
-    while True:
-        r = httpx.get(
-            f"https://topstartups.io/?page={page}",
-            headers=UA_BROWSER,
-            timeout=30,
-            follow_redirects=True,
-        )
-        if r.status_code != 200:
-            raise RuntimeError(f"topstartups HTTP {r.status_code}: {r.text[:120]}")
-        found = 0
-        for href, raw_name in _TOPSTARTUPS_RE.findall(r.text):
-            name = _strip_tags(raw_name)
-            if not name:
-                continue
-            url = href.split("?")[0].strip().rstrip("/")  # strip ?utm_source=... + trailing slash
-            if url in seen:
-                continue
-            host = (urlparse(url).hostname or "").lower().rstrip(".")
-            if host in ("topstartups.io", "www.topstartups.io"):
-                continue
-            seen.add(url)
-            yield url, name
-            found += 1
-            time.sleep(THROTTLE_S)
-        if found == 0:
-            return  # list exhausted
-        page += 1
-
-
 SOURCES = {
     "github_search": _gh_search,
     "url_list": _url_list,
     "famous": _famous,
-    "topstartups": _topstartups,
     "design_library": _design_library,
 }
 

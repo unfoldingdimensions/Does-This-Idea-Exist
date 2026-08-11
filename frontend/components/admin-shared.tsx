@@ -8,7 +8,6 @@ export const SOURCE_LABELS: Record<string, string> = {
   famous: "Famous list",
   github_search: "GitHub search",
   url_list: "URL list",
-  topstartups: "Top Startups",
   design_library: "Design library",
   verify: "Verification",
 };
