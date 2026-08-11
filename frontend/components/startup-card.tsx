@@ -288,10 +288,13 @@ export function StartupCard({
   startup,
   onStatusChange,
   onDetails,
+  filings = 1,
 }: {
   startup: Startup;
   onStatusChange?: (s: Startup, choice: StatusChoice) => void;
   onDetails?: (s: Startup) => void;
+  /** Same-name filings in the archive (a disambiguation directory must say so). */
+  filings?: number;
 }) {
   const dead = startup.status === "dead" || startup.status === "pivoted";
   const year = foundedYear(startup.founded);
@@ -415,6 +418,20 @@ export function StartupCard({
             <span className="ml-auto flex items-center gap-1 font-mono text-[11px] tabular-nums text-muted-foreground">
               <Star className="h-3 w-3" /> {startup.stars.toLocaleString()}
             </span>
+          )}
+          {filings > 1 && (
+            <a
+              href={`/?q=${encodeURIComponent(startup.name)}`}
+              title={`${filings} filings share this name — check which one you mean`}
+              className={cn(
+                "flex items-center rounded-full border border-border/70 px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground",
+                // Right-align only when the stars counter isn't already
+                // claiming the row's auto margin.
+                !(typeof startup.stars === "number" && startup.stars > 0) && "ml-auto",
+              )}
+            >
+              ×{filings} filings
+            </a>
           )}
         </div>
 

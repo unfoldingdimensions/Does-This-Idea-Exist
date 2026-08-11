@@ -255,6 +255,14 @@ export default function HomePage() {
     return [...set].sort((a, b) => b.localeCompare(a));
   }, [startups]);
 
+  // Same-name filings (e.g. Bird filed twice — genuinely different companies
+  // that share a name). The archive admits the overlap instead of hiding it.
+  const nameCounts = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    startups.forEach((s) => counts.set(s.name, (counts.get(s.name) ?? 0) + 1));
+    return counts;
+  }, [startups]);
+
   const hasAnyFilter = query !== "" || category !== null || year !== "all" || status !== "all";
 
   // Easter egg #1 — the self-referential query: asking whether this product
@@ -587,6 +595,7 @@ export default function HomePage() {
                     startup={s}
                     onStatusChange={handleStatusChange}
                     onDetails={setDetail}
+                    filings={nameCounts.get(s.name) ?? 1}
                   />
                 </div>
               ))}
