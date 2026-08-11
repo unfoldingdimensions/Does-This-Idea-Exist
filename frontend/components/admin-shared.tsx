@@ -44,11 +44,12 @@ export function SectionHeader({
           {badge}
         </span>
       )}
-      {open ? (
-        <ChevronDown className="h-4 w-4 text-muted-foreground" />
-      ) : (
-        <ChevronRight className="h-4 w-4 text-muted-foreground" />
-      )}
+      <ChevronDown
+        className={cn(
+          "h-4 w-4 text-muted-foreground transition-transform duration-200",
+          !open && "-rotate-90",
+        )}
+      />
     </button>
   );
 }

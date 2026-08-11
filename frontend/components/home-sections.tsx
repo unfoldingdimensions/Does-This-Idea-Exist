@@ -31,12 +31,18 @@ function Strip({
         )}
       </div>
       <div className="flex gap-2 overflow-x-auto pb-1">
-        {items.map((s) => (
+        {items.map((s, i) => (
           <button
             key={s.id}
             type="button"
             onClick={() => onNavigate(s)}
-            className="glass flex min-w-0 flex-1 basis-0 items-center gap-2 rounded-xl px-3 py-2 text-left transition-colors hover:bg-accent/60"
+            className="deal-item glass flex min-w-0 flex-1 basis-0 items-center gap-2 rounded-xl px-3 py-2 text-left transition-colors hover:bg-accent/60"
+            style={
+              {
+                "--i": i,
+                "--deal-tilt": i % 2 === 0 ? "-0.7deg" : "0.7deg",
+              } as React.CSSProperties
+            }
           >
             <HueAvatar name={s.name} size="sm" />
             <span className="min-w-0">

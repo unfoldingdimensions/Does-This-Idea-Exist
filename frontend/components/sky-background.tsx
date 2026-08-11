@@ -82,7 +82,9 @@ export function SkyBackground() {
             y: reduce ? 0 : sunY,
             opacity: reduce ? 1 : sunO,
           }}
-        />
+        >
+          <span className="sky-breathe" aria-hidden />
+        </motion.div>
         <motion.div
           className="sky-dusk"
           style={{ opacity: reduce ? 0.75 : duskO }}
@@ -100,7 +102,9 @@ export function SkyBackground() {
             y: reduce ? 0 : moonY,
             opacity: reduce ? 0.95 : moonO,
           }}
-        />
+        >
+          <span className="sky-breathe" aria-hidden />
+        </motion.div>
         <motion.div
           className="absolute inset-0"
           style={{ opacity: reduce ? 0.6 : starO }}
@@ -114,6 +118,8 @@ export function SkyBackground() {
                 left: s.left,
                 width: s.size,
                 height: s.size,
+                // Deterministic twinkle offset (stable across renders).
+                ["--twinkle-delay" as string]: `${(i * 0.71) % 3.4}s`,
               }}
             />
           ))}
@@ -127,6 +133,11 @@ export function SkyBackground() {
         className="sky-silhouette sky-silhouette--mountain"
         style={{ opacity: reduce ? 1 : silhouetteO }}
       />
+
+      {/* Paper grain — one rasterised texture over the whole sky (see
+          .sky-grain in globals.css; token-gated opacity, reduced-motion
+          leaves it static since it's not keyframed). */}
+      <div className="sky-grain" aria-hidden />
     </div>
   );
 }

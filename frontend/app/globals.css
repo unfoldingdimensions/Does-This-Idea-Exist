@@ -305,6 +305,68 @@
     display: none;
   }
 
+  /* Cards dealt onto the desk: 380ms rise + straighten, 45ms stagger capped
+     at index 12 (the deal-in keyframe, motion.ts dealDelay equivalent).
+     Applied to a WRAPPER div — never the card's own motion.div (CSS
+     animations outrank inline styles and would suppress whileHover/layoutId). */
+  .deal-item {
+    animation: deal-in 380ms var(--ease-archive) both;
+    animation-delay: calc(min(var(--i, 0), 12) * 45ms);
+  }
+
+  /* Staged hero reveal: subhead, discovery bar, ledger line assemble beneath
+     the h1 (which never animates — it's the LCP element). */
+  .reveal {
+    animation: reveal-in 420ms var(--ease-archive) both;
+  }
+
+  /* The live dot waves once on load — a greeting, not a heartbeat (3
+     iterations max, then silent). Only the Verified/online dots carry this. */
+  .live-dot {
+    position: relative;
+  }
+  .live-dot::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    background: inherit;
+    animation: live-ring 1.2s ease-out 3;
+  }
+
+  /* Paper grain — one feTurbulence texture, rasterised once by the browser,
+     at --grain-opacity (3.5-5%). No mix-blend-mode (forces a non-composited
+     blend of the whole stacking context); never inside .glass (would be
+     re-blurred by every sibling's backdrop-filter). */
+  .sky-grain {
+    position: absolute;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+    background-size: 180px 180px;
+    opacity: var(--grain-opacity);
+    pointer-events: none;
+  }
+
+  /* Sky breathing — the glow child scales 1 -> 1.04 and brightens on a 6s
+     loop. Lives on a CHILD of the scroll-linked sun/moon (never on the
+     motion element: the keyframe would outrank its inline scroll style). */
+  .sky-breathe {
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    background: var(--sky-sun-glow);
+    animation: sky-breathe 6s ease-in-out infinite;
+  }
+  .dark .sky-breathe {
+    background: var(--sky-moon-glow);
+  }
+
+  /* Star twinkle — staggered via per-star --twinkle-delay (set in TSX). */
+  .sky-star {
+    animation: star-twinkle 3.4s ease-in-out infinite;
+    animation-delay: var(--twinkle-delay, 0s);
+  }
+
   /* Thin visible scrollbar for the discovery-bar chip row — the affordance
      that tells users "there's more to scroll". Same tokens as the global
      scrollbar, just a slimmer horizontal bar. */
@@ -342,7 +404,6 @@
   .sky-sun {
     position: absolute;
     border-radius: 9999px;
-    background: var(--sky-sun-glow);
     width: 44vmin;
     height: 44vmin;
     margin-left: -22vmin; /* center via negative half-width */
@@ -358,7 +419,6 @@
   .sky-moon {
     position: absolute;
     border-radius: 9999px;
-    background: var(--sky-moon-glow);
     width: 24vmin;
     height: 24vmin;
     margin-left: -12vmin;
@@ -459,6 +519,30 @@
   }
   to {
     transform: translateX(100%);
+  }
+}
+
+/* The sun/moon glow breathes — a slow pulse, child-element only. */
+@keyframes sky-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.04);
+    opacity: 1;
+  }
+}
+
+/* Stars twinkle at their own cadence. */
+@keyframes star-twinkle {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
   }
 }
 

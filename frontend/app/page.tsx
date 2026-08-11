@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { useAutoAnimate } from "@formkit/auto-animate/react";
 import {
   Briefcase,
   Building2,
@@ -21,8 +20,10 @@ import {
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { EASE } from "@/lib/motion";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import { CardSkeleton } from "@/components/card-skeleton";
 import { StartupCard, type StatusChoice } from "@/components/startup-card";
 import { AddStartupDialog } from "@/components/add-startup-dialog";
 import { AdminPanel } from "@/components/admin-panel";
@@ -108,7 +109,29 @@ export default function HomePage() {
   const [addOpen, setAddOpen] = React.useState(false);
   const [addTab, setAddTab] = React.useState<"github" | "website">("github");
   const unlocked = useAdminToken() !== null;
-  const [gridRef] = useAutoAnimate({ duration: 260 });
+  const reduce = useReducedMotion();
+
+  // Header firms up after the page scrolls past a 1px sentinel (one
+  // IntersectionObserver, not a second useScroll rig). No height change —
+  // the header is in flow and scroll-triggered shifts count toward CLS.
+  const [scrolled, setScrolled] = React.useState(false);
+  React.useEffect(() => {
+    const sentinel = document.createElement("div");
+    sentinel.style.position = "absolute";
+    sentinel.style.top = "0";
+    sentinel.style.height = "1px";
+    sentinel.style.width = "1px";
+    document.body.prepend(sentinel);
+    const io = new IntersectionObserver(
+      ([entry]) => setScrolled(!entry.isIntersecting),
+      { threshold: 0 },
+    );
+    io.observe(sentinel);
+    return () => {
+      io.disconnect();
+      sentinel.remove();
+    };
+  }, []);
 
   const loadAll = React.useCallback(() => {
     // setState only inside .then callbacks (react-hooks v7: no synchronous setState in effects)
@@ -293,8 +316,11 @@ export default function HomePage() {
 
   return (
     <div className="flex min-h-full flex-col">
-      {/* Header — frosted glass */}
-      <header className="sticky top-0 z-40 border-b border-border/40 bg-background/55 backdrop-blur-xl">
+      {/* Header — frosted glass; firms up under scroll (data-scrolled) */}
+      <header
+        data-scrolled={scrolled || undefined}
+        className="sticky top-0 z-40 border-b border-border/40 bg-background/55 backdrop-blur-xl transition-colors duration-300 data-[scrolled]:border-border/70 data-[scrolled]:bg-background/80"
+      >
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4">
           <span className="font-display text-sm font-bold tracking-tight">IdeaExists</span>
           <span className="hidden text-xs text-muted-foreground sm:inline">
@@ -331,10 +357,29 @@ export default function HomePage() {
       </header>
 
       {!online && !loading && (
-        <div className="flex items-center justify-center gap-2 border-b border-border/40 bg-destructive/5 px-4 py-2 text-xs text-destructive">
-          <ServerCrash className="h-3.5 w-3.5" />
-          The archive is unreachable — start it with{" "}
-          <code className="font-mono">uvicorn app.main:app --port 8020</code>
+        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2">
+          <div
+            role="status"
+            className="glass-strong flex items-center gap-2 rounded-full py-2 pl-4 pr-2 text-xs text-destructive shadow-xl"
+          >
+            <ServerCrash className="h-3.5 w-3.5 shrink-0" />
+            <span>The archive is unreachable.</span>
+            {process.env.NODE_ENV !== "production" && (
+              <code className="hidden font-mono text-[10px] text-muted-foreground sm:inline">
+                uvicorn app.main:app --port 8020
+              </code>
+            )}
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={() => {
+                setLoading(true);
+                void loadAll();
+              }}
+            >
+              Retry
+            </Button>
+          </div>
         </div>
       )}
 
@@ -344,12 +389,15 @@ export default function HomePage() {
           <h1 className="font-display text-4xl font-bold tracking-tight sm:text-5xl">
             A human-kept archive of what exists.
           </h1>
-          <p className="mx-auto mt-3 max-w-[52ch] text-sm text-muted-foreground">
+          <p
+            className="reveal mx-auto mt-3 max-w-[52ch] text-sm text-muted-foreground"
+            style={{ animationDelay: "60ms" }}
+          >
             Search the archive — what they do, where they live, and whether they&rsquo;re still alive.
             Kept by a human — checked one at a time.
           </p>
 
-          <div className="mt-7">
+          <div className="reveal mt-7" style={{ animationDelay: "140ms" }}>
             <MorphingDiscoveryBar
               categories={discoveryCategories}
               value={category}
@@ -363,12 +411,15 @@ export default function HomePage() {
           {/* Freshness + trust — one muted ledger line under the bar (the bar
               itself carries the live count as "All 94"). Distilled from the
               former three-band hero per critique P2. */}
-          <div className="mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 font-mono text-[10px] text-muted-foreground">
+          <div
+            className="reveal mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 font-mono text-[10px] text-muted-foreground"
+            style={{ animationDelay: "240ms" }}
+          >
             {stats?.last_checked && (
               <span className="tabular-nums">last checked {formatDate(stats.last_checked)}</span>
             )}
             <span className="flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden />
+              <span className="live-dot h-1.5 w-1.5 rounded-full bg-success" aria-hidden />
               Verified — a human checked it
             </span>
             <span className="flex items-center gap-1.5">
@@ -398,15 +449,27 @@ export default function HomePage() {
         />
 
         {/* Freshness highlights — only on the unfiltered landing view */}
-        {!hasAnyFilter && !loading && results.length > 0 && (
-          <HomeSections startups={startups} onNavigate={setDetail} />
-        )}
+        <AnimatePresence>
+          {!hasAnyFilter && !loading && results.length > 0 && (
+            <motion.div
+              key="home-sections"
+              initial={{ opacity: 0, y: reduce ? 0 : 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={
+                reduce ? { duration: 0 } : { type: "tween", ease: EASE, duration: 0.25 }
+              }
+            >
+              <HomeSections startups={startups} onNavigate={setDetail} />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Grid */}
         {loading ? (
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} className="glass h-48 rounded-2xl" />
+            {Array.from({ length: 12 }).map((_, i) => (
+              <CardSkeleton key={i} />
             ))}
           </div>
         ) : paged.length === 0 ? (
@@ -439,17 +502,24 @@ export default function HomePage() {
           </div>
         ) : (
           <>
-            <div
-              ref={gridRef}
-              className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]"
-            >
-              {paged.map((s) => (
-                <StartupCard
+            <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
+              {paged.map((s, i) => (
+                <div
                   key={s.id}
-                  startup={s}
-                  onStatusChange={handleStatusChange}
-                  onDetails={setDetail}
-                />
+                  className="deal-item"
+                  style={
+                    {
+                      "--i": i,
+                      "--deal-tilt": i % 2 === 0 ? "-0.7deg" : "0.7deg",
+                    } as React.CSSProperties
+                  }
+                >
+                  <StartupCard
+                    startup={s}
+                    onStatusChange={handleStatusChange}
+                    onDetails={setDetail}
+                  />
+                </div>
               ))}
             </div>
             <ContinuousPagination currentPage={currentPage} totalPages={totalPages} onPageChange={changePage} />
@@ -480,7 +550,7 @@ export default function HomePage() {
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-5 text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5">
             {online ? (
-              <span className="h-1.5 w-1.5 rounded-full bg-success" />
+              <span className="live-dot h-1.5 w-1.5 rounded-full bg-success" />
             ) : (
               <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
             )}

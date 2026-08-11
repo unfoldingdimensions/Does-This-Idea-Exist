@@ -1,13 +1,17 @@
 "use client";
 
+import * as React from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
+import { tween } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 /**
- * Continuous pagination — controlled page control with a sliding active pill
- * (shared-layout) and ease-out motion. Adapted from Watermelon UI (MIT):
- * framer-motion → motion/react, springs → ease-out (antislop), tokens → glass.
+ * Continuous pagination — windowed page control with a shared-layout active
+ * pill that slides between pages (the docstring finally matches the code).
+ * The layoutId lives on a SIBLING span, never the button: layout projection
+ * writes an inline transparent box-shadow that would clobber the button's
+ * focus ring (the same reason .search-focus-ring is hand-written CSS).
  */
 export interface ContinuousPaginationProps {
   /** The clamped page the grid actually shows — never the raw URL value. */
@@ -63,16 +67,26 @@ export function ContinuousPagination({ currentPage, totalPages, onPageChange }: 
               aria-label={`Page ${p}`}
               aria-current={p === currentPage ? "page" : undefined}
               className={cn(
-                "relative z-10 flex h-11 w-11 items-center justify-center rounded-full text-sm font-medium transition-colors",
-                p === currentPage
-                  ? "bg-primary font-bold text-primary-foreground"
-                  : "glass text-foreground hover:bg-accent",
+                "relative flex h-11 w-11 items-center justify-center rounded-full text-sm font-medium transition-colors",
+                p === currentPage ? "font-bold text-primary-foreground" : "glass text-foreground hover:bg-accent",
               )}
               whileHover={p === currentPage ? undefined : { y: -2 }}
               whileTap={{ scale: 0.94 }}
               transition={{ type: "tween", ease: EASE, duration: 0.18 }}
             >
-              {p}
+              <AnimatePresence initial={false}>
+                {p === currentPage && (
+                  <motion.span
+                    layoutId="pagination-pill"
+                    className="absolute inset-0 rounded-full bg-primary"
+                    transition={tween(0.3)}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                  />
+                )}
+              </AnimatePresence>
+              <span className="relative z-10">{p}</span>
             </motion.button>
           ),
         )}

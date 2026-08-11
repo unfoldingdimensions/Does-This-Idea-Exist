@@ -3,14 +3,9 @@
 import * as React from "react";
 import { Check, ExternalLink, FolderGit2, Star, ShieldCheck, Archive } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
+import { SPRING_SETTLE, SPRING_STAMP } from "@/lib/motion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Dialog,
@@ -97,6 +92,8 @@ export function StatusPill({
   const unlocked = useAdminToken() !== null;
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [pending, setPending] = React.useState<StatusChoice | null>(null);
+  const [justStamped, setJustStamped] = React.useState(false);
+  const reduce = useReducedMotion();
 
   const label = STATUS_OPTIONS.find((o) => o.value === current)?.label ?? "Unverified";
   const hint = dead
@@ -116,45 +113,15 @@ export function StatusPill({
 
   const confirm = pending ? CONFIRM_COPY[pending] : null;
 
-  // Plain badge when there's no status handler (read-only context) or the
-  // archive is locked — changing status needs the owner token, so a visitor
-  // gets the label without an actionable menu behind it. Gating here covers
-  // every caller: the card grid and the detail modal both route through.
+  // Read-only context (visitor, or no status handler): the pill becomes an
+  // informative button — keyboard/touch reachable (the old span-tooltip was
+  // neither) — opening a popover with the worded hint + how verification works.
   if (!onStatusChange || !unlocked) {
     return (
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Badge variant="secondary" className={pillClass}>
-              <span
-                aria-hidden
-                className={cn(
-                  "size-1.5 rounded-full",
-                  dead && "bg-destructive",
-                  verified && "bg-success",
-                  !dead && !verified && "bg-muted-foreground/60",
-                )}
-              />
-              {dead ? <Archive className="h-3 w-3" /> : verified ? <ShieldCheck className="h-3 w-3" /> : null}
-              {label}
-            </Badge>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="max-w-[90vw] whitespace-nowrap text-xs">
-            {hint}
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    );
-  }
-
-  return (
-    <>
-      <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+      <Popover>
         <PopoverTrigger asChild>
           <button
             type="button"
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
             className={cn(
               "inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors",
               pillClass,
@@ -172,6 +139,79 @@ export function StatusPill({
             />
             {dead ? <Archive className="h-3 w-3" /> : verified ? <ShieldCheck className="h-3 w-3" /> : null}
             {label}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="end" sideOffset={6} className="w-64 p-3">
+          <p className="text-xs leading-relaxed text-muted-foreground">{hint}</p>
+          <p className="mt-2 border-t border-border/60 pt-2 text-[11px] leading-relaxed text-muted-foreground/80">
+            How verification works: a human opens the link and stamps the filing. No crawlers,
+            no votes — the stamp means someone looked.
+          </p>
+        </PopoverContent>
+      </Popover>
+    );
+  }
+
+  return (
+    <>
+      <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            className={cn(
+              "relative inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors",
+              pillClass,
+              "hover:border-primary/40 hover:text-foreground",
+            )}
+          >
+            {/* One-shot sage ring on the verified transition — the stamp
+                landing. Fires from the confirm click (justStamped), clears
+                itself when the ring's animation completes. aria-hidden. */}
+            {verified && (
+              <motion.span
+                key={`ring-${startup.id}`}
+                aria-hidden
+                initial={justStamped ? { scale: 1, opacity: 0.6 } : false}
+                animate={{ scale: 2.4, opacity: 0 }}
+                transition={reduce ? { duration: 0 } : { duration: 0.55, ease: "easeOut" }}
+                onAnimationComplete={() => setJustStamped(false)}
+                className="pointer-events-none absolute inset-0 rounded-full bg-success"
+              />
+            )}
+            {/* Pill settle — plays when the curator's confirm lands. */}
+            <motion.span
+              key={`pill-${current}`}
+              initial={justStamped ? { scale: 1.06 } : false}
+              animate={{ scale: 1 }}
+              transition={reduce ? { duration: 0 } : SPRING_SETTLE}
+              className="inline-flex items-center gap-1.5"
+            >
+              <span
+                aria-hidden
+                className={cn(
+                  "size-1.5 rounded-full",
+                  dead && "bg-destructive",
+                  verified && "bg-success",
+                  !dead && !verified && "bg-muted-foreground/60",
+                )}
+              />
+              {dead ? (
+                <Archive className="h-3 w-3" />
+              ) : verified ? (
+                <motion.span
+                  key={`stamp-${current}`}
+                  initial={justStamped ? { rotate: -12, scale: 0.6 } : false}
+                  animate={{ rotate: 0, scale: 1 }}
+                  transition={reduce ? { duration: 0 } : SPRING_STAMP}
+                  className="inline-flex"
+                >
+                  <ShieldCheck className="h-3 w-3" />
+                </motion.span>
+              ) : null}
+              {label}
+            </motion.span>
           </button>
         </PopoverTrigger>
         <PopoverContent align="end" sideOffset={6} className="w-44 p-1">
@@ -226,6 +266,10 @@ export function StatusPill({
                   variant={pending === "dead" ? "destructive" : "default"}
                   onClick={() => {
                     if (pending) onStatusChange(startup, pending);
+                    // Arm the stamp choreography for the incoming verified
+                    // state — the keyed content remounts when the status
+                    // lands and plays the spring-stamp + ring.
+                    if (pending === "verified") setJustStamped(true);
                     setPending(null);
                   }}
                 >
@@ -273,14 +317,30 @@ export function StartupCard({
   return (
     <motion.div
       layoutId={`startup-${startup.id}`}
-      whileHover={reduce ? undefined : { y: -2 }}
+      whileHover={reduce ? undefined : { y: dead ? -1 : -2 }}
       whileTap={reduce ? undefined : { scale: 0.99 }}
       transition={{ type: "tween", ease: EASE, duration: 0.35 }}
-      className={cn("glass flex h-full flex-col rounded-2xl", dead && "opacity-85 saturate-[0.55]")}
+      className={cn(
+        "glass relative flex h-full flex-col rounded-2xl",
+        // Filed, not faded: no card-level opacity (it quietly cut text contrast
+        // on exactly the cards a reader needs to read — an a11y win). The
+        // desaturation + grayscale avatar + FILED stamp carry the filedness.
+        dead && "saturate-[0.6]",
+      )}
     >
+      {/* The FILED stamp — archival watermark over the card face. aria-hidden
+          decorative; the status pill still carries the label/icon semantics. */}
+      {dead && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-6 rounded border border-destructive/25 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-destructive/55"
+        >
+          Filed
+        </span>
+      )}
       <div className="flex h-full flex-col gap-2.5 p-4">
         <div className="flex items-center gap-2.5">
-          <HueAvatar name={startup.name} />
+          <HueAvatar name={startup.name} className={dead ? "grayscale" : undefined} />
           <div className="min-w-0 flex-1">
             <button
               type="button"

@@ -1,8 +1,10 @@
 "use client";
 
 import * as React from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { HeartPulse, Loader2, Settings2, Sprout, Stamp } from "lucide-react";
 import { toast } from "sonner";
+import { SPRING_SETTLE } from "@/lib/motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -218,42 +220,53 @@ export function AdminPanel({
                       : undefined
                   }
                 />
-                {section === s.key && (
-                  <div className="rounded-lg bg-background/60 p-3">
-                    {s.key === "seed" && (
-                      <SeedSection
-                        jobs={jobs}
-                        expanded={expanded}
-                        onToggle={toggle}
-                        onSeeded={() => void refreshJobs()}
-                        onLocked={handleLocked}
-                      />
-                    )}
-                    {s.key === "verify" && (
-                      <VerificationSection
-                        jobs={jobs}
-                        expanded={expanded}
-                        onToggle={toggle}
-                        onSeeded={() => {
-                          onSeeded();
-                          void refreshJobs();
-                        }}
-                        onLocked={handleLocked}
-                      />
-                    )}
-                    {s.key === "health" && (
-                      <HealthCheckSection
-                        expanded={expanded}
-                        onToggle={toggle}
-                        onSeeded={() => {
-                          onSeeded();
-                          void refreshJobs();
-                        }}
-                        onLocked={handleLocked}
-                      />
-                    )}
-                  </div>
-                )}
+                <AnimatePresence initial={false}>
+                  {section === s.key && (
+                    <motion.div
+                      key={s.key}
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={SPRING_SETTLE}
+                      className="overflow-hidden"
+                    >
+                      <div className="rounded-lg bg-background/60 p-3">
+                        {s.key === "seed" && (
+                          <SeedSection
+                            jobs={jobs}
+                            expanded={expanded}
+                            onToggle={toggle}
+                            onSeeded={() => void refreshJobs()}
+                            onLocked={handleLocked}
+                          />
+                        )}
+                        {s.key === "verify" && (
+                          <VerificationSection
+                            jobs={jobs}
+                            expanded={expanded}
+                            onToggle={toggle}
+                            onSeeded={() => {
+                              onSeeded();
+                              void refreshJobs();
+                            }}
+                            onLocked={handleLocked}
+                          />
+                        )}
+                        {s.key === "health" && (
+                          <HealthCheckSection
+                            expanded={expanded}
+                            onToggle={toggle}
+                            onSeeded={() => {
+                              onSeeded();
+                              void refreshJobs();
+                            }}
+                            onLocked={handleLocked}
+                          />
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </section>
             ))}
           </div>
