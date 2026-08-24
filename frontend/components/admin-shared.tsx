@@ -136,7 +136,7 @@ export function BucketItem({
         <a
           href={url}
           target="_blank"
-          rel="noreferrer"
+          rel="noopener noreferrer"
           className="shrink-0 text-[10px] font-medium text-primary underline-offset-2 hover:underline"
         >
           open
