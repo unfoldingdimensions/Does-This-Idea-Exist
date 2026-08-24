@@ -239,14 +239,14 @@ export function StartupDetail({
               <div className="flex flex-wrap items-center gap-2">
                 {startup.website_url && (
                   <Button asChild variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
-                    <a href={startup.website_url} target="_blank" rel="noreferrer">
+                    <a href={startup.website_url} target="_blank" rel="noreferrer" aria-label={`Visit ${startup.name} website (opens in a new tab)`}>
                       <ExternalLink className="h-3 w-3" /> Website
                     </a>
                   </Button>
                 )}
                 {startup.github_url && (
                   <Button asChild variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
-                    <a href={startup.github_url} target="_blank" rel="noreferrer">
+                    <a href={startup.github_url} target="_blank" rel="noreferrer" aria-label={`View ${startup.name} source code (opens in a new tab)`}>
                       <FolderGit2 className="h-3 w-3" /> Code
                     </a>
                   </Button>
