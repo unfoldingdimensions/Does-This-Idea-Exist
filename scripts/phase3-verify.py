@@ -345,6 +345,42 @@ with TestClient(api) as client:
     check("a capability both have lands in both_have (F-15)", both is not None and both["source"],
           str(both))
 
+    # =====================================================================
+    # 3b. The union rule: `features_json` and the per-feature evidence rows
+    #     must never diverge into a FALSE EDGE.
+    #
+    #     The capture writes both together, so this state does not arise in the
+    #     normal path. It is constructed here to pin the FAIL-SAFE direction: a
+    #     capability present in only ONE of the two sources must still count as
+    #     PRESENT. Reading evidence alone would report it as "not in their
+    #     feature list (Acme Notes)" — an invented edge in the founder's favour,
+    #     which is the one failure this table must never produce.
+    # =====================================================================
+    print("\n--- the union rule: one source missing a capability must not invent an edge ---")
+    source_before = both["source"]
+    conn = db.connect()
+    try:
+        raw = conn.execute("SELECT features_json FROM startups WHERE id = ?", (comp_id,)).fetchone()
+        feats = json.loads(raw["features_json"])
+        feats.append("enterprise SSO")           # in features_json only — no evidence row
+        conn.execute("UPDATE startups SET features_json = ? WHERE id = ?", (json.dumps(feats), comp_id))
+        conn.commit()
+        diverged = cmp.build_table(row_of_fid(fid), [row_of(comp_id)], conn)
+    finally:
+        conn.close()
+    rows_all = diverged["rows"]
+    sso = [r for r in rows_all if "sso" in (r["you"] + r["them"]).lower()]
+    check("a capability present only in features_json still counts as present (union, not evidence-only)",
+          bool(sso) and all("not in their feature list" not in r["them"].lower() for r in sso),
+          str([(r["band"], r["them"]) for r in sso]))
+    both_after = None
+    for r in diverged[cmp.BAND_BOTH]:
+        if r["dimension"] == cmp.DIM_FEATURES and "markdown" in r["them"].lower():
+            both_after = r
+    check("evidence still supplies the provenance when both sources carry a capability",
+          both_after is not None and both_after["source"] == source_before,
+          f"{source_before!r} -> {(both_after or {}).get('source')!r}")
+
     # No data on either side -> unknown: a you-only capability against a
     # competitor with no teardown at all.
     bare_id = insert_startup("Bare Compare Co", "https://bare-compare.example")
