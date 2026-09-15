@@ -16,15 +16,16 @@ One table, three sections, one row per comparison dimension. The two columns are
 | … | … | … | … |
 ```
 
-### The three outcome sections
+### The outcome sections
 
-The table is grouped into three bands so the *gaps* jump out:
+The table is grouped into bands so the *gaps* jump out:
 
 1. **You have — they don't** (your edges)
 2. **They have — you don't** (your gaps / what to copy or counter)
 3. **Both have** (parity — no differentiation here)
+4. **Their users ask for it** (dimension 7 only) — demand signals from reviews. This group exists because neither side has the capability yet: it is not an edge for you, not a gap against you, and not parity. It sits outside the three comparison bands deliberately, and rows land here when a reviewer-requested capability is absent from **both** lists.
 
-A dimension with no difference is *parity* and belongs in section 3 — it is not a gap.
+A dimension with no difference is *parity* and belongs in section 3 — it is not a gap. A dimension where a request is **already covered** by your declared features lands in section 1 instead (their users want it; you built it) — that is the most valuable row this product produces.
 
 ---
 
@@ -40,10 +41,11 @@ Owner-confirmed for MVP, in this order:
 | 4 | Positioning / target user | teardown field 3 | founder form/URL |
 | 5 | What it doesn't do | teardown field 4 | n/a (your own app — mark what you lack honestly) |
 | 6 | Activity / liveness | teardown field 5 | n/a |
+| 7 | What their users ask for (from reviews) | review evidence rows (`docs/teardown-spec.md` §9) | your declared feature list — covered → group 1; not covered → group 4 |
 
-Features are compared at the *capability* level, not the wording level: "local files" vs "cloud-only" is a real row; "markdown" vs "Markdown" is not.
+Dimension 7 is **owner-confirmed** (Round 5 follow-up): it is a dimension of this table, not a separate panel. It is the only dimension whose group can be 4 ("their users ask for it") as well as 1 (you already cover it).
 
-**A possible seventh dimension is open (Round 5):** *"What their users ask for"* — feature requests and complaints extracted from reviews (`docs/teardown-spec.md` §9). It is deliberately **not** in the table above until the owner decides whether it is a dimension or a side panel, because adding it changes the CSV columns and the JSON shape. Do not add it silently.
+Features are compared at the *capability* level, not the wording level: "local files" vs "cloud-only" is a real row; "markdown" vs "Markdown" is not. The same applies to dimension 7: reviewers asking for "offline mode", "work without internet" and "local files" are one row, not three.
 
 ---
 
@@ -76,7 +78,9 @@ The gap table exports (plan §5, kept from v1):
 - **JSON** — `{you: {...}, them: {...}, rows: [{dimension, you, them, source, band}]}` so it can be re-processed.
 - **CSV** — one row per dimension with `band, dimension, you, them, source_url, captured_at`.
 
-Note the two id namespaces: the "you" record lives in the founder store (`FOUNDER_DB_PATH`) and the competitors in the archive, so the **request** namespaces the sides explicitly (`{you: {...}, competitors: [...]}`) rather than passing one flat list of ids — `id=7` is ambiguous across two files. The export `you`/`them` shape above is unchanged. If the seventh dimension lands, the CSV gains a column and the JSON gains a section; that is a Phase 3 decision (`docs/teardown-spec.md` §7).
+Note the two id namespaces: the "you" record lives in the founder store (`FOUNDER_DB_PATH`) and the competitors in the archive, so the **request** namespaces the sides explicitly (`{you: {...}, competitors: [...]}`) rather than passing one flat list of ids — `id=7` is ambiguous across two files. The export `you`/`them` shape above is unchanged.
+
+Dimension 7 is exported like every other dimension (owner-confirmed): its rows appear in all three formats, and `band` takes a fourth value — `asked_for` — alongside the three comparison bands.
 
 ---
 
@@ -98,5 +102,8 @@ Note the two id namespaces: the "you" record lives in the founder store (`FOUNDE
 | Free tier | yes (5 docs) | yes (3 docs) | noted.app/pricing |
 | **Unknown** | | | |
 | Publishing | unknown | yes *(publish feature)* | noted.app |
+| **Their users ask for it** | | | |
+| Offline mode | yes *(declared feature: local files)* | no *(3 reviewers asked for it)* | g2.com/noted-reviews |
+| Native mobile app | no | no *(7 reviewers asked for it)* | reddit.com/r/noted |
 
 The table stops there. No "you should add local-first" — that is the founder's call to make with the evidence in front of them.

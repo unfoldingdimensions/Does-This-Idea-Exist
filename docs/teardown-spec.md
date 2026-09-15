@@ -128,6 +128,22 @@ Older plan documents use different spellings for the same fields. These are the 
 
 Build order (matches plan §16): `entity_type` + provenance flag → `evidence` table → the four teardown fields → comparison → gap table → export.
 
+### 5.3 URL column definitions (owner-confirmed, Round 5 follow-up)
+
+The archive grew five URL-shaped fields, and undefined overlap between them is exactly what produced the `pricing_model` drift. These definitions are canonical:
+
+| Column | Definition |
+|---|---|
+| `website_url` | **The company's / product's primary site.** The front door. One of the two dedup identities (`idx_startups_website`). |
+| `github_url` | The repository. The other dedup identity (`idx_startups_github`). |
+| `product_url` | The product's own page **when it is separate** from the site above (e.g. a subdomain or a `/product` path). NULL when the site *is* the product page. |
+| `app_store_url` | The **iOS** App Store listing. NULL when there is no iOS app. |
+| `play_store_url` | The **Google Play** listing. NULL when there is no Android app. |
+| `docs_url` | Documentation. |
+| `demo_url` | A demo, sandbox or try-before-you-buy page. |
+
+Two consequences worth stating: the two store links are **identity evidence and eligibility inputs**, but **not dedup keys** — dedup stays on `website_url` / `github_url`, so a publisher shipping several apps does not collide. And a mobile-only product with no website is still eligible for the archive (F-20) with a NULL `website_url`.
+
 ---
 
 ## 6. Worked example (skeleton, not shipped data)
@@ -153,12 +169,16 @@ Resolved in Round 5 (2026-09-15) — all three of the previous round's open item
 2. **Where the founder's app lives** — a **separate database**, with link-eligibility and consent as two different gates (§3.1). Decided, not a flagged row in `startups`.
 3. **How negatives are captured** — a **deterministic pass first** (probes against enumerating pages), **LLM fallback second** (over the already-fetched text only), and the negative is stored and printed as an observation about a page, never as a verdict (§8.2).
 
+Resolved in Round 5 follow-up (2026-09-15):
+
+1. **Reviews placement — DECIDED: a seventh gap-table dimension.** "What their users ask for" is dimension 7 of the gap table (`docs/gap-table-format.md` §2 and §1's fourth group).
+2. **Just-in-time freshness window — DECIDED: weekly.** A cached teardown risks being re-captured after 7 days, aligned with the existing `VERIFY_AUTO_STALE_DAYS` default. Capture is still JIT (first founder request), never on seed or on approval.
+3. **Machine Verified — DECIDED: an explicit API field.** `machine_verified` (+ `machine_verified_at`) is exposed per row rather than left implicit, and the weekly pass re-checks **all** entries including old ones, so the badge refreshes archive-wide instead of only for new rows (§8.1).
+4. **The URL columns — DECIDED: defined here, in §5.3.**
+
 Still open:
 
-1. **Reviews placement.** Whether "what their users ask for" (derived from reviews, §9) becomes a **seventh gap-table dimension** — or lives outside the table as its own panel. This changes the export shapes, so it wants deciding before Phase 3.
-2. **Just-in-time freshness window.** How long a cached teardown stays fresh before a founder request re-captures it. Weekly is the proposed default.
-3. **Machine Verified exposure.** Whether `machine_verified` is an explicit API field or stays derived from `status` / `last_checked` (§8.1 argues for derived).
-4. **The four URL columns.** `website_url` · `product_url` · `app_store_url` · `play_store_url` need a one-line definition each, in one place, before Phase 1 — this is exactly the overlap that produced the `pricing_model` drift (§5.1). Proposed: `website_url` = the company's site · `product_url` = the product's own page if separate · `app_store_url` / `play_store_url` = the mobile listings.
+1. **`archive_status`'s home.** The field that shows a founder the outcome of a publish request (`local_only` → `pending` → `approved`/`rejected`) is agreed; where it physically lives waits on the founder-store shape (F-10–F-13) being real.
 
 ---
 
@@ -177,7 +197,7 @@ Because admin approval is the entry gate, every archive row is Admin Verified �
 
 Neither badge says anything about the truth of a claim. We cannot verify what a competitor says; we can only verify **that the business exists online** and **that every fetched item carries the link it came from**. The product's contract is therefore: *every row is a quotation with a citation.*
 
-Implementation note: this is a read-layer change, not a migration — both signals already exist. Keeping `verified` as the column and exposing `admin_verified` / `machine_verified` on the API avoids two sources of truth that would drift.
+Implementation note: **`machine_verified` is an explicit API field** (owner decision, Round 5 follow-up), paired with `machine_verified_at` (the `last_checked` value it is derived from) so a client never has to infer the badge from a raw timestamp. No new column is required — but the weekly pass re-checks **every** entry, old ones included (`run_verify_job` already walks the whole table), so the badge refreshes archive-wide rather than only for freshly-seeded rows. `admin_verified` / `admin_verified_at` are exposed the same way from `verified` / `verified_at`.
 
 ### 8.2 Negatives — the strict rule
 
@@ -216,4 +236,4 @@ Reviews answer the one question the teardown otherwise cannot: *does this thing 
 
 **Walled providers are expected.** G2 / Capterra / Trustpilot bot-wall datacenter traffic — the same failure that once dead-filed WHOOP and Capterra, and the reason `verify.py` treats 403/429 as a *skip*. A walled review page is "listed but not fetched": show the link, claim nothing about it, never count it as a strike.
 
-**Open:** whether this becomes gap-table dimension 7 or a side panel — see §7.
+**Confirmed (Round 5 follow-up):** this is gap-table **dimension 7** — "What their users ask for". See `docs/gap-table-format.md` §1 (fourth group) and §2 (dimension 7).

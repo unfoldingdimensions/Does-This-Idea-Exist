@@ -91,7 +91,7 @@ Each feature is itemized as: **behaviour → inputs → outputs → acceptance c
 
 ### F-16 Export — Markdown / JSON / CSV
 - **Behaviour:** `GET /api/export/{format}` returns the comparison in the shapes in `docs/gap-table-format.md` §5.
-- **Acceptance:** each format parses; Markdown has the three bands; CSV has the right columns; JSON is re-processable.
+- **Acceptance:** each format parses; Markdown has the three comparison groups **plus the demand group** (dimension 7); CSV has the right columns and a `band` value of `asked_for`; JSON is re-processable.
 
 ### F-17 Stable slug endpoint
 - **Behaviour:** `GET /api/startups/{slug}` returns one product by slug.
@@ -118,16 +118,16 @@ Each feature is itemized as: **behaviour → inputs → outputs → acceptance c
 - **Acceptance:** a link-less submission returns a working comparison and `archive_status='local_only'`; the opt-in checkbox is offered only when a fetchable link exists; archive endpoints (`/api/startups`, `/api/stats`, `/api/categories`) and the verify walk never see founder-store rows.
 
 ### F-21 Trust badges
-- **Behaviour:** expose `admin_verified` (from `verified`/`verified_at`) and `machine_verified` (from `status`/`last_checked`/`check_failures`) as distinct signals — a read-layer change, not new columns.
-- **Acceptance:** an approved row reads `admin_verified=true` regardless of check age; a row whose last check is stale reads `machine_verified=false` while staying admin-verified; **no badge is ever rendered against a claim cell** (`docs/teardown-spec.md` §8.1).
+- **Behaviour:** expose `admin_verified` (from `verified`/`verified_at`) and `machine_verified` (from `status`/`last_checked`/`check_failures`) as **explicit API fields**, alongside `admin_verified_at` / `machine_verified_at` so a client never infers a badge from a raw timestamp. No new columns — the fields are derived but explicit.
+- **Acceptance:** an approved row reads `admin_verified=true` regardless of check age; a row whose last check is stale reads `machine_verified=false` while staying admin-verified; the weekly pass re-checks **all** entries — old ones included, not just newly-seeded rows — so the badge refreshes archive-wide; **no badge is ever rendered against a claim cell** (`docs/teardown-spec.md` §8.1).
 
 ### F-22 Just-in-time teardown capture
-- **Behaviour:** teardown capture runs on the **first founder request** for a competitor, then caches; serialized on the existing exclusive-job guard (`seeder.try_enqueue_exclusive`) keyed per competitor; a freshness window prevents re-capture on every request.
-- **Acceptance:** two concurrent requests for the same never-captured competitor produce exactly **one** capture job; a request inside the freshness window is served from cache; a request outside it returns an explicit "capture in progress — retry" state rather than a partial teardown; no public job-detail endpoint is exposed (job payloads carry errors and URLs, which is why they are admin-gated).
+- **Behaviour:** teardown capture runs on the **first founder request** for a competitor, then caches; serialized on the existing exclusive-job guard (`seeder.try_enqueue_exclusive`) keyed per competitor. **Freshness window: 7 days** (owner decision, Round 5 follow-up), aligned with the existing `VERIFY_AUTO_STALE_DAYS` default.
+- **Acceptance:** two concurrent requests for the same never-captured competitor produce exactly **one** capture job; a request inside the 7-day window is served from cache; a request outside it re-captures; a request while a capture is in flight returns an explicit "capture in progress — retry" state rather than a partial teardown; no public job-detail endpoint is exposed (job payloads carry errors and URLs, which is why they are admin-gated).
 
 ### F-23 Reviews & "what their users ask for"
 - **Behaviour:** fetch reviews from the configured `review_sources` (config, not code), store each as an `evidence` row (`evidence_type='review'`, `source_url`, `captured_at`, `provenance='machine_drafted'`), classify positive/negative, and extract the features/fixes reviewers asked for.
-- **Acceptance:** no score, aggregate or NPS of our own is ever stored or rendered; a 403/429 from a walled provider is a **skip, never a failure or a strike**; every extracted request links to the review it came from; the output is a list of what users asked for, never a recommendation (`docs/teardown-spec.md` §9).
+- **Acceptance:** no score, aggregate or NPS of our own is ever stored or rendered; a 403/429 from a walled provider is a **skip, never a failure or a strike**; every extracted request links to the review it came from; the output is a list of what users asked for, never a recommendation (`docs/teardown-spec.md` §9); these rows are what fill **gap-table dimension 7** (F-15, `docs/gap-table-format.md` §2).
 
 ---
 
