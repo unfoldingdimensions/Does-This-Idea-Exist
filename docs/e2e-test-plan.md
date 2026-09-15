@@ -10,10 +10,10 @@
 Run against the full stack (backend on `:8020`, frontend on `:3023`, real DB), and record each step's output verbatim in `docs/phase-ledger.md`.
 
 1. **Seed a competitor.** `POST /api/seed/website` with a real URL → record the returned profile and its `provenance` flags.
-2. **Verify liveness.** Trigger a verification pass and record that the entry's `last_checked` updates and (for a live site) it does not dead-file.
-3. **Open the teardown.** Fetch `/api/startups/{slug}` → record pricing plan-by-plan, features, positioning, sourced "doesn't do" list.
-4. **Enter the founder's app.** Submit via one of the three paths (URL / form / agent-JSON) → record the draft → **confirm** → record the confirmed state.
-5. **Run comparison.** `POST /api/compare` with the founder app + 1–2 competitors → record the three-band gap table and confirm sourced cells and `unknown` handling.
+2. **Verify liveness.** Trigger a verification pass and record that the entry's `last_checked` updates, that the two trust signals read correctly (admin-verified from the human stamp, machine-verified from the pass), and that a live entry does not dead-file.
+3. **Open the teardown (just-in-time).** Fetch `/api/startups/{slug}` for a competitor never captured before → record that the first request triggers capture and the second is served from cache. Record pricing plan-by-plan, features, positioning, and the sourced "doesn't do" list — each entry an observation naming the page it came from. Confirm **no badge is rendered against a claim**. If the review panel is enabled, record "what their users ask for" with its links.
+4. **Enter the founder's app.** Submit via one of the three paths (URL / form / agent-JSON) → record the draft → **confirm** → record the confirmed state and that the record lives in the founder store, not the archive. Record the checkbox case: absent for a link-less profile (comparison only, stated plainly), present when a link exists → **pending** in the admin queue → **approved**.
+5. **Run comparison.** `POST /api/compare` with `{you: {...}, competitors: [...]}` → record the three-band gap table and confirm sourced cells and `unknown` handling.
 6. **Export.** Fetch `/api/export/{markdown|json|csv}` → record that each parses.
 7. **Search-with-reasons.** Query `/api/search` → record a result with its `reason`.
 8. **Frontend pass-through.** Load `/`, `/products/<slug>`, run the founder-app flow in the browser UI, view the gap table, click export → record the visible results.
@@ -22,6 +22,9 @@ Run against the full stack (backend on `:8020`, frontend on `:3023`, real DB), a
 
 Every step returns the expected result with **no failures, no skipped steps, and no "mostly works"**:
 - The gap table is correct and sourced; `unknown` is shown as unknown.
+- Every negative in the run traces to a page that enumerates; no negative was printed from a 404 on a guessed URL.
+- The trust signals are distinct and correct: no badge appears against a claim, and a stale check shows Machine Verified as lapsed while the record stays Admin Verified.
+- No founder-store record appears in `/api/startups`, `/api/stats` or `/api/categories` at any point in the run.
 - Export files parse.
 - The frontend renders the same data the backend returned (no drift).
 - Zero console errors on the key pages.

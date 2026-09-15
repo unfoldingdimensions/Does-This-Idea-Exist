@@ -98,7 +98,7 @@ Two unique indexes: `lower(website_url)` and `lower(github_url)`.
 1. **Provenance.** `tagline`/`description`/`category`/`founded` are LLM-drafted (`llm.py`) but there is no column saying so; a reader cannot tell a human-written fact from a machine draft.
 2. **Evidence.** No table links a claim to a source URL, capture date or confidence. `verify_log` records *liveness checks*, not *claims*.
 3. **Identity typing.** A filing can be a company, a product, an open-source repo or a URL — `entity_type` does not exist, so "Notion" (a company) and "Whisper" (a repo) are the same kind of row.
-4. **Alternatives / audience / pricing.** `problem_statement`, `target_users`, `pricing_model`, `product_url`, `docs_url`, `demo_url` do not exist.
+4. **Alternatives / audience / pricing.** `problem_statement`, `target_users`, `pricing_json`, `product_url`, `docs_url`, `demo_url`, `app_store_url`, `play_store_url` do not exist. (Naming note: older plan drafts call the pricing field `pricing_model` — **`pricing_json` is canonical**, along with `features_json`, per `docs/teardown-spec.md` §5.1. `founded` keeps its name; a `date_source` column does not exist yet and is what F-04 adds.)
 5. **Comparison.** There is nowhere to store a user's product selection or a "what would be different" answer; the frontend keeps nothing beyond URL state.
 
 ---

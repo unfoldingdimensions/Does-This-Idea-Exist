@@ -1,8 +1,8 @@
 # Gap Table Format — MVP
 
-**Version:** 1.0 · **Date:** 2026-09-15
+**Version:** 1.1 (rev. 2026-09-15 — Round 5 trust model applied)
 **Owner-confirmed:** the gap table is **facts only** — every cell sourced or marked unknown, no generated verdict.
-**Companion:** `docs/teardown-spec.md` (where the fields come from) · `reworked-revamp-plan.md` §11.
+**Companion:** `docs/teardown-spec.md` (where the fields come from — §5.1 holds the canonical column names, §8 the trust model, §9 reviews) · `reworked-revamp-plan.md` §11.
 
 ---
 
@@ -43,25 +43,28 @@ Owner-confirmed for MVP, in this order:
 
 Features are compared at the *capability* level, not the wording level: "local files" vs "cloud-only" is a real row; "markdown" vs "Markdown" is not.
 
+**A possible seventh dimension is open (Round 5):** *"What their users ask for"* — feature requests and complaints extracted from reviews (`docs/teardown-spec.md` §9). It is deliberately **not** in the table above until the owner decides whether it is a dimension or a side panel, because adding it changes the CSV columns and the JSON shape. Do not add it silently.
+
 ---
 
 ## 3. The cell rules (this is the product, not decoration)
 
-1. **Every "they" cell is sourced** — a URL, and where relevant a capture date. Pricing cells carry `captured_at` because pricing decays.
-2. **A "they don't do X" cell must be sourced**, never asserted from silence. If it can't be traced, the cell reads **unknown**, not "no".
+1. **Every "they" cell is sourced** — a URL, and where relevant a capture date. Pricing cells carry `captured_at` because pricing decays. Competitor claims are taken at face value *because* the link is right there: the product attributes, it does not adjudicate.
+2. **A "they don't do X" cell is an observation about a page that enumerates**, never a verdict about the world: *"pricing page lists Free / Pro / Team — no self-host tier (captured 2026-09-15)"*, not *"they have no self-host"*. A 404 on a guessed URL is **not** evidence of absence; a page that returns an empty shell is "we could not read it", not "they don't have it". If no enumerating page can be traced, the cell reads **unknown**, not "no" (`docs/teardown-spec.md` §8.2).
 3. **Every "you" cell comes from what the founder entered** (form or their ingested URL). The product does not invent the founder's features.
 4. **Empty ≠ a gap.** A dimension with missing data on either side is shown as **unknown**, and the gap table says so rather than scoring it.
-5. **No verdict line.** The table ends at the facts. The product may *invite* the founder to draw the conclusion ("does that look like a gap you can win?") but must not print one.
+5. **No verdict line.** The table ends at the facts. The product may *invite* the founder to draw the conclusion ("does that look like a gap you can win?") but must not print one. This extends to reviews: `docs/teardown-spec.md` §9 allows "3 reviewers asked for offline mode", never "you should build offline mode".
+6. **Badges attach to the record, never to a claim.** Admin Verified / Machine Verified describe the business, not its marketing — never render one beside a claim cell (`docs/teardown-spec.md` §8.1).
 
 ---
 
 ## 4. The "doesn't do" representation
 
-Negative claims render as a short list under the competitor column, each prefixed with its evidence, e.g.:
+Negative claims render as a short list under the competitor column, each an observation carrying the page it came from, e.g.:
 
-> Competitor — doesn't do (sourced): no API *(docs have no API reference)* · no mobile app *(no store link found)* · no self-host *(pricing lists no self-host)*.
+> Competitor — doesn't do (observed on the pages that enumerate): no API *(docs index lists no API section)* · no mobile app *(footer lists no store link)* · no self-host *(pricing page lists Free / Pro / Team only)*.
 
-When a commonly-expected capability can't be confirmed either way, it is shown as **unknown**, which is itself useful signal for the founder ("go check whether they have an API").
+Every entry is a fact about a page the reader can open, with its capture date. When a commonly-expected capability can't be confirmed either way, it is shown as **unknown**, which is itself useful signal for the founder ("go check whether they have an API").
 
 ---
 
@@ -72,6 +75,8 @@ The gap table exports (plan §5, kept from v1):
 - **Markdown** — the three-band table above, ready to paste into a founder's notes or a decision doc.
 - **JSON** — `{you: {...}, them: {...}, rows: [{dimension, you, them, source, band}]}` so it can be re-processed.
 - **CSV** — one row per dimension with `band, dimension, you, them, source_url, captured_at`.
+
+Note the two id namespaces: the "you" record lives in the founder store (`FOUNDER_DB_PATH`) and the competitors in the archive, so the **request** namespaces the sides explicitly (`{you: {...}, competitors: [...]}`) rather than passing one flat list of ids — `id=7` is ambiguous across two files. The export `you`/`them` shape above is unchanged. If the seventh dimension lands, the CSV gains a column and the JSON gains a section; that is a Phase 3 decision (`docs/teardown-spec.md` §7).
 
 ---
 
