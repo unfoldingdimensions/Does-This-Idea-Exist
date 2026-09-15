@@ -75,11 +75,22 @@ _STARTUPS_BASE = """CREATE TABLE IF NOT EXISTS startups (
 # Fresh DB and upgraded DB both end up with the same column list: the CREATE
 # statement above is the base, the teardown columns are appended from the one
 # list the migration also reads.
-_STARTUPS_TABLE = (
-    _STARTUPS_BASE
-    + "".join(f",\n  {name} {decl}" for name, decl in NEW_STARTUP_COLUMNS)
-    + "\n);"
-)
+def table_ddl(name: str, extra: tuple[tuple[str, str], ...] = ()) -> str:
+    """DDL for a table with the archive's column shape.
+
+    The founder store's `founder_apps` carries the SAME columns as `startups`
+    (F-10) — that is what lets the gap table diff the two records like for like.
+    Both are built here, from the same NEW_STARTUP_COLUMNS tuple that migrate()
+    reads, so the founder store cannot quietly drift from the archive.
+    """
+    base = _STARTUPS_BASE.replace(
+        "CREATE TABLE IF NOT EXISTS startups", f"CREATE TABLE IF NOT EXISTS {name}", 1
+    )
+    cols = tuple(NEW_STARTUP_COLUMNS) + tuple(extra)
+    return base + "".join(f",\n  {col} {decl}" for col, decl in cols) + "\n);"
+
+
+_STARTUPS_TABLE = table_ddl("startups")
 
 SCHEMA = (
     _STARTUPS_TABLE
@@ -138,15 +149,26 @@ CREATE TABLE IF NOT EXISTS jobs (
 )
 
 
-def connect() -> sqlite3.Connection:
-    Path(config.DB_PATH).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(config.DB_PATH)
+def connect_path(path) -> sqlite3.Connection:
+    """A connection to another SQLite file, with this app's settings.
+
+    The founder store is a separate file (config.FOUNDER_DB_PATH) on purpose
+    (F-10/F-20). It gets the identical WAL + busy-timeout + row_factory setup so
+    the two stores behave the same way rather than nearly the same way.
+    """
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
-    # Parallel workers (seed ∥ verify) are both writers — wait briefly for the
-    # other's commit instead of failing with "database is locked".
     conn.execute("PRAGMA busy_timeout=5000")
     return conn
+
+
+def connect() -> sqlite3.Connection:
+    """The archive connection. Parallel workers (seed ∥ verify ∥ capture) are
+    all writers — busy_timeout waits briefly for the other's commit instead of
+    failing with "database is locked"."""
+    return connect_path(config.DB_PATH)
 
 
 def migrate(conn: sqlite3.Connection) -> list[str]:
