@@ -405,4 +405,16 @@ The callable and the job are tested here; no `/api/compare` route was added (tha
 - **A third job kind was added to the queue** (`capture`, its own worker) and `seeder.try_enqueue_exclusive` gained an optional `key`. The default scope is unchanged (kind-wide), so the verify/seed serialization semantics are exactly as they were; the capture's key is what makes "two concurrent requests, one job" true per competitor.
 - **`evidence.write_evidence` commits.** Found while writing the gate: the first draft relied on the caller's commit and the rows silently disappeared when the connection closed — the teardown columns looked perfect and the evidence table was empty. Caught by the "one evidence row per feature" check, which is exactly the check that would have been skipped if the gate only asserted the visible fields.
 - **Doc drift caused by this phase — corrected in this branch.** `docs/backend-checklist.md` F-06 said `seed_from_website`/`seed_from_github` populate `features_json`; Phase 2 (and Round 5's F-22) makes the just-in-time capture the writer, so F-06 now says so and points at F-22. `docs/codebase-comprehension.md` gained a Phase 2 note, the seven new modules, the founder store's two tables, the new endpoints, the capture paragraph in §4.4, the Phase 2 verifier in §7 and Reddit in the integration list.
+### 6. Follow-up — the `publish` flag could never work (2026-09-15)
+
+Found by an independent review after Phase 2 had already merged, so it is a follow-up commit rather than part of the original gate.
+
+**What was wrong.** `FounderAppIn` accepted `publish: bool`, documented as "the CONSENT checkbox", and `create_founder_app` ran `founder.request_publish()` after the draft was written. Because the draft is written by that same request, `confirmed_at` is always NULL when the consent gate runs, so the `confirm the draft before publishing` guard fired on **every** such call — `publish=true` could not succeed. Worse, it failed *after* the row existed: a 400, which reads as "nothing happened", with a persisted draft behind it, so a client that retried accumulated orphan drafts (reproduced: two attempts → two rows).
+
+**The fix.** `publish` is gone from the model, and consent is reachable only through `POST /api/founder-app/{id}/publish` — the flow the endpoint's own docstring already described. Rather than let an old client's `publish` key be silently ignored, `FounderAppIn` now carries `model_config = ConfigDict(extra="forbid")` plus a `mode="before"` validator that refuses the key with a message naming the call that does publish. Unknown top-level keys (typos) are refused too — F-12's rule, applied one level up.
+
+**Gate check added.** `scripts/phase2-verify.py` gained four checks: the refusal is loud (422), the refusal names `founder-app/{id}/publish`, **the refused request writes no draft** (the partial-write property), and an unknown top-level key is refused as well. The original 70 checks exercised the two-step flow only — this is the check that would have caught it before the merge.
+
+Re-verified after the change: `scripts/phase2-verify.py` → `RESULT: ALL PASS` (74 checks), backend smoke green.
+
 - **Row status after this phase:** Phases 0–2 `PASS`; Phases 3–5 `pending`; Phases 6–8 stay `blocked` — the frontend remains blocked until Phase 5 is `PASS`.
