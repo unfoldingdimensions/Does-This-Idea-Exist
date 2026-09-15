@@ -1,5 +1,8 @@
 """Verification pass. Non-destructive: 3 consecutive failures → status='dead'
-(never delete). Every check is logged to verify_log.
+(never delete). Every check is logged to verify_log — permanently: the 90-day
+retention prune was removed (F-03), because the audit trail is the product's
+evidence and a claim that cannot be traced to when the machine last saw the
+site is not evidence.
 
 Runs as a background job on the seeder's serial queue (kind="verify") so it
 never overlaps a seed and reports live progress (total/done/ok/skipped/failed
@@ -314,15 +317,10 @@ def run_verify_job(job: dict) -> None:
             # but a 10-minute lock is a stall). Tiny commits interleave fine.
             conn.commit()
             seeder._persist_job(job)  # live progress survives a restart too
-        # Retention: one verify_log row per startup per pass is ~1,300 rows a
-        # week against a table nothing queries. Keep a 90-day audit window and
-        # drop the rest — one statement beats a retention subsystem.
-        pruned = conn.execute(
-            "DELETE FROM verify_log WHERE checked_at < datetime('now', '-90 days')"
-        ).rowcount
-        conn.commit()
-        if pruned:
-            log.info("verify_log retention: pruned %s row(s) older than 90 days", pruned)
+        # F-03: verify_log is never pruned. The 90-day retention window that
+        # used to sit here deleted audit history the product now depends on
+        # (evidence rows cite when a source was last seen), so it is gone —
+        # this pass only ever INSERTs into verify_log, never deletes from it.
         job["result"] = {
             "checked": job["done"],
             "ok": job["ok"],
