@@ -106,6 +106,10 @@ Each feature is itemized as: **behaviour → inputs → outputs → acceptance c
 ### F-18 Search with reasons
 - **Behaviour:** `GET /api/search?q=…` returns classified matches in order (exact name → domain → phrase → tagline → problem → category → fuzzy), each with a `reason`.
 - **Acceptance:** exact name first; reasons are correct strings; stars are tie-break only; dead/pivoted sink last; empty query returns the contract (no crash).
+- **Phase 4 (2026-09-16) — the two decisions this item left open are now closed and implemented in `backend/app/search.py` + `GET /api/search`:**
+  1. **Empty-query contract = HTTP 200 with an empty list.** A missing, blank, whitespace-only or punctuation-only `q` (`%`, `_`) returns `[]`, never the archive and never an error. The query is split into word terms; no terms means nothing to match, which is also why a LIKE metacharacter can never become a wildcard (the route builds no SQL).
+  2. **The reason vocabulary is frozen** in one place (`search.REASONS`): "Exact name match" · "Exact domain match" · "Name contains your search" · "Tagline mentions it" · "Similar problem description" · "Same audience, different approach" · "Same category" · "Similar to your search". The ladder maps onto the columns that exist today (`name`, the host of `website_url`, `tagline`, `description`, `category`, plus `features_json`/`positioning` as latent keyword evidence); no rung is built on `problem_statement`/`target_users`, which nothing writes.
+- **Evidence:** `scripts/phase4-verify.py` → `RESULT: ALL PASS` (see `docs/phase-ledger.md`).
 
 ---
 

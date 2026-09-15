@@ -9,7 +9,7 @@
 | 1 — Schema & evidence foundation | **PASS** | Migration verified on a **copy** of the live DB: `backend\.venv\Scripts\python.exe scripts\phase1-verify.py` → **RESULT: ALL PASS** (31 checks) — 1,282 rows before and after, 18 → 40 columns, all 22 teardown columns added incl. `app_store_url` / `play_store_url` / `date_source`, `founded` unchanged and never renamed, `evidence` table present with a NOT NULL `source_url`, second migration run added 0 columns (idempotent), every new column present in `enrich.UPDATABLE`, a 200-day-old `verify_log` row survived a real pass (F-03), and the F-04/F-05 branches behave (rdap / wayback / llm / unknown, machine_drafted stamped, human confirm flips it and a reuse refresh does not downgrade it). Suites: `..\backend\.venv\Scripts\python.exe -m tests.smoke` (from `backend/`) → **RESULT: ALL PASS** (85 PASS / 0 FAIL); `npm test` with Node 24 first on PATH → **RESULT: ALL PASS**. Full output in §Phase 1 evidence below. | 2026-09-15 |
 | 2 — Enrichment & teardown fields | **PASS** | Branch `phase/02-enrichment-teardown-fields`, cut from Phase 1's branch and rebased onto `main` after #4 merged (see the note below). `backend\.venv\Scripts\python.exe scripts\phase2-verify.py` → **RESULT: ALL PASS** (70 checks, exit 0) on a copy of the live archive + a throwaway founder store, fetcher and both LLM prompts **stubbed**: a capture yields `features_json` with 6 items, 3 well-formed pricing plans (2 malformed rows dropped) with `pricing_captured_at` + `pricing_source_url`, a non-empty `positioning`, **one evidence row per feature / plan / free tier / positioning line / negative / review**, provenance `machine_drafted` until a human confirms. Negatives: every one traces to an **enumerating** page; a 404 on a guessed `/api` produces nothing; an unreadable page is `unknown` at confidence 0.1; a verdict-shaped LLM claim is rephrased and a duplicate of the deterministic probe is dropped. Founder app: all three paths draft (URL / form / agent-JSON), a form without 5–10 features → 400, malformed JSON → 400, unknown keys → 400, **nothing reaches the archive DB or `/api/startups` `/api/stats` `/api/categories`** (`1285 → 1285`), the compare guard refuses an unconfirmed app, link-less → `local_only` with **no opt-in offered**, link + opt-in → `pending` → approve → `archive_startup_id` set with the founder record still in its own file, and a rejection carries a readable note (a resubmission is a new row). JIT: two concurrent captures of one competitor → **exactly one job**, in-flight → explicit `capture in progress — retry`, inside 7 days → `cached`, outside → re-queued. Reviews: a 403 provider is a **skip**, every ask links to its review, no score of ours stored. Suites: `..\backend\.venv\Scripts\python.exe -m tests.smoke` → **RESULT: ALL PASS**; `npm test` with Node 24 first on PATH → **RESULT: ALL PASS** (35 e2e passed / 0 failed). No `frontend/` file touched (asserted in the verifier). Full output in §Phase 2 evidence below.
 | 3 — Comparison, gap table & export | **PASS** | Branch `phase/03-comparison-gap-export`, cut from `main` at `d41fdd0`. `backend\.venv\Scripts\python.exe scripts\phase3-verify.py` → **RESULT: ALL PASS** (45 checks at the gate; **47** after the §5 follow-up, still ALL PASS) on a copy of the live archive + a throwaway founder store, fetcher and both LLM prompts **stubbed**: the five bands are correct for a fixture (you-only → `you_have_they_dont`, they-only → `they_have_you_dont`, both → `both_have`, no data on either side → `unknown`); every non-`unknown` "they" cell carries a source; an unsourced "doesn't do" cell renders `unknown` (never "no") and only observations that trace to an enumerating page enter the negative list; dimension 7 sends an ask your features cover to `you_have_they_dont` and an uncovered one to `asked_for`, each linked to its review; compare refuses an unconfirmed founder app with an explicit `409 not_confirmed` state (F-13); the JIT wiring queues a capture on the first founder request (F-22), serves the table once it is cached, and two concurrent calls still collapse into **one** job; all three exports parse and re-run **byte-identical** (stateless + deterministic), and CSV carries `asked_for` as a band value; a known slug resolves, an unknown slug 404s, and the real `cal-com` duplicate group resolves deterministically (human-verified first, then lowest id); a stale `last_checked` reads `machine_verified=false` while `admin_verified` stays true, and no badge appears in a claim cell; the founder store never reaches `/api/startups` / `/api/stats` / `/api/categories`. Suites: `..\backend\.venv\Scripts\python.exe -m tests.smoke` (from `backend/`) → **RESULT: ALL PASS** (85 PASS / 0 FAIL); `npm test` with Node 24 first on PATH → **RESULT: ALL PASS** (backend smoke exit 0 · frontend sort check exit 0 · frontend lint+build exit 0 · e2e 35 passed / 0 failed). No `frontend/` file touched (asserted in the verifier). Full output in §Phase 3 evidence below. | 2026-09-15 |
-| 4 — Search classification & match reasons | pending | | |
+| 4 — Search classification & match reasons | **PASS** | Branch `phase/04-search-classification`, cut from `main` at `e92b1a8`. `backend\.venv\Scripts\python.exe scripts\phase4-verify.py` → **RESULT: ALL PASS** (58 checks, exit 0) on a copy of the live archive + a throwaway founder store, with **no fetcher and no LLM at all** (a search reads stored data only): a real product name returns as result **#1** with `reason == "Exact name match"` (Obsidian, exactly one exact-name hit); a query matching at every rung returns non-decreasing rungs `[0, 2, 3, 4, 4, 5, 6]` and the fixtures come back exact → name → tagline → description → category → fuzzy; every one of the **eight frozen reason strings** is emitted (including the latent "Same audience, different approach", which no column writes today); dead **and** pivoted rows sort last under an otherwise equal match and are still returned; a **0-star exact-name match beats a 99999-star fuzzy one**; a two-term query returns **only** rows matching both and scores by the **worst** term (0.143, not the 0.071 average); the empty-query contract (no `q`, `q=`, `q=<blank>`) is **200 + `[]`**; `q=%` and `q=_` return **0 rows**, and `/api/startups?q=%` is still literal (40 of 1,282 — every hit really contains a `%`); a search writes no evidence row and queues no capture job, and a tripwire proves it never calls `capture.start_capture` (the F-22 contrast with `/api/compare`); no founder-store record appears in a search result; the keyword rung matches a fixture with `features_json` populated and **skips** the row where it is NULL (data-awareness); and the reachable-rung census is recorded below. Suites: `..\backend\.venv\Scripts\python.exe -m tests.smoke` (from `backend/`) → **RESULT: ALL PASS** (85 PASS / 0 FAIL); `npm test` with Node 24 first on PATH → **RESULT: ALL PASS** (backend smoke exit 0 · frontend sort check exit 0 · frontend lint+build exit 0 · e2e 35 passed / 0 failed). No `frontend/` file touched (asserted in the verifier). Full output in §Phase 4 evidence below. | 2026-09-16 |
 | 5 — Backend functional test gate | pending | | |
 | 6 — Frontend implementation (blocked) | blocked | | |
 | 7 — Frontend tests (blocked) | blocked | | |
@@ -541,3 +541,188 @@ Found by an independent review of this branch **before it was merged**, so it la
 Re-verified after the change: `scripts/phase3-verify.py` → **RESULT: ALL PASS** (47 checks, exit 0); backend smoke green.
 
 - **Row status after this phase:** Phases 0–3 `PASS`; Phases 4–5 `pending`; Phases 6–8 stay `blocked` — the frontend remains blocked until Phase 5 is `PASS`.
+---
+
+## Phase 4 evidence — search classification & match reasons (2026-09-16)
+
+**Branch:** `phase/04-search-classification`, cut from `main` at `e92b1a8`. Backend only — nothing under `frontend/` was touched (asserted in the verifier by a `git diff`/`git status` check on that path). Search is a pure read, so the verifier installs **no fetch stub and no LLM stub**: every check runs against stored data.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `backend/app/search.py` | **New.** The classifier: the frozen reason vocabulary, the ladder mapped onto the columns that exist today (with the measured census in the module docstring), the word-term AND gate, the distance model (0.0 exact word / 0.05 prefix / 0.10 mid-word / 1−ratio fuzzy, matching at ≤ the client's own Fuse threshold 0.3), the ordering key (dead → rung → worst-term score → stars → name → id) and the two documented divergences from `lib/search.ts`. |
+| `backend/app/main.py` | `GET /api/search` (F-18) — the documented empty-query contract, the additive/read-only posture, and the `?limit=` ceiling that mirrors `LIST_LIMIT_DEFAULT`. |
+| `scripts/phase4-verify.py` | **New.** The exit-gate verifier (the evidence tool below), 58 checks. |
+| `docs/backend-checklist.md` | F-18 now records the two decisions it left open (the empty-query contract and the frozen vocabulary). |
+| `docs/codebase-comprehension.md` | §4.2 read surface, §7 harness, §9 "what is missing" — corrected for what Phase 4 falsified (see the doc-drift note). |
+| `docs/phase-ledger.md` | This entry. |
+
+No new tables, no new columns, no schema change.
+
+### 1. The exit gate — the real output
+
+Command (from the repo root, venv python): `backend\.venv\Scripts\python.exe scripts\phase4-verify.py` → **`EXIT=0`**. Every check runs against a copy of the live archive (SQLite's backup API — WAL mode) plus a fresh throwaway founder store.
+
+```
+[copy] rows=1282 columns=40
+
+--- fixtures: a row for every rung of the ladder ---
+[PASS] the fixtures were inserted (6 live rungs + domain + audience + 2 tombstones) — ids=[1296, …, 1305]
+
+--- exact name first, on a real product ---
+[PASS] the endpoint answers 200 (F-18) — 200
+[PASS] a real product name returns that product as result #1 (F-18) — #1=['Obsidian']
+[PASS] …with reason == 'Exact name match' (F-18) — 'Exact name match'
+[PASS] exactly one row is an exact-name match for 'Obsidian' — 1
+[PASS] an exact-name hit never sorts below a fuzzy one (F-18) — first='Exact name match' last='Similar to your search'
+
+--- the ladder is ordered ---
+[PASS] the classified rungs are non-decreasing (ladder order holds) — rungs=[0, 2, 3, 4, 4, 5, 6]
+[PASS] the endpoint returns the classifier's order verbatim — endpoint order == classify_rows order
+[PASS] the fixtures come back in ladder order (exact → name → tagline → desc → category) — ['Zorblat', 'Zorblat Notes', 'Tagline Zorb Co', 'Desc Zorb Co', 'Cat Zorb Co']
+[PASS] a capability that only the fuzzy rung can reach lands on the fuzzy rung — [('Zorblit', 'fuzzy')]
+
+--- the reason vocabulary is correct and stable ---
+[PASS] rung 'exact name' emits 'Exact name match' — got 'Exact name match'
+[PASS] rung 'exact domain' emits 'Exact domain match' — got 'Exact domain match'
+[PASS] rung 'phrase / name' emits 'Name contains your search' — got 'Name contains your search'
+[PASS] rung 'tagline' emits 'Tagline mentions it' — got 'Tagline mentions it'
+[PASS] rung 'problem-description' emits 'Similar problem description' — got 'Similar problem description'
+[PASS] rung 'fuzzy' emits 'Similar to your search' — got 'Similar to your search'
+[PASS] the category rung emits 'Same category' — 'Same category'
+[PASS] the audience field emits 'Same audience, different approach' (latent — nothing writes target_users today) — 'Same audience, different approach'
+[PASS] every reason returned is one of the frozen vocabulary strings — []
+[PASS] no reason is empty, a number, a code or an internal rung name — [8 strings, all clean]
+[PASS] the plan's three verbatim examples are preserved exactly
+
+--- dead and pivoted sink to the bottom ---
+[PASS] dead AND pivoted rows sort last under an otherwise equal match — ['Zorblat Dead', 'Zorblat Pivoted']
+[PASS] the tombstones are still returned, never hidden or deleted — both present in the payload
+[PASS] the tombstone has the same rung/score as the live row it sinks below — dead rung=phrase/name score=0.0 live score=0.0
+
+--- stars break ties, they never rank ---
+[PASS] a 0-star exact-name match beats a 99999-star fuzzy one (F-18) — #1=Zorblat (stars=None) vs Zorblit (stars=99999, 'Similar to your search')
+
+--- multi-term AND, scored by the worst term ---
+[PASS] a two-term query returns only rows matching BOTH terms (AND, not OR) — ['Both Tokens Co']
+[PASS] a row matching one term exactly and the other fuzzily still matches — 1
+[PASS] the score is the WORST term's, not the average (quixzal exact=0.0, zorblat→zorblit fuzzy≈0.14) — score=0.143 (average would be ≈0.071) reason='Similar to your search'
+[PASS] a row matching only one of the two terms is excluded — Quixzal Only Co absent
+
+--- the empty-query contract ---
+[PASS] no q at all → 200 with an empty list (documented contract) — 200 []
+[PASS] q= (empty) → 200 with an empty list — 200 []
+[PASS] q=<whitespace> → 200 with an empty list — 200 []
+[PASS] the empty query never returns the whole archive — 0 vs 1282 rows
+
+--- LIKE metacharacters stay literal ---
+[PASS] q='%' returns nothing rather than everything (F-18) — 200 0 rows
+[PASS] q='_' returns nothing rather than everything (F-18) — 200 0 rows
+[PASS] q='%%' returns nothing rather than everything (F-18) — 200 0 rows
+[PASS] q='__' returns nothing rather than everything (F-18) — 200 0 rows
+[PASS] /api/startups?q=% stays literal (not everything) — the existing rule is untouched — 40 of 1282 (every hit really contains a '%')
+[PASS] /api/startups?q=_ stays literal — 0 rows
+
+--- search is a pure read (no capture, no evidence) ---
+[PASS] a search writes no evidence row — 0 → 0
+[PASS] a search queues no capture job for a never-captured competitor (F-22 contrast) — capture jobs for the competitor: 0
+[PASS] a search never calls capture.start_capture (unlike /api/compare) — tripwire armed — 200, no capture attempted
+
+--- data-awareness: the keyword rung skips empty rows ---
+[PASS] the keyword rung matches the row whose teardown field is populated — 'Similar problem description'
+[PASS] the row with a NULL features_json is skipped, not matched (data-aware) — 1 hit(s): ['Keyword Pop Co']
+[PASS] positioning is additional evidence for the keyword rung when present — 'Similar problem description'
+[PASS] a term that appears nowhere returns no rows at all — 0
+
+--- the founder store is never searched (F-20) ---
+[PASS] the founder draft was created in its own store (F-10) — 1
+[PASS] no founder-store record appears in a search result (F-20) — 11 / 1 hits, none from the founder store
+[PASS] search reads the archive file only (the founder store is a different file) — founder.db.phase4-test
+
+--- timing over the whole archive (the ponytail marker, measured) ---
+[PASS] a full-archive search for 'obsidian' stays under 400 ms — 28.6 ms over 1300 rows
+[PASS] a full-archive search for 'markdown' stays under 400 ms — 71.8 ms over 1300 rows
+[PASS] a full-archive search for 'note taking' stays under 400 ms — 95.6 ms over 1300 rows
+
+[PASS] no frontend/ file was touched in this phase — committed=[] working=[]
+
+RESULT: ALL PASS
+```
+
+58 checks, 0 failed. (The fixture rows live only in the throwaway copy, which is why the timing pass reports 1,300 rows.)
+
+### 2. Reachable rungs — the census this phase owes the ledger
+
+Counted on a **pristine** copy of the real archive, *before* any fixture is inserted, so nothing here is inflated by the test data (1,282 rows):
+
+| Rung | Matches on | Rows it can match today |
+|---|---|---|
+| exact name | `name` | 1,282 / 1,282 |
+| exact domain | `website_url` (host) | 1,282 / 1,282 |
+| phrase / name | `name` + `aliases` | 1,282 / 1,282 |
+| tagline | `tagline` | 1,256 / 1,282 |
+| problem-description | `description` | 1,258 / 1,282 |
+| ↳ (future column) | `problem_statement` | **0 / 1,282** |
+| ↳ (future column) | `target_users` | **0 / 1,282** |
+| category / keyword | `category` | 1,282 / 1,282 |
+| ↳ keyword half | `features_json` | **0 / 1,282** |
+| ↳ keyword half | `positioning` | **0 / 1,282** |
+| fuzzy | the AND gate over the same fields | 1,282 / 1,282 |
+
+**Every live rung can match rows today; no rung is built on a column nothing writes.** The four zero rows are exactly the ones the phase prompt named: `problem_statement` and `target_users` are written by no phase, and `features_json`/`positioning` arrive only with a JIT capture (F-22) — no competitor has been captured on the live archive yet. They are *additional evidence* inside rungs that are already live (`description`, `category`), never the rung itself, so the ladder cannot degrade into a promise the UI cannot keep. `canonical_domain` is likewise empty, which is why the exact-domain rung reads the host of `website_url`.
+
+### 3. Sample payload (the ledger's raw evidence)
+
+`GET /api/search?q=zorblat` on the copy, with the fixture rows (the same output the verifier prints):
+
+```
+Zorblat                rung=exact name           score=0.000  reason='Exact name match'
+Zorblat Notes          rung=phrase/name          score=0.000  reason='Name contains your search'
+Tagline Zorb Co        rung=tagline              score=0.000  reason='Tagline mentions it'
+Audience Zorb Co       rung=problem-description  score=0.000  reason='Same audience, different approach'
+Desc Zorb Co           rung=problem-description  score=0.000  reason='Similar problem description'
+Cat Zorb Co            rung=category/keyword     score=0.000  reason='Same category'
+Positioning Co         rung=category/keyword     score=0.000  reason='Similar problem description'
+Zorblit                rung=fuzzy                score=0.143  reason='Similar to your search'
+Zorblat Dead           rung=phrase/name          score=0.000  reason='Name contains your search'   <- dead, sinks
+Zorblat Pivoted        rung=phrase/name          score=0.000  reason='Name contains your search'   <- pivoted, sinks
+```
+
+On the untouched live archive, `q=Obsidian` returns `#1 = Obsidian (Exact name match)` and `q=obsidian.md` returns exactly one row, reason `Exact domain match`; `q=markdown` returns two rows (`Obsidian`, `iA Writer`), both `Tagline mentions it`.
+
+### 4. Test suites
+
+```
+cd backend
+..\backend\.venv\Scripts\python.exe -m tests.smoke
+RESULT: ALL PASS        (85 PASS / 0 FAIL, exit 0)
+```
+
+```
+$env:PATH = "C:\Program Files\nodejs;" + $env:PATH
+npm test
+[PASS] backend smoke (exit 0)              RESULT: ALL PASS
+[PASS] frontend sort check (exit 0)
+[PASS] frontend lint + build (exit 0)
+[PASS] frontend e2e verification (exit 0)  TEST RESULTS: 35 PASSED, 0 FAILED
+RESULT: ALL PASS
+```
+
+The smoke suite's pinned LIKE test still reads `q=% returned 0 of 12; literal returned 1` — the list endpoint's escape is untouched.
+
+### 5. Notes recorded at Phase 4
+
+- **The empty-query contract: 200 + `[]`.** The plan left the choice open ("an empty result with a stable shape, or an explicit 4xx"). The empty shape was chosen because the endpoint is a live search box: "no query" and "no matches" are then the same harmless state, the UI needs no special case, and the shape is stable. It is an explicit early return, never an accident of a `LIKE '%%'` — there is no SQL in the search path at all, so a metacharacter cannot become a wildcard by construction.
+- **Queries are split into WORD terms, and that is also what makes `q=%` and `q=_` return nothing.** A query with no word terms (blank, whitespace, `%`, `_`, `%%`, `__`) has nothing to match and returns the empty contract. `q=%` therefore returns 0 rows here — while `/api/startups?q=%` keeps its own behaviour (a literal `%`, which on this archive matches 40 rows that really do contain one). Both are "literal, never a wildcard"; the search endpoint is simply stricter about what counts as a term.
+- **The ladder maps onto columns that exist — `problem_statement`/`target_users` get no rung of their own.** A rung built on them would match zero rows forever. They are extra fields *inside* the problem rung, which is live on `description` (1,258 rows) today. The audience field keeps its frozen reason ("Same audience, different approach"), so the day a later phase starts writing `target_users` the copy already exists and the verifier already pins it.
+- **One judgement call, written down so it is not re-litigated silently: the keyword half of the category/keyword rung emits "Similar problem description".** The vocabulary has no "keyword" string, and "Same category" would be false for a hit inside `features_json`/`positioning`. Those two fields are the product's own description of what it does, so the plan's own verbatim fragment is the closest true statement. The rung's *other* half (an exact `category` match) emits "Same category" as expected, and the rung is reachable either way.
+- **Documented divergences from `lib/search.ts`** (the invariants — exact name first, dead/pivoted last, stars as a tie-break only, AND-across-terms with a worst-term score — are identical):
+  1. the client ranks purely by Fuse score, so a strong fuzzy hit could outrank a weak phrase hit; this endpoint ranks by **rung first** (the ladder is the product requirement) and uses the score only to order within a rung;
+  2. a 1–2 character term matches only a whole word here ("ai" matches the word *ai*, not the *ai* inside *email*), because a binary substring rule on one character matches most of the archive.
+  The client path is untouched and stays for a small archive, as the plan requires.
+- **`search.py` builds no SQL and no LIKE pattern.** That is the honest way to satisfy "a metacharacter stays literal", and it is why the module says so explicitly: any future edit that reaches for `LIKE` re-introduces the degenerate-rung risk the prompt warns about.
+- **Performance is the honest linear scan, and the marker is kept.** 28–96 ms per full-archive query at 1,282–1,300 rows (measured, printed by the gate) — the same knee as the client path (`LIST_LIMIT_DEFAULT = 3000`). The `ponytail:` note in both `search.py` and the route names FTS5 + bm25 as the next step, not a bigger scan.
+- **Doc drift caused by this phase — corrected in this branch.** `docs/codebase-comprehension.md` §9 (and §11's premise "Search relevance needs classification, not just ranking") described a gap whose *backend* half this phase closes: §9 now carries the Phase 4 correction and names what is still missing (the frontend that renders the reasons). §4.2 gains the route, §7 gains the Phase 4 verifier, and `docs/backend-checklist.md` F-18 records the two decisions it had left open. No other product doc was falsified.
+
+- **Row status after this phase:** Phases 0–4 `PASS`; Phase 5 `pending`; Phases 6–8 stay `blocked` — the frontend remains blocked until Phase 5 is `PASS`.
