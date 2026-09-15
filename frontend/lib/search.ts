@@ -1,4 +1,8 @@
 import Fuse from "fuse.js";
+// Explicit .ts extension: this module also runs under bare Node (sort-check.ts
+// uses native type stripping), and Node ESM doesn't resolve extensionless
+// relative imports. tsconfig has allowImportingTsExtensions for this.
+import { parseDbDate } from "./format.ts";
 import type { Startup } from "./types";
 
 function createSearcher(startups: Startup[]): Fuse<Startup> {
@@ -81,7 +85,8 @@ export function filterStartups(startups: Startup[], filters: Filters): Startup[]
 export type SortKey = "top" | "newest" | "verified" | "name" | "founded";
 
 const DEAD_ORDER = (s: Startup) => (s.status === "dead" || s.status === "pivoted" ? 1 : 0);
-const ts = (iso: string | null | undefined): number => (iso ? new Date(iso).getTime() : 0);
+// DB datetimes are UTC; parseDbDate normalizes so sorts don't shift by TZ.
+const ts = (iso: string | null | undefined): number => parseDbDate(iso)?.getTime() ?? 0;
 
 /**
  * Sort by key; every key sinks dead/pivoted entries to the bottom first (the

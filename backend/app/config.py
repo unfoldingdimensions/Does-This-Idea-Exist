@@ -1,6 +1,7 @@
 """IdeaExists backend config — env-driven, defaults for local dev."""
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -9,8 +10,16 @@ load_dotenv(BASE_DIR / ".env")
 
 DB_PATH = Path(os.getenv("DB_PATH", str(BASE_DIR / "data" / "ideasexist.db")))
 
-# LLM: opencode.go (deepseek-v4-flash) — verified live 2026-08-09
+# LLM: opencode.go (deepseek-v4-flash) — verified live 2026-08-09.
+# The gateway URL is operator config (backend/.env), never user input; parse
+# it once here and reject anything that isn't a clean http(s) origin so a
+# malformed value fails at boot instead of mid-enrichment.
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://opencode.ai/zen/go/v1").rstrip("/")
+_parsed_llm = urlparse(LLM_BASE_URL)
+if _parsed_llm.scheme not in ("http", "https") or not _parsed_llm.hostname:
+    raise RuntimeError(
+        f"LLM_BASE_URL must be an http(s) origin, got {LLM_BASE_URL!r} — fix backend/.env"
+    )
 LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-v4-flash")
 LLM_API_KEY = os.getenv("OPENCODE_GO_API_KEY", "")
 

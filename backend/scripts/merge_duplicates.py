@@ -28,13 +28,6 @@ from pathlib import Path
 # human-verified to be different companies (bird.com email vs bird.co scooters).
 NEVER_MERGE = {"Bird"}
 
-# Public suffixes where the registrable domain is the LAST TWO labels.
-_TWO_PART = {
-    "com", "org", "net", "io", "co", "ai", "dev", "app", "me", "so", "sh",
-    "to", "tv", "gg", "cc", "fm", "li", "la", "vc", "xyz", "info", "biz",
-    "cloud", "online", "site", "tech", "store", "design", "studio", "social",
-    "systems", "software", "works", "app", "page", "live", "media", "pro",
-}
 # Country-style suffixes where the registrable domain is the LAST THREE labels.
 _THREE_PART = {
     "com.au", "co.uk", "org.uk", "co.nz", "com.br", "co.jp", "co.in",
@@ -59,8 +52,8 @@ def registrable_domain(url: str | None) -> str | None:
     for suffix in _THREE_PART:
         if host.endswith("." + suffix):
             return ".".join(labels[-3:])
-    if labels[-1] in _TWO_PART or len(labels) == 2:
-        return ".".join(labels[-2:])
+    # Two-part suffixes (and the len==2 degenerate case) both reduce to the
+    # last two labels; unknown TLDs fall back to the same heuristic.
     return ".".join(labels[-2:])
 
 
@@ -147,10 +140,11 @@ def group_filings(rows: list[dict]) -> list[dict]:
 
 
 def pick_keeper(filings: list[dict]) -> dict:
+    # Longest description wins; ties break to the LOWEST id (the original
+    # filing), matching the docstring rule.
+    key = lambda f: (len(f.get("description") or ""), -f["id"])
     verified = [f for f in filings if f["verified"] == 1]
-    if verified:
-        return max(verified, key=lambda f: len(f.get("description") or ""))
-    return max(filings, key=lambda f: len(f.get("description") or ""))
+    return max(verified or filings, key=key)
 
 
 def plan_groups(conn: sqlite3.Connection) -> list[dict]:
@@ -207,21 +201,32 @@ def main() -> int:
             doomed = [f["id"] for f in g["filings"] if f["id"] != keeper["id"]]
             urls = [f["website_url"] for f in g["filings"]] + [f["github_url"] for f in g["filings"]]
             url = best_url(urls)
-            updates = []
+            # Build SET clauses and bindings together — a per-doomed-filing loop
+            # used to append "tagline = ?" once per filing while the params
+            # builder added a single value, crashing the UPDATE mid-apply with
+            # a binding-count error (after earlier groups were already merged).
+            updates: list[str] = []
+            params: list[object] = []
             if url and not (keeper["website_url"] or keeper["github_url"]):
                 updates.append("website_url = ?")
-            for f in g["filings"]:
-                if f["id"] != keeper["id"]:
-                    if not keeper["tagline"] and f["tagline"]:
-                        updates.append("tagline = ?")
-                    if not keeper["description"] and f["description"]:
-                        updates.append("description = ?")
+                params.append(url)
+            if not keeper["tagline"]:
+                donor = next(
+                    (f["tagline"] for f in g["filings"] if f["id"] != keeper["id"] and f["tagline"]),
+                    None,
+                )
+                if donor is not None:
+                    updates.append("tagline = ?")
+                    params.append(donor)
+            if not keeper["description"]:
+                donor = next(
+                    (f["description"] for f in g["filings"] if f["id"] != keeper["id"] and f["description"]),
+                    None,
+                )
+                if donor is not None:
+                    updates.append("description = ?")
+                    params.append(donor)
             if updates:
-                params = [url] if "website_url = ?" in updates else []
-                if "tagline = ?" in updates:
-                    params.append(next(f["tagline"] for f in g["filings"] if f["id"] != keeper["id"] and f["tagline"]))
-                if "description = ?" in updates:
-                    params.append(next(f["description"] for f in g["filings"] if f["id"] != keeper["id"] and f["description"]))
                 params.append(keeper["id"])
                 conn.execute(f"UPDATE startups SET {', '.join(updates)} WHERE id = ?", params)
             conn.executemany("DELETE FROM startups WHERE id = ?", [(i,) for i in doomed])

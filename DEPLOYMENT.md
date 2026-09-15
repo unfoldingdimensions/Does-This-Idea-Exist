@@ -48,7 +48,7 @@ API that 403s every write with no explanation.
 | `FRONTEND_ORIGIN` | yes | Exact frontend origin for CORS, e.g. `https://ideasexist.example.com`. |
 | `OPENCODE_GO_API_KEY` | for seeding | LLM gateway key. Seeding fails without it; reads are unaffected. |
 | `DB_PATH` | no | Defaults to `/data/ideasexist.db` in the image. Must be on the volume. |
-| `FORWARDED_ALLOW_IPS` | behind a proxy | The reverse proxy's address. **Never `*` on a public host** — that lets any caller spoof `X-Forwarded-For` and walk past the per-IP rate limits. Empty (default) = trust no forwarded headers. |
+| `FORWARDED_ALLOW_IPS` | behind a proxy | The reverse proxy's address. **Never `*` on a public host** — that lets any caller spoof `X-Forwarded-For` and walk past the per-IP rate limits. Empty (default) = trust no forwarded headers. **Dockerfile-wired only**: the image's uvicorn CMD consumes this var; running uvicorn outside Docker requires passing `--proxy-headers --forwarded-allow-ips=…` yourself or the setting silently does nothing. |
 | `MUTATION_AUTH` | no | Defaults **on**. Only set `0` for a throwaway local instance. |
 | `RATE_LIMIT_ENABLED` | no | Defaults on. |
 | `GITHUB_TOKEN` | no | Raises the GitHub API rate limit for seeding/verification. |

@@ -63,7 +63,7 @@
   --foreground: oklch(0.27 0.052 262);
   --card: oklch(1 0 0 / 0.55);
   --card-foreground: oklch(0.27 0.052 262);
-  --popover: oklch(1 0 0 / 0.78);
+  --popover: oklch(1 0 0 / 0.98);
   --popover-foreground: oklch(0.27 0.052 262);
   --primary: oklch(0.32 0.055 262);
   --primary-foreground: oklch(0.965 0.02 82);
@@ -98,7 +98,7 @@
   --glass-border: oklch(1 0 0 / 0.65);
   --glass-highlight: oklch(1 0 0 / 0.45);
   --glass-shadow: 0 8px 32px oklch(0.2 0.03 262 / 0.07);
-  --glass-strong-bg: oklch(1 0 0 / 0.78);
+  --glass-strong-bg: oklch(1 0 0 / 0.98);
   --glass-strong-border: oklch(1 0 0 / 0.85);
   --glass-overlay: oklch(0.27 0.052 262 / 0.28);
 
@@ -142,6 +142,8 @@
      never on or near a status, never the sole carrier of meaning. */
   --stamp-gold: oklch(0.6 0.11 70);
   --grain-opacity: 0.04;
+  /* Ambient glow for the search pill's focus beam — navy in light mode. */
+  --search-glow: oklch(0.32 0.055 262 / 0.35);
 }
 
 .dark {
@@ -152,7 +154,7 @@
   --foreground: oklch(0.93 0.024 85);
   --card: oklch(1 0 0 / 0.05);
   --card-foreground: oklch(0.93 0.024 85);
-  --popover: oklch(0.185 0.014 262 / 0.92);
+  --popover: oklch(0.185 0.014 262 / 0.99);
   --popover-foreground: oklch(0.93 0.024 85);
   --primary: oklch(0.88 0.03 85);
   --primary-foreground: oklch(0.212 0.012 60);
@@ -186,7 +188,7 @@
   --glass-border: oklch(1 0 0 / 0.12);
   --glass-highlight: oklch(1 0 0 / 0.09);
   --glass-shadow: 0 8px 32px oklch(0 0 0 / 0.45);
-  --glass-strong-bg: oklch(0.175 0.014 262 / 0.88);
+  --glass-strong-bg: oklch(0.175 0.014 262 / 0.99);
   --glass-strong-border: oklch(1 0 0 / 0.16);
   --glass-overlay: oklch(0 0 0 / 0.5);
 
@@ -214,6 +216,8 @@
   /* The Wink, dark — brighter gold on charcoal. */
   --stamp-gold: oklch(0.8 0.1 80);
   --grain-opacity: 0.05;
+  /* Focus beam glow, dark — warm beige so it reads on charcoal. */
+  --search-glow: oklch(0.88 0.03 85 / 0.4);
 }
 
 @layer base {
@@ -225,11 +229,6 @@
   }
   html {
     @apply font-sans;
-    /* Reserve the scrollbar gutter permanently — when a modal locks body
-       scroll the page scrollbar disappears and content re-centers ~5px right
-       ("items jump"). Stable gutter keeps layout fixed whether or not the
-       bar is visible. */
-    scrollbar-gutter: stable;
   }
   /* Tailwind v4 preflight sets buttons to cursor:default — restore the pointer
      affordance (the "hover does nothing" complaint) without re-enabling it on
@@ -297,27 +296,24 @@
     @apply flex items-center gap-1.5 border-b font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground;
   }
 
-  .no-scrollbar {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-  .no-scrollbar::-webkit-scrollbar {
-    display: none;
-  }
-
   /* Cards dealt onto the desk: 380ms rise + straighten, 45ms stagger capped
      at index 12 (the deal-in keyframe, motion.ts dealDelay equivalent).
      Applied to a WRAPPER div — never the card's own motion.div (CSS
-     animations outrank inline styles and would suppress whileHover/layoutId). */
+     animations outrank inline styles and would suppress whileHover/layoutId).
+     Fill mode `backwards` (not `both`): the natural state equals the final
+     keyframe, and `both` would retain a transform forever — a permanent
+     stacking context that traps descendant z-indexes (the More dropdown was
+     painting behind the legend/filter bar/cards for exactly this reason). */
   .deal-item {
-    animation: deal-in 380ms var(--ease-archive) both;
+    animation: deal-in 380ms var(--ease-archive) backwards;
     animation-delay: calc(min(var(--i, 0), 12) * 45ms);
   }
 
   /* Staged hero reveal: subhead, discovery bar, ledger line assemble beneath
-     the h1 (which never animates — it's the LCP element). */
+     the h1 (which never animates — it's the LCP element). Same `backwards`
+     fill rationale as .deal-item. */
   .reveal {
-    animation: reveal-in 420ms var(--ease-archive) both;
+    animation: reveal-in 420ms var(--ease-archive) backwards;
   }
 
   /* The live dot waves once on load — a greeting, not a heartbeat (3
@@ -363,7 +359,7 @@
 
   /* Star twinkle — staggered via per-star --twinkle-delay (set in TSX). */
   .sky-star {
-    animation: star-twinkle 3.4s ease-in-out infinite;
+    animation: star-twinkle var(--twinkle-duration, 3.4s) ease-in-out infinite;
     animation-delay: var(--twinkle-delay, 0s);
   }
 
@@ -406,7 +402,10 @@
     border-radius: 9999px;
     width: 44vmin;
     height: 44vmin;
-    margin-left: -22vmin; /* center via negative half-width */
+    /* Centering lives in sky-background.tsx (motion's translateX -50%). A
+       negative half-width margin here STACKS with that transform — motion
+       emits `x` and `translateX` as separate slots — and pushed the sun a
+       full sun-width off-frame on every viewport. */
   }
   .sky-dusk {
     position: absolute;
@@ -421,7 +420,10 @@
     border-radius: 9999px;
     width: 24vmin;
     height: 24vmin;
-    margin-left: -12vmin;
+    /* No negative margin here: with `right` anchoring margin-left is a
+       no-op (the box is positioned from its right margin edge), and the
+       centering comes from right:14vw + translateX(50%) in the TSX. The
+       sun's mirrored margin was exactly the bug that hid it. */
   }
   .sky-star {
     position: absolute;
@@ -462,13 +464,25 @@
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
+  .sky-star,
+  .sky-breathe {
+    animation: none !important;
+  }
   /* The single CSS-side kill switch: every keyframed piece (deal-in,
-     reveal-in, live-ring, skeleton sweep, star twinkle, sky pulses) dies
-     here. JS motion is handled separately via useReducedMotion. */
+     reveal-in, live-ring, skeleton sweep, star twinkle, sky pulses,
+     focus beam) dies here. JS motion is handled separately via
+     useReducedMotion. */
   *,
   *::before,
   *::after {
     animation: none !important;
+  }
+  /* Collapse CSS transitions too, so the reduced-motion story covers
+     color fades and chevron rotations, not just keyframes. */
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
   }
 }
 
@@ -522,27 +536,40 @@
   }
 }
 
-/* The sun/moon glow breathes — a slow pulse, child-element only. */
+/* The sun/moon glow breathes — multi-layer slow pulse, child-element only.
+   Transform/opacity ONLY: an animated `filter: blur()` here forced a
+   continuous repaint of the large fixed glow layer, and every glass surface
+   re-samples what's behind it — the single biggest 60fps threat in the app. */
 @keyframes sky-breathe {
   0%,
   100% {
-    transform: scale(1);
-    opacity: 0.9;
+    transform: scale(1) rotate(0deg);
+    opacity: 0.85;
   }
-  50% {
-    transform: scale(1.04);
+  33% {
+    transform: scale(1.04) rotate(0.5deg);
+    opacity: 0.95;
+  }
+  66% {
+    transform: scale(1.025) rotate(-0.5deg);
     opacity: 1;
   }
 }
 
-/* Stars twinkle at their own cadence. */
+/* Stars twinkle at their own cadence — brighter contrast range. */
 @keyframes star-twinkle {
   0%,
   100% {
-    opacity: 0.4;
+    opacity: 0.2;
+    transform: scale(0.85);
   }
-  50% {
-    opacity: 1;
+  40% {
+    opacity: 0.95;
+    transform: scale(1.15);
+  }
+  60% {
+    opacity: 0.7;
+    transform: scale(1);
   }
 }
 
@@ -554,3 +581,132 @@
 .search-focus-ring:focus-within {
   box-shadow: 0 0 0 2px var(--ring);
 }
+
+/* Focus Beam — the shimmering conic ring over the discovery bar (M4 spec).
+   @property lets --beam-angle interpolate so the conic gradient rotates;
+   browsers without @property register nothing and fall back to the static
+   ring below. The beam is a masked ring (border band of a circle), never a
+   full-surface filter, so it stays compositor-cheap. The solid 2px --ring
+   underneath remains the accessible indicator — the beam is the wink. */
+@property --beam-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes beam-rotate {
+  to {
+    --beam-angle: 360deg;
+  }
+}
+
+.search-beam {
+  animation: beam-rotate 2.4s linear infinite;
+  background: conic-gradient(
+    from var(--beam-angle),
+    transparent 0deg,
+    var(--search-glow) 40deg,
+    var(--ring) 60deg,
+    var(--search-glow) 80deg,
+    transparent 130deg,
+    transparent 210deg,
+    var(--search-glow) 250deg,
+    var(--ring) 270deg,
+    var(--search-glow) 290deg,
+    transparent 340deg
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  padding: 2px;
+  border-radius: inherit;
+}
+
+/* 3D Transform and Holographic Layer Depth Utilities */
+.preserve-3d {
+  transform-style: preserve-3d;
+}
+
+.perspective-1000 {
+  perspective: 1000px;
+}
+
+.layer-z-10 {
+  transform: translateZ(10px);
+}
+
+.layer-z-20 {
+  transform: translateZ(20px);
+}
+
+.layer-z-30 {
+  transform: translateZ(30px);
+}
+
+/* Archivist Ledger Table Row Styling */
+.ledger-row {
+  transition: background-color 150ms var(--ease-archive), transform 150ms var(--ease-archive);
+}
+
+.ledger-row:hover {
+  background-color: var(--accent);
+  transform: translateX(3px);
+}
+
+/* Magic UI Border Beam Animation */
+@keyframes border-beam {
+  100% {
+    offset-distance: 100%;
+  }
+}
+
+/* Magic UI Monospace Marquee */
+@keyframes marquee {
+  from {
+    transform: translateX(0%);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-marquee {
+  display: flex;
+  width: max-content;
+  animation: marquee 38s linear infinite;
+}
+
+.animate-marquee:hover {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee {
+    animation: none;
+  }
+}
+
+/* Bespoke Archival Slim Scrollbar */
+.archival-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.archival-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.archival-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 9999px;
+}
+
+.archival-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+

@@ -200,7 +200,23 @@ def seed_from_website(
 def _upsert(conn: sqlite3.Connection, values: dict, existing) -> dict:
     """Insert or update a startup row. The returned dict carries `_inserted`
     (True when a new row was created) so the admin seeder can classify each
-    candidate as new vs "all exist" (upsert refresh, LLM skipped)."""
+    candidate as new vs "all exist" (upsert refresh, LLM skipped).
+
+    A unique-index collision (this row's website/github URL already filed
+    under a DIFFERENT row) surfaces as a clear ValueError — the API answers
+    400 and the seeder records a per-candidate failure instead of an
+    IntegrityError leaking as a raw 502."""
+    try:
+        return _upsert_inner(conn, values, existing)
+    except sqlite3.IntegrityError as exc:
+        url = values.get("website_url") or values.get("github_url") or ""
+        raise ValueError(
+            f"URL already filed under a different name ({url}) — dedupe merge "
+            f"or edit the existing filing first: {exc}"
+        ) from exc
+
+
+def _upsert_inner(conn: sqlite3.Connection, values: dict, existing) -> dict:
     if existing:
         fields = [k for k in UPDATABLE if values.get(k) is not None]
         set_sql = ", ".join(f"{k} = ?" for k in fields) + ", updated_at = datetime('now')"

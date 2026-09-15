@@ -30,9 +30,7 @@ def _hostname_blocked(host: str) -> bool:
     h = host.lower().rstrip(".")
     if h in ("localhost", "localhost.localdomain"):
         return True
-    if h.endswith((".local", ".internal", ".lan", ".home")) or h == "localhost":
-        return True
-    return False
+    return h.endswith((".local", ".internal", ".lan", ".home"))
 
 
 def _ip_blocked(ip: str) -> bool:

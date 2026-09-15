@@ -2,7 +2,14 @@
   "name": "ideasexist",
   "private": true,
   "description": "Does this startup exist? — local startup directory (FastAPI backend + Next.js frontend)",
+  "engines": {
+    "node": ">=23"
+  },
   "scripts": {
     "test": "node scripts/verify.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^26.0.0",
+    "tsx": "^4.19.2"
   }
 }

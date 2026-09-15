@@ -1,8 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { ExternalLink, FolderGit2, ShieldCheck, X } from "lucide-react";
+import { ExternalLink, FolderGit2, ShieldCheck, X, Share2 } from "lucide-react";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
+import { toast } from "sonner";
+import { sound } from "@/lib/sound-engine";
 import { Button } from "@/components/ui/button";
 import { HueAvatar } from "@/components/hue-avatar";
 import { StatusPill, type StatusChoice } from "@/components/startup-card";
@@ -36,59 +38,93 @@ export function StartupDetail({
   const panelRef = React.useRef<HTMLDivElement>(null);
   const lastFocused = React.useRef<HTMLElement | null>(null);
   const wasOpen = React.useRef(false);
-
-  // Focus the panel on open; restore focus to the trigger ONLY when the modal
-  // closes (a wasOpen flag — similar-item swaps change `startup` and must not
-  // yank focus out of the panel mid-navigation). Scroll-lock body while open.
-  // The keydown handler lives at document level: Escape must work even after
-  // focus walks out of the panel (there was no trap — see the P9 finding), and
-  // Tab cycles inside the panel so focus never escapes an aria-modal dialog.
+  // onClose arrives as an inline lambda from the page — keyed on isOpen, the
+  // effect below must NOT rerun (and tear down the scroll lock) just because
+  // the callback identity changed. The keydown handler reads through the ref.
+  const onCloseRef = React.useRef(onClose);
   React.useEffect(() => {
-    if (startup) {
-      wasOpen.current = true;
-      lastFocused.current = document.activeElement as HTMLElement | null;
-      document.body.style.overflow = "hidden";
-      const t = setTimeout(() => panelRef.current?.focus(), 30);
+    onCloseRef.current = onClose;
+  });
 
-      const onKeyDown = (e: KeyboardEvent) => {
-        if (e.key === "Escape") {
-          e.preventDefault();
-          onClose();
-          return;
-        }
-        if (e.key !== "Tab") return;
+  const isOpen = startup !== null;
+
+  // Open/close lifecycle, keyed on isOpen (NOT the startup identity):
+  // "More like this" swaps change `startup` and must not tear down the lock,
+  // restore focus to the original trigger, or restart Lenis mid-navigation.
+  // Focus the panel on open; restore focus to the trigger ONLY when the modal
+  // closes. Scroll-lock body while open. The keydown handler lives at document
+  // level: Escape must work even after focus walks out of the panel, and Tab
+  // cycles inside the panel so focus never escapes an aria-modal dialog.
+  React.useEffect(() => {
+    if (!isOpen || wasOpen.current) return undefined;
+    wasOpen.current = true;
+    lastFocused.current = document.activeElement as HTMLElement | null;
+    // Scroll-lock + scrollbar-gap compensation: hiding the page scrollbar
+    // widens the viewport, which re-centers the archive ~5px right. Radix
+    // components compensate via react-remove-scroll; this hand-rolled lock
+    // must do the same (margin-right == scrollbar width) or the layout
+    // jumps on open/close. Measured: without it main shifts 59→64.
+    const gap = window.innerWidth - document.documentElement.clientWidth;
+    document.body.style.overflow = "hidden";
+    if (gap > 0) document.body.style.marginRight = `${gap}px`;
+    const t = setTimeout(() => panelRef.current?.focus(), 30);
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        // A nested Radix layer (the status confirm dialog, a popover) traps
+        // focus inside its portal — outside this panel. When focus isn't in
+        // the panel, let that layer's own Escape handler close it instead:
+        // one Escape peels exactly one layer, not both at once.
         const panel = panelRef.current;
-        if (!panel) return;
-        const focusables = [...panel.querySelectorAll<HTMLElement>(
-          'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])',
-        )];
-        if (focusables.length === 0) return;
-        const first = focusables[0];
-        const last = focusables[focusables.length - 1];
-        const active = document.activeElement as HTMLElement | null;
-        if (e.shiftKey) {
-          if (active === first || !panel.contains(active)) {
-            e.preventDefault();
-            last.focus();
-          }
-        } else if (active === last || !panel.contains(active)) {
+        const active = document.activeElement;
+        if (panel && active && !panel.contains(active)) return;
+        e.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const panel = panelRef.current;
+      if (!panel) return;
+      const focusables = [...panel.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      )];
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey) {
+        if (active === first || !panel.contains(active)) {
           e.preventDefault();
-          first.focus();
+          last.focus();
         }
-      };
-      document.addEventListener("keydown", onKeyDown);
-      return () => {
-        clearTimeout(t);
-        document.removeEventListener("keydown", onKeyDown);
-        document.body.style.overflow = "";
-        if (wasOpen.current) {
-          wasOpen.current = false;
-          lastFocused.current?.focus?.();
-        }
-      };
-    }
-    return undefined;
-  }, [startup, onClose]);
+      } else if (active === last || !panel.contains(active)) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = "";
+      document.body.style.marginRight = "";
+      if (wasOpen.current) {
+        wasOpen.current = false;
+        lastFocused.current?.focus?.();
+      }
+    };
+  }, [isOpen]);
+
+  // Similar-item swap: the keyed panel remounts, dropping focus to <body>.
+  // Put it back inside the new panel — without touching the scroll lock.
+  const startupId = startup?.id;
+  React.useEffect(() => {
+    if (startupId === undefined) return undefined;
+    const t = setTimeout(() => {
+      if (document.activeElement === document.body) panelRef.current?.focus();
+    }, 30);
+    return () => clearTimeout(t);
+  }, [startupId]);
 
   const similar = React.useMemo(() => {
     if (!startup) return [];
@@ -177,8 +213,9 @@ export function StartupDetail({
               </div>
             </div>
 
-            {/* Body */}
-            <div className="flex-1 space-y-4 overflow-y-auto p-5">
+            {/* Body — data-lenis-prevent keeps Lenis from hijacking the
+                wheel here (otherwise the page behind the modal scrolls). */}
+            <div data-lenis-prevent className="flex-1 space-y-4 overflow-y-auto p-5">
               {startup.description && (
                 <p className="max-w-[60ch] text-[13px] leading-relaxed text-muted-foreground">
                   {startup.description}
@@ -251,18 +288,41 @@ export function StartupDetail({
                     </a>
                   </Button>
                 )}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="h-8 gap-1.5 text-xs cursor-pointer"
+                  onClick={() => {
+                    const url = typeof window !== "undefined" ? `${window.location.origin}/?q=${encodeURIComponent(startup.name)}` : "";
+                    if (url) {
+                      void navigator.clipboard.writeText(url);
+                      sound.playChime();
+                      toast.success("Archival link copied", {
+                        description: `${startup.name} coordinate URL saved to clipboard.`,
+                      });
+                    }
+                  }}
+                >
+                  <Share2 className="h-3 w-3" /> Share Entity
+                </Button>
               </div>
 
               {similar.length > 0 && (
                 <div className="space-y-2 border-t border-border/60 pt-4">
                   <h4 className="ledger-header pb-2">More like this — {titleCase(startup.category)}</h4>
                   <div className="space-y-1">
-                    {similar.map((s) => (
-                      <button
+                    {similar.map((s, idx) => (
+                      <motion.button
                         key={s.id}
                         type="button"
-                        onClick={() => onNavigate(s)}
-                        className="flex w-full items-center gap-2.5 rounded-xl p-2 text-left transition-colors hover:bg-accent/60"
+                        initial={reduce ? undefined : { opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: idx * 0.04, duration: 0.2 }}
+                        onClick={() => {
+                          sound.playTick();
+                          onNavigate(s);
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl p-2 text-left transition-colors hover:bg-accent/60 cursor-pointer"
                       >
                         <HueAvatar name={s.name} size="sm" />
                         <span className="min-w-0 flex-1">
@@ -274,7 +334,7 @@ export function StartupDetail({
                         {s.verified === 1 && (
                           <ShieldCheck className="h-3 w-3 shrink-0 text-success" />
                         )}
-                      </button>
+                      </motion.button>
                     ))}
                   </div>
                 </div>

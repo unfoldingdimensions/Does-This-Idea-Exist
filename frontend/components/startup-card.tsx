@@ -3,7 +3,7 @@
 import * as React from "react";
 import { Check, ExternalLink, FolderGit2, Star, ShieldCheck, Archive } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
-import { SPRING_SETTLE, SPRING_STAMP } from "@/lib/motion";
+import { SPRING_SETTLE, SPRING_STAMP, EASE } from "@/lib/motion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -16,14 +16,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { HueAvatar } from "@/components/hue-avatar";
-import { EASE } from "@/lib/motion";
+import { HolographicCard } from "@/components/holographic-card";
+import { StampChoreography } from "@/components/stamp-choreography";
 import type { Startup } from "@/lib/types";
 import { foundedYear } from "@/lib/search";
 import { formatDate, shortDate, titleCase } from "@/lib/format";
 import { useAdminToken } from "@/lib/use-admin-token";
 import { cn } from "@/lib/utils";
-
-export { initials } from "@/lib/initials";
 
 export type StatusChoice = "verified" | "unverified" | "dead";
 
@@ -91,6 +90,7 @@ export function StatusPill({
 
   const unlocked = useAdminToken() !== null;
   const [menuOpen, setMenuOpen] = React.useState(false);
+  const [hintOpen, setHintOpen] = React.useState(false);
   const [pending, setPending] = React.useState<StatusChoice | null>(null);
   const [justStamped, setJustStamped] = React.useState(false);
   const reduce = useReducedMotion();
@@ -118,7 +118,7 @@ export function StatusPill({
   // neither) — opening a popover with the worded hint + how verification works.
   if (!onStatusChange || !unlocked) {
     return (
-      <Popover>
+      <Popover open={hintOpen} onOpenChange={setHintOpen}>
         <PopoverTrigger asChild>
           <button
             type="button"
@@ -158,7 +158,7 @@ export function StatusPill({
         <PopoverTrigger asChild>
           <button
             type="button"
-            aria-haspopup="menu"
+            aria-haspopup="dialog"
             aria-expanded={menuOpen}
             className={cn(
               "relative inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors",
@@ -216,12 +216,14 @@ export function StatusPill({
         </PopoverTrigger>
         <PopoverContent align="end" sideOffset={6} className="w-44 p-1">
           <div className="px-2.5 pb-1.5 pt-1 text-[11px] text-muted-foreground">{hint}</div>
-          <div role="menu" className="flex flex-col gap-0.5">
+          {/* Plain buttons (Tab navigates them) — deliberately NOT role=menu:
+              a Popover has no arrow-key menu semantics, and the ARIA menu
+              contract would promise navigation this doesn't implement. */}
+          <div className="flex flex-col gap-0.5">
             {STATUS_OPTIONS.map((opt) => (
               <button
                 key={opt.value}
                 type="button"
-                role="menuitem"
                 onClick={() => {
                   setMenuOpen(false);
                   setPending(opt.value);
@@ -288,20 +290,36 @@ export function StartupCard({
   startup,
   onStatusChange,
   onDetails,
+  onSearchName,
   filings = 1,
+  density = "gallery",
 }: {
   startup: Startup;
   onStatusChange?: (s: Startup, choice: StatusChoice) => void;
   onDetails?: (s: Startup) => void;
+  /** In-app same-name search (the ×N filings chip) — keeps SPA state. */
+  onSearchName?: (name: string) => void;
   /** Same-name filings in the archive (a disambiguation directory must say so). */
   filings?: number;
+  /** Visual exhibition density: 3D Gallery card vs. compact tabular Ledger row */
+  density?: "gallery" | "ledger";
 }) {
   const dead = startup.status === "dead" || startup.status === "pivoted";
   const year = foundedYear(startup.founded);
   const [expanded, setExpanded] = React.useState(false);
+  const [stampChoreo, setStampChoreo] = React.useState<"verified" | "dead" | null>(null);
   const description = startup.description ?? "";
   const showToggle = description.length > 200;
   const reduce = useReducedMotion();
+
+  const handleWrappedStatus = (s: Startup, choice: StatusChoice) => {
+    if (choice === "verified") {
+      setStampChoreo("verified");
+    } else if (choice === "dead") {
+      setStampChoreo("dead");
+    }
+    onStatusChange?.(s, choice);
+  };
 
   // Clamped (3-line) height of the description, measured on first toggle so the
   // expand/collapse animates between the preview and the full text instead of
@@ -317,34 +335,88 @@ export function StartupCard({
     setExpanded((v) => !v);
   };
 
+  // Dense Ledger Row View
+  if (density === "ledger") {
+    return (
+      <div
+        className={cn(
+          "ledger-row group relative flex items-center justify-between gap-3 rounded-xl border border-border/40 bg-background/50 px-3.5 py-2.5 backdrop-blur-md",
+          dead && "saturate-[0.5] opacity-80",
+        )}
+      >
+        <StampChoreography type={stampChoreo} onComplete={() => setStampChoreo(null)} />
+        <div className="flex min-w-0 items-center gap-3">
+          <HueAvatar name={startup.name} size="sm" className={dead ? "grayscale" : undefined} />
+          <div className="min-w-0">
+            <button
+              type="button"
+              onClick={() => onDetails?.(startup)}
+              className="truncate text-left text-xs font-bold leading-tight hover:text-primary hover:underline"
+            >
+              {startup.name}
+            </button>
+            <p className="truncate font-mono text-[10px] text-muted-foreground">
+              {startup.tagline || (startup.category ? titleCase(startup.category) : "Uncategorized")}
+            </p>
+          </div>
+        </div>
+
+        <div className="hidden sm:flex items-center gap-2">
+          {startup.category && (
+            <Badge variant="secondary" className="text-[10px] py-0 px-2 font-mono">
+              {titleCase(startup.category)}
+            </Badge>
+          )}
+          {year && (
+            <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+              est. {year}
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <StatusPill startup={startup} onStatusChange={handleWrappedStatus} />
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            className="h-7 px-2 text-[11px]"
+            onClick={() => onDetails?.(startup)}
+          >
+            Details
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <motion.div
-      layoutId={`startup-${startup.id}`}
-      whileHover={reduce ? undefined : { y: dead ? -1 : -2 }}
-      whileTap={reduce ? undefined : { scale: 0.99 }}
-      transition={{ type: "tween", ease: EASE, duration: 0.35 }}
-      className={cn(
-        "glass relative flex h-full flex-col rounded-2xl",
-        // Filed, not faded: no card-level opacity (it quietly cut text contrast
-        // on exactly the cards a reader needs to read — an a11y win). The
-        // desaturation + grayscale avatar + FILED stamp carry the filedness.
-        dead && "saturate-[0.6]",
-      )}
-    >
-      {/* The FILED stamp — archival watermark over the card face. aria-hidden
-          decorative; the status pill still carries the label/icon semantics. */}
-      {dead && (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-6 rounded border border-destructive/25 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-destructive/55"
-        >
-          Filed
-        </span>
-      )}
-      <div className="flex h-full flex-col gap-2.5 p-4">
-        <div className="flex items-center gap-2.5">
-          <HueAvatar name={startup.name} className={dead ? "grayscale" : undefined} />
-          <div className="min-w-0 flex-1">
+    <HolographicCard disabled={dead} className="flex h-full flex-col">
+      <StampChoreography type={stampChoreo} onComplete={() => setStampChoreo(null)} />
+      <motion.div
+        layoutId={`startup-${startup.id}`}
+        whileHover={reduce ? undefined : { y: dead ? -1 : -4, boxShadow: dead ? undefined : "0 16px 48px oklch(0.2 0.03 262 / 0.16)" }}
+        whileTap={reduce ? undefined : { scale: 0.985 }}
+        transition={{ type: "spring", stiffness: 380, damping: 28 }}
+        className={cn(
+          "glass preserve-3d relative flex h-full flex-col rounded-2xl",
+          dead && "saturate-[0.6]",
+        )}
+      >
+        {/* The FILED stamp — archival watermark over the card face */}
+        {dead && (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-6 rounded border border-destructive/25 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-destructive/55"
+          >
+            Filed
+          </span>
+        )}
+        <div className="flex h-full flex-col gap-2.5 p-4 [transform-style:preserve-3d]">
+          <div className="flex items-center gap-2.5 [transform:translateZ(24px)]">
+            <HueAvatar name={startup.name} className={dead ? "grayscale" : undefined} />
+            <div className="min-w-0 flex-1">
+
             <button
               type="button"
               onClick={() => onDetails?.(startup)}
@@ -405,14 +477,26 @@ export function StartupCard({
 
         <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-1">
           {startup.category && (
-            <Badge variant="secondary" className="text-[11px]">
-              {titleCase(startup.category)}
-            </Badge>
+            <motion.div
+              whileHover={reduce ? undefined : { scale: 1.06, y: -1 }}
+              whileTap={reduce ? undefined : { scale: 0.95 }}
+              transition={{ type: "spring", stiffness: 480, damping: 24 }}
+            >
+              <Badge variant="secondary" className="text-[11px]">
+                {titleCase(startup.category)}
+              </Badge>
+            </motion.div>
           )}
           {startup.language && (
-            <Badge variant="outline" className="text-[11px]">
-              {titleCase(startup.language)}
-            </Badge>
+            <motion.div
+              whileHover={reduce ? undefined : { scale: 1.06, y: -1 }}
+              whileTap={reduce ? undefined : { scale: 0.95 }}
+              transition={{ type: "spring", stiffness: 480, damping: 24 }}
+            >
+              <Badge variant="outline" className="text-[11px]">
+                {titleCase(startup.language)}
+              </Badge>
+            </motion.div>
           )}
           {typeof startup.stars === "number" && startup.stars > 0 && (
             <span className="ml-auto flex items-center gap-1 font-mono text-[11px] tabular-nums text-muted-foreground">
@@ -420,8 +504,9 @@ export function StartupCard({
             </span>
           )}
           {filings > 1 && (
-            <a
-              href={`/?q=${encodeURIComponent(startup.name)}`}
+            <button
+              type="button"
+              onClick={() => onSearchName?.(startup.name)}
               title={`${filings} filings share this name — check which one you mean`}
               className={cn(
                 "flex items-center rounded-full border border-border/70 px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground",
@@ -431,36 +516,57 @@ export function StartupCard({
               )}
             >
               ×{filings} filings
-            </a>
+            </button>
           )}
         </div>
 
         <div className="flex items-center gap-2 border-t border-border/60 pt-3">
           {startup.website_url && (
-            <Button asChild variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
-              <a href={startup.website_url} target="_blank" rel="noreferrer">
-                <ExternalLink className="h-3 w-3" /> Website
-              </a>
-            </Button>
+            <motion.div
+              whileHover={reduce ? undefined : { scale: 1.04, y: -1 }}
+              whileTap={reduce ? undefined : { scale: 0.96 }}
+              transition={{ type: "spring", stiffness: 500, damping: 26 }}
+            >
+              <Button asChild variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
+                <a href={startup.website_url} target="_blank" rel="noreferrer">
+                  <ExternalLink className="h-3 w-3" /> Website
+                </a>
+              </Button>
+            </motion.div>
           )}
           {startup.github_url && (
-            <Button asChild variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
-              <a href={startup.github_url} target="_blank" rel="noreferrer">
-                <FolderGit2 className="h-3 w-3" /> Code
-              </a>
-            </Button>
+            <motion.div
+              whileHover={reduce ? undefined : { scale: 1.04, y: -1 }}
+              whileTap={reduce ? undefined : { scale: 0.96 }}
+              transition={{ type: "spring", stiffness: 500, damping: 26 }}
+            >
+              <Button asChild variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
+                <a href={startup.github_url} target="_blank" rel="noreferrer">
+                  <FolderGit2 className="h-3 w-3" /> Code
+                </a>
+              </Button>
+            </motion.div>
           )}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="ml-auto h-8 gap-1.5 text-xs"
-            onClick={() => onDetails?.(startup)}
+          <motion.div
+            className="ml-auto"
+            whileHover={reduce ? undefined : { scale: 1.04, y: -1 }}
+            whileTap={reduce ? undefined : { scale: 0.96 }}
+            transition={{ type: "spring", stiffness: 500, damping: 26 }}
           >
-            Details
-          </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 text-xs"
+              onClick={() => onDetails?.(startup)}
+            >
+              Details
+            </Button>
+          </motion.div>
         </div>
       </div>
     </motion.div>
+    </HolographicCard>
   );
 }
+

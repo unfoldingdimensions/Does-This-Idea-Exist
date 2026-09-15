@@ -2,27 +2,49 @@ import type { CategoryCount, SeedJob, Startup, Stats, SuggestedStartup, VerifyJo
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8020";
 
-async function json<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
-  if (!res.ok) {
-    let detail = `HTTP ${res.status}`;
-    try {
-      const body = await res.json();
-      if (body?.detail) detail = String(body.detail);
-    } catch {
-      /* non-JSON error body */
-    }
-    throw new Error(detail);
+/** A hung backend (TCP accept, no response) used to leave the UI on the
+ * skeleton forever — the offline banner only surfaced on REJECTION. Every
+ * request now carries a hard deadline so a stall degrades into the same
+ * unreachable state (with its Retry) instead of a frozen page. Reads get a
+ * snappy 10s; the seed POSTs wait on fetch+LLM so they get 90s. */
+const READ_TIMEOUT_MS = 10_000;
+const WRITE_TIMEOUT_MS = 90_000;
+
+function withTimeout(init: RequestInit | undefined, ms: number): RequestInit {
+  const signal = AbortSignal.timeout(ms);
+  if (!init?.signal) return { ...init, signal };
+  // Respect an explicit caller signal: abort when either fires.
+  const callerSignal = init.signal;
+  const timeoutSignal = signal;
+  return {
+    ...init,
+    signal: AbortSignal.any([callerSignal, timeoutSignal]),
+  };
+}
+
+/** Best-effort error detail from a non-OK response (backend sends {detail}). */
+async function errorDetail(res: Response): Promise<string> {
+  let detail = `HTTP ${res.status}`;
+  try {
+    const body = await res.json();
+    if (body?.detail) detail = String(body.detail);
+  } catch {
+    /* non-JSON error body */
   }
+  return detail;
+}
+
+async function json<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, withTimeout(init, READ_TIMEOUT_MS));
+  if (!res.ok) throw new Error(await errorDetail(res));
   return res.json() as Promise<T>;
 }
 
-export function fetchStartups(q?: string, category?: string): Promise<Startup[]> {
-  const params = new URLSearchParams();
-  if (q) params.set("q", q);
-  if (category) params.set("category", category);
-  const qs = params.toString();
-  return json<Startup[]>(`${API_BASE}/api/startups${qs ? `?${qs}` : ""}`, { cache: "no-store" });
+/** The archive arrives in one fetch — client-side search/facets run over it.
+ * (The backend still accepts ?q=/?category=, but nothing on this side does
+ * server-side filtering.) */
+export function fetchStartups(): Promise<Startup[]> {
+  return json<Startup[]>(`${API_BASE}/api/startups`, { cache: "no-store" });
 }
 
 export function fetchCategories(): Promise<CategoryCount[]> {
@@ -150,29 +172,30 @@ export class AdminUnauthorized extends Error {
 }
 
 async function adminJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { ...init, headers: { ...adminHeaders(), ...init?.headers } });
+  // Mutating calls (seed/verify-run/approve) wait on fetch+LLM server-side,
+  // so they get the longer deadline; reads stay snappy. no-store on all of
+  // them — the 2s job poll especially must never be heuristic-cached.
+  const ms = init?.method === "POST" ? WRITE_TIMEOUT_MS : READ_TIMEOUT_MS;
+  const res = await fetch(url, {
+    ...withTimeout(init, ms),
+    headers: { ...adminHeaders(), ...init?.headers },
+    cache: "no-store",
+  });
   if (res.status === 403) {
     throw new AdminUnauthorized();
   }
-  if (!res.ok) {
-    let detail = `HTTP ${res.status}`;
-    try {
-      const body = await res.json();
-      if (body?.detail) detail = String(body.detail);
-    } catch {
-      /* non-JSON error body */
-    }
-    throw new Error(detail);
-  }
+  if (!res.ok) throw new Error(await errorDetail(res));
   return res.json() as Promise<T>;
 }
 
 export function adminCheck(token: string): Promise<{ ok: boolean }> {
   return fetch(`${API_BASE}/api/admin/check`, {
     headers: { "X-Admin-Token": token },
-  }).then((res) => {
+    cache: "no-store",
+    signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+  }).then(async (res) => {
     if (res.status === 403) throw new AdminUnauthorized();
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw new Error(await errorDetail(res));
     return res.json();
   });
 }
@@ -183,10 +206,6 @@ export function startSeed(source: string, params: Record<string, unknown>): Prom
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ source, params }),
   });
-}
-
-export function seedStatus(jobId: string): Promise<SeedJob> {
-  return adminJson<SeedJob>(`${API_BASE}/api/admin/seed/status/${jobId}`);
 }
 
 export function fetchSeedJobs(): Promise<SeedJob[]> {

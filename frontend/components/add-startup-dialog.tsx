@@ -51,21 +51,6 @@ export function AddStartupDialog({
     }
   };
 
-  // Focus the panel on open (Escape then works), restore focus + scroll on close.
-  React.useEffect(() => {
-    if (open) {
-      lastFocused.current = document.activeElement as HTMLElement | null;
-      document.body.style.overflow = "hidden";
-      const t = setTimeout(() => panelRef.current?.focus(), 30);
-      return () => {
-        clearTimeout(t);
-        document.body.style.overflow = "";
-        lastFocused.current?.focus?.();
-      };
-    }
-    return undefined;
-  }, [open]);
-
   const reset = () => {
     setGithubUrl("");
     setWebsiteUrl("");
@@ -78,6 +63,60 @@ export function AddStartupDialog({
     onOpenChange(false);
     reset();
   };
+  // Ref so the document-level keydown (attached once per open) always calls
+  // the latest close without re-attaching on every render.
+  const closeRef = React.useRef(close);
+  React.useEffect(() => {
+    closeRef.current = close;
+  });
+
+  // Focus the panel on open, trap Tab inside, handle Escape at document level
+  // (so it works even when focus walks to the backdrop), restore focus + scroll
+  // on close. Mirrors StartupDetail, including the scrollbar-gap compensation:
+  // hiding the scrollbar widens the viewport and visibly re-centers the page.
+  React.useEffect(() => {
+    if (!open) return undefined;
+    lastFocused.current = document.activeElement as HTMLElement | null;
+    const gap = window.innerWidth - document.documentElement.clientWidth;
+    document.body.style.overflow = "hidden";
+    if (gap > 0) document.body.style.marginRight = `${gap}px`;
+    const t = setTimeout(() => panelRef.current?.focus(), 30);
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeRef.current();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const panel = panelRef.current;
+      if (!panel) return;
+      const focusables = [...panel.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      )];
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey) {
+        if (active === first || !panel.contains(active)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else if (active === last || !panel.contains(active)) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = "";
+      document.body.style.marginRight = "";
+      lastFocused.current?.focus?.();
+    };
+  }, [open]);
 
   const handleGithub = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -146,7 +185,7 @@ export function AddStartupDialog({
   return (
     <AnimatePresence>
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4 sm:p-6">
+        <div data-lenis-prevent className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4 sm:p-6">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -163,7 +202,6 @@ export function AddStartupDialog({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.94, y: 24 }}
             transition={{ duration: 0.4, ease: EASE }}
-            onKeyDown={(e) => e.key === "Escape" && close()}
             role="dialog"
             aria-modal="true"
             aria-label="Add a startup"

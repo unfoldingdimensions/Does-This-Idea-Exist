@@ -14,12 +14,10 @@ import sqlite3
 import threading
 import time
 import uuid
-from pathlib import Path
 
 import httpx
 
 from . import config, db, enrich
-from .website import UA_BROWSER
 
 log = logging.getLogger("ideasexist")
 
@@ -80,6 +78,28 @@ def enqueue_job(job: dict) -> None:
         CONDS[kind].notify()
     _persist_job(job)
     log.info("job %s queued (kind=%s, source=%s)", job["id"], kind, job["source"])
+
+
+def try_enqueue_exclusive(job: dict) -> bool:
+    """Enqueue `job` only if no other job of its kind is queued/running.
+
+    The active-check and the enqueue must share ONE critical section — a
+    caller doing has_active_job() then enqueue_job() races a concurrent twin
+    past the check and queues a double pass (the exact thing the guard
+    exists to prevent). Returns False when a job of this kind is active."""
+    kind = job["kind"]
+    if kind not in QUEUES:
+        raise ValueError(f"Unknown job kind: {kind!r}")
+    with _LOCK:
+        if any(j["kind"] == kind and j["status"] in ("queued", "running") for j in JOBS.values()):
+            return False
+        JOBS[job["id"]] = job
+        QUEUES[kind].append(job)
+    with CONDS[kind]:
+        CONDS[kind].notify()
+    _persist_job(job)
+    log.info("job %s queued (kind=%s, source=%s)", job["id"], kind, job["source"])
+    return True
 
 
 def _parse_cap(raw) -> int:

@@ -16,6 +16,7 @@ import {
 import { AdminUnauthorized, approveSuggested, currentVerification, runVerification, verificationStatus } from "@/lib/api";
 import type { VerifyJob } from "@/lib/types";
 import { BucketItem, SummaryRow } from "@/components/admin-shared";
+import { cn } from "@/lib/utils";
 
 /** Website Health Check section — the automated liveness pass. Same progress
  * bar + breakdown as before, plus three expandable output buckets
@@ -43,6 +44,20 @@ export function HealthCheckSection({
   const result = job?.result;
 
   const pollRef = React.useRef<((jobId: string) => void) | null>(null);
+  // The poll chain is recursive setTimeouts against THIS component. The admin
+  // panel unmounts the section whenever its accordion closes — without the
+  // alive guard + timer cleanup the chain kept firing every 2s at a dead
+  // component, and a remount stacked a second chain on top.
+  const aliveRef = React.useRef(true);
+  const timerRef = React.useRef<number | null>(null);
+  React.useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    };
+  }, []);
+
   const poll = React.useCallback(
     async (jobId: string) => {
       // Every failure path has to be caught here. This runs fire-and-forget
@@ -53,6 +68,7 @@ export function HealthCheckSection({
       try {
         s = await verificationStatus(jobId);
       } catch (err) {
+        if (!aliveRef.current) return;
         setStarting(false);
         if (err instanceof AdminUnauthorized) {
           onLocked("Admin session expired — re-enter your token");
@@ -61,11 +77,13 @@ export function HealthCheckSection({
         }
         return;
       }
+      if (!aliveRef.current) return;
       setJob(s);
       if (s.status === "queued" || s.status === "running") {
-        window.setTimeout(() => pollRef.current?.(jobId), 2000);
+        timerRef.current = window.setTimeout(() => pollRef.current?.(jobId), 2000);
       } else {
         setStarting(false);
+        if (!aliveRef.current) return;
         onSeeded();
         if (s.status === "failed") {
           toast.error("The health pass stumbled", {
@@ -89,13 +107,15 @@ export function HealthCheckSection({
 
   // Re-attach to an in-flight pass when the section mounts (cron-triggered or
   // started in an earlier session — the worker keeps going server-side).
+  // Once per mount: re-running on every `poll` identity change attached a
+  // SECOND live chain while the first kept polling.
   React.useEffect(() => {
     let cancelled = false;
     void currentVerification()
       .then((active) => {
         if (cancelled || !active) return;
         setJob(active);
-        void poll(active.id);
+        void pollRef.current?.(active.id);
       })
       // Re-attach is best-effort: nothing in flight to show is the normal case,
       // and a locked/expired session is handled when the panel next acts.
@@ -103,14 +123,17 @@ export function HealthCheckSection({
     return () => {
       cancelled = true;
     };
-  }, [poll]);
+  }, []);
 
   const start = async () => {
     if (starting || job?.status === "running" || job?.status === "queued") return;
     setStarting(true);
-    setJob(null);
+    // Don't clear the previous run's results until the POST actually succeeds —
+    // a 409/403/network failure was otherwise blanking a view the user still
+    // wanted, leaving only a toast behind.
     try {
       const { job_id } = await runVerification();
+      setJob(null);
       void poll(job_id);
     } catch (err) {
       setStarting(false);
@@ -127,6 +150,22 @@ export function HealthCheckSection({
       const r = await approveSuggested([confirm.id]);
       toast.success(`${r.approved} filing${r.approved === 1 ? "" : "s"} stamped`);
       onSeeded();
+      // Drop the stamped row from the local buckets immediately — the job's
+      // result is a terminal snapshot the server won't update, and leaving
+      // the row there invited a re-approve that just returned "0 stamped".
+      const stampedId = confirm.id;
+      setJob((j) =>
+        j && j.result
+          ? {
+              ...j,
+              result: {
+                ...j.result,
+                suggested: j.result.suggested.filter((x) => x.id !== stampedId),
+                failed_list: j.result.failed_list.filter((x) => x.id !== stampedId),
+              },
+            }
+          : j,
+      );
       setConfirm(null);
     } catch (err) {
       if (err instanceof AdminUnauthorized) {
@@ -241,11 +280,12 @@ export function HealthCheckSection({
                   className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-[11px] font-medium text-foreground transition-colors hover:bg-accent/50 disabled:cursor-default"
                 >
                   {(result?.suggested.length ?? 0) > 0 ? (
-                    expanded.has(`hsuggested:${job.id}`) ? (
-                      <CheckCircle2 className="h-3 w-3 shrink-0" />
-                    ) : (
-                      <CheckCircle2 className="h-3 w-3 shrink-0" />
-                    )
+                    <CheckCircle2
+                      className={cn(
+                        "h-3 w-3 shrink-0",
+                        expanded.has(`hsuggested:${job.id}`) && "text-success",
+                      )}
+                    />
                   ) : (
                     <span className="w-3 shrink-0" />
                   )}
@@ -272,11 +312,12 @@ export function HealthCheckSection({
                   className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-[11px] font-medium text-destructive transition-colors hover:bg-accent/50 disabled:cursor-default"
                 >
                   {(result?.failed_list.length ?? 0) > 0 ? (
-                    expanded.has(`hfailed:${job.id}`) ? (
-                      <TriangleAlert className="h-3 w-3 shrink-0" />
-                    ) : (
-                      <TriangleAlert className="h-3 w-3 shrink-0" />
-                    )
+                    <TriangleAlert
+                      className={cn(
+                        "h-3 w-3 shrink-0",
+                        expanded.has(`hfailed:${job.id}`) && "text-destructive",
+                      )}
+                    />
                   ) : (
                     <span className="w-3 shrink-0" />
                   )}

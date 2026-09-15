@@ -20,14 +20,15 @@ import {
   fetchSuggested,
 } from "@/lib/api";
 import type { Stats, SuggestedStartup } from "@/lib/types";
+import { parseDbDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { BucketItem, SummaryRow } from "@/components/admin-shared";
 import type { SeedJob } from "@/lib/types";
 
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return "never";
-  const d = new Date(iso.includes("T") ? iso : iso.replace(" ", "T") + "Z");
-  if (Number.isNaN(d.getTime())) return iso;
+  const d = parseDbDate(iso);
+  if (!d) return iso;
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
@@ -109,9 +110,14 @@ export function VerificationSection({
       afterApprove(r.approved);
     } catch (err) {
       setApprovingId(null);
-      toast.error("The stamp didn't take", {
-        description: err instanceof Error ? err.message : undefined,
-      });
+      setConfirm(null);
+      if (err instanceof AdminUnauthorized) {
+        onLocked("Admin session expired — re-enter your token");
+      } else {
+        toast.error("The stamp didn't take", {
+          description: err instanceof Error ? err.message : undefined,
+        });
+      }
     }
   };
 
@@ -122,9 +128,14 @@ export function VerificationSection({
       afterApprove(r.approved);
     } catch (err) {
       setApprovingAll(false);
-      toast.error("The stamp didn't take", {
-        description: err instanceof Error ? err.message : undefined,
-      });
+      setConfirm(null);
+      if (err instanceof AdminUnauthorized) {
+        onLocked("Admin session expired — re-enter your token");
+      } else {
+        toast.error("The stamp didn't take", {
+          description: err instanceof Error ? err.message : undefined,
+        });
+      }
     }
   };
 
@@ -137,9 +148,14 @@ export function VerificationSection({
       afterApprove(r.approved);
     } catch (err) {
       setApprovingAll(false);
-      toast.error("Couldn't stamp that batch", {
-        description: err instanceof Error ? err.message : undefined,
-      });
+      setConfirm(null);
+      if (err instanceof AdminUnauthorized) {
+        onLocked("Admin session expired — re-enter your token");
+      } else {
+        toast.error("Couldn't stamp that batch", {
+          description: err instanceof Error ? err.message : undefined,
+        });
+      }
     }
   };
 
@@ -304,7 +320,9 @@ export function VerificationSection({
       <Dialog
         open={confirm !== null}
         onOpenChange={(v) => {
-          if (!v) setConfirm(null);
+          // Block Escape/backdrop close while an approval POST is in flight —
+          // otherwise the success toast fires into a vanished dialog.
+          if (!v && !approvingAll && approvingId === null) setConfirm(null);
         }}
       >
         <DialogContent className="sm:max-w-sm">
@@ -325,7 +343,11 @@ export function VerificationSection({
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:justify-end">
-            <Button variant="ghost" onClick={() => setConfirm(null)}>
+            <Button
+              variant="ghost"
+              onClick={() => setConfirm(null)}
+              disabled={approvingAll || approvingId !== null}
+            >
               Cancel
             </Button>
             <Button

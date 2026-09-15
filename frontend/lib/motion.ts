@@ -39,14 +39,3 @@ export const SPRING_STAMP: Transition = {
   damping: 12,
   mass: 0.6,
 };
-
-/** Card-deal stagger: 45ms per card, capped at index 12 (a 24-card grid deals in ≤ 0.54s). */
-export const STAGGER = 45;
-export const dealDelay = (i: number): number => Math.min(i, 12) * STAGGER;
-
-/** Reduced-motion collapse — duration-0 tween. */
-export const STILL: Transition = { type: "tween", duration: 0 };
-
-/** One-liner: pick the live transition, or STILL under reduced motion. */
-export const m = (reduce: boolean, transition: Transition): Transition =>
-  reduce ? STILL : transition;

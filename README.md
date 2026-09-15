@@ -29,7 +29,7 @@ every seed; data lives in `backend/data/ideasexist.db` (git-ignored).
 
 ## Quickstart
 
-**Prerequisites:** Python 3.11+, Node.js 20+.
+**Prerequisites:** Python 3.11+, Node.js 23+ (`scripts/sort-check.ts` runs on native type stripping).
 
 ```bash
 # 1. Backend (FastAPI on :8020)

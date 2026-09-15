@@ -56,24 +56,27 @@ export function AdminPanel({
   const [jobs, setJobs] = React.useState<SeedJob[]>([]);
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
 
-  const toggle = (key: string) =>
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+  const toggle = React.useCallback(
+    (key: string) =>
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      }),
+    [],
+  );
 
   const activeJobs = React.useMemo(
     () => jobs.filter((j) => ACTIVE.has(j.status)),
     [jobs],
   );
 
-  const handleLocked = (msg?: string) => {
+  const handleLocked = React.useCallback((msg?: string) => {
     clearAdminToken(); // notifies every subscriber, including this component
     setJobs([]);
     if (msg) setUnlockMsg(msg);
-  };
+  }, []);
 
   const handleUnlock = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -135,7 +138,16 @@ export function AdminPanel({
         toast.error("Session expired — the drawer locked itself");
       }
     }
-  }, [onSeeded]);
+  }, [onSeeded, handleLocked]);
+
+  // Stable identities for the section children: inline lambdas here changed on
+  // every render, which recreated HealthCheckSection's `poll` and tore
+  // down/re-ran its effects (and the polling interval above) mid-flight.
+  const refreshOnly = React.useCallback(() => void refreshJobs(), [refreshJobs]);
+  const refreshAndSync = React.useCallback(() => {
+    onSeeded();
+    void refreshJobs();
+  }, [onSeeded, refreshJobs]);
 
   React.useEffect(() => {
     // Poll while any job is active — even with the panel closed, so a finishing
@@ -236,7 +248,7 @@ export function AdminPanel({
                             jobs={jobs}
                             expanded={expanded}
                             onToggle={toggle}
-                            onSeeded={() => void refreshJobs()}
+                            onSeeded={refreshOnly}
                             onLocked={handleLocked}
                           />
                         )}
@@ -245,10 +257,7 @@ export function AdminPanel({
                             jobs={jobs}
                             expanded={expanded}
                             onToggle={toggle}
-                            onSeeded={() => {
-                              onSeeded();
-                              void refreshJobs();
-                            }}
+                            onSeeded={refreshAndSync}
                             onLocked={handleLocked}
                           />
                         )}
@@ -256,10 +265,7 @@ export function AdminPanel({
                           <HealthCheckSection
                             expanded={expanded}
                             onToggle={toggle}
-                            onSeeded={() => {
-                              onSeeded();
-                              void refreshJobs();
-                            }}
+                            onSeeded={refreshAndSync}
                             onLocked={handleLocked}
                           />
                         )}

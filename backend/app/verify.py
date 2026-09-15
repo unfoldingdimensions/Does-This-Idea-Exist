@@ -82,11 +82,11 @@ def check_github_ok(github_url: str) -> tuple[bool, str, bool]:
 def start_verification() -> str:
     """Enqueue a verify job on the serial queue. Raises RuntimeError (loud 409
     upstream) if one is already queued or running — two passes in flight is a
-    bug, not a feature (they would double-hit the GitHub rate limit)."""
+    bug, not a feature (they would double-hit the GitHub rate limit). The
+    active-check and enqueue are one critical section (seeder.try_enqueue_exclusive):
+    check-then-enqueue as two steps races a concurrent twin past the guard."""
     from . import seeder  # local import — seeder imports verify lazily in _run
 
-    if seeder.has_active_job("verify"):
-        raise RuntimeError("A verification pass is already queued or running")
     job = {
         "id": uuid.uuid4().hex[:12],
         "kind": "verify",
@@ -112,7 +112,8 @@ def start_verification() -> str:
         "failed_list": [],
         "result": None,
     }
-    seeder.enqueue_job(job)
+    if not seeder.try_enqueue_exclusive(job):
+        raise RuntimeError("A verification pass is already queued or running")
     return job["id"]
 
 
@@ -187,9 +188,12 @@ def approve_suggested(
             if not ids:
                 return 0
             placeholders = ",".join("?" * len(ids))
+            # Same base filter as the window/approve_all paths — without it an
+            # id of a dead or already-verified row stamps verified=1 while its
+            # status stays 'dead' (a state no other writer can produce).
             cur = conn.execute(
                 f"UPDATE startups SET verified = 1, verified_at = datetime('now') "
-                f"WHERE id IN ({placeholders})",
+                f"WHERE id IN ({placeholders}) AND {base}",
                 ids,
             )
         conn.commit()
@@ -222,8 +226,15 @@ def run_verify_job(job: dict) -> None:
                 job["breakdown"]["unverified"] += 1
 
             notes = []
-            web_ok, web_note, web_skipped = check_url_ok(row["website_url"])
-            notes.append(f"website: {web_note}")
+            # Website check mirrors the github guard below: a row with no
+            # website_url simply has nothing to check — treating it as a
+            # genuine strike dead-flipped GitHub-only rows whose repo was
+            # perfectly healthy. web_ok=None means "not checked".
+            web_ok: bool | None = None
+            web_skipped = False
+            if row["website_url"]:
+                web_ok, web_note, web_skipped = check_url_ok(row["website_url"])
+                notes.append(f"website: {web_note}")
             gh_ok = None
             gh_skipped = False
             if row["github_url"]:
@@ -232,7 +243,7 @@ def run_verify_job(job: dict) -> None:
             # Real failure = website genuinely gone (404/410) OR repo genuinely
             # gone (404). Bot walls, rate limits and transient errors are SKIPs
             # — ambiguous signals never count as a strike.
-            web_failed = not web_ok and not web_skipped
+            web_failed = web_ok is False and not web_skipped
             gh_failed = gh_ok is False and not gh_skipped
             failed = web_failed or gh_failed
             inconclusive = not failed and (web_skipped or gh_skipped)
@@ -291,7 +302,8 @@ def run_verify_job(job: dict) -> None:
             )
             conn.execute(
                 "INSERT INTO verify_log (startup_id, website_ok, github_ok, notes) VALUES (?, ?, ?, ?)",
-                (row["id"], 1 if web_ok else 0, (1 if gh_ok else 0) if gh_ok is not None else None,
+                (row["id"], (1 if web_ok else 0) if web_ok is not None else None,
+                 (1 if gh_ok else 0) if gh_ok is not None else None,
                  "; ".join(notes)),
             )
             job["done"] += 1

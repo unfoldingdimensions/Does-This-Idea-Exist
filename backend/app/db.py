@@ -94,11 +94,17 @@ def normalize_url(url: str | None) -> str:
     host = (p.hostname or "").lower().removeprefix("www.")
     if p.scheme not in ("http", "https") or not host:
         return u.rstrip("/")
+    # p.port raises (not returns None) for out-of-range ports like :99999 —
+    # only urlparse() itself is guarded above.
+    try:
+        port_num = p.port
+    except ValueError:
+        return u.rstrip("/")
     port = ""
-    if p.port and not (
-        (p.scheme == "http" and p.port == 80) or (p.scheme == "https" and p.port == 443)
+    if port_num and not (
+        (p.scheme == "http" and port_num == 80) or (p.scheme == "https" and port_num == 443)
     ):
-        port = f":{p.port}"
+        port = f":{port_num}"
     return f"{p.scheme}://{host}{port}{p.path.rstrip('/')}"
 
 

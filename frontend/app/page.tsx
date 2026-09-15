@@ -4,7 +4,6 @@ import * as React from "react";
 import {
   Archive,
   Briefcase,
-  Building2,
   Code2,
   Film,
   FolderGit2,
@@ -13,18 +12,20 @@ import {
   HeartPulse,
   Landmark,
   Monitor,
+  PackageOpen,
   ServerCrash,
   Share2,
   ShieldCheck,
   ShoppingBag,
   Sparkles,
   Zap,
+  Command,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { EASE } from "@/lib/motion";
 import { Button } from "@/components/ui/button";
-import { CardSkeleton } from "@/components/card-skeleton";
+import { CardSkeleton, LedgerRowSkeleton } from "@/components/card-skeleton";
 import { StartupCard, type StatusChoice } from "@/components/startup-card";
 import { AddStartupDialog } from "@/components/add-startup-dialog";
 import { AdminPanel } from "@/components/admin-panel";
@@ -37,7 +38,16 @@ import { MorphingDiscoveryBar, type DiscoveryCategory } from "@/components/ui/mo
 import { SplitButton } from "@/components/ui/split-button";
 import { ContinuousPagination } from "@/components/ui/continuous-pagination";
 import { fetchStartups, fetchCategories, fetchStats, markVerified, markUnverified, markDead } from "@/lib/api";
-import { CountUp } from "@/components/count-up";
+import { KineticMasthead } from "@/components/kinetic-masthead";
+import { LiveTelemetryBar } from "@/components/live-telemetry-bar";
+import { AudioToggle } from "@/components/audio-toggle";
+import { DensityToggle, type DensityMode } from "@/components/density-toggle";
+import { OdometerNumber } from "@/components/ui/odometer-number";
+import { CommandPalette } from "@/components/ui/command-palette";
+import { ArchivalTicker } from "@/components/ui/archival-ticker";
+import { LedgerTableHeader } from "@/components/ledger-table-header";
+import { EmptyState } from "@/components/ui/empty-state";
+import { sound } from "@/lib/sound-engine";
 import { filterStartups, sortStartups, foundedYear } from "@/lib/search";
 import type { SortKey } from "@/lib/search";
 import { formatDate, titleCase } from "@/lib/format";
@@ -46,7 +56,7 @@ import type { CategoryCount, Startup, Stats } from "@/lib/types";
 
 const PAGE_SIZE = 24;
 
-/** Read filter state from the URL on first client render (SSR-safe: window guard). */
+/** Read filter state from the URL (client-only — called from a mount effect). */
 function readInitialParams(): {
   query: string;
   category: string | null;
@@ -55,18 +65,22 @@ function readInitialParams(): {
   sort: SortKey;
   page: number;
 } {
-  if (typeof window === "undefined") {
-    return { query: "", category: null, year: "all", status: "all", sort: "top", page: 1 };
-  }
   const p = new URLSearchParams(window.location.search);
   const sort = p.get("sort");
   const rawCategory = p.get("category")?.trim().toLowerCase();
   const rawPage = Number.parseInt(p.get("page") ?? "1", 10);
+  // Whitelist deep-linked facet values: a stale ?status=bogus (or a year that
+  // no longer exists — self-healed after load) would otherwise render a blank
+  // Select with an active Clear button that filters nothing.
+  const rawStatus = p.get("status") ?? "all";
+  const status = ["all", "verified", "unverified", "dead"].includes(rawStatus)
+    ? rawStatus
+    : "all";
   return {
     query: p.get("q") ?? "",
     category: rawCategory ? rawCategory : null,
     year: p.get("year") ?? "all",
-    status: p.get("status") ?? "all",
+    status,
     sort: sort === "newest" || sort === "verified" || sort === "name" || sort === "founded" ? sort : "top",
     page: Number.isFinite(rawPage) && rawPage > 0 ? rawPage : 1,
   };
@@ -88,6 +102,9 @@ const CATEGORY_ICONS: Record<string, React.ReactNode> = {
   ecommerce: <ShoppingBag className="h-3.5 w-3.5" />,
   social: <Share2 className="h-3.5 w-3.5" />,
   media: <Film className="h-3.5 w-3.5" />,
+  // "Other" must read as distinct from AI's Sparkles (both hit the fallback
+  // before — same icon on two chips, indistinguishable at a glance).
+  other: <PackageOpen className="h-3.5 w-3.5" />,
 };
 
 function categoryIcon(id: string): React.ReactNode {
@@ -98,19 +115,42 @@ export default function HomePage() {
   const [startups, setStartups] = React.useState<Startup[]>([]);
   const [categories, setCategories] = React.useState<CategoryCount[]>([]);
   const [stats, setStats] = React.useState<Stats | null>(null);
-  const [query, setQuery] = React.useState(() => readInitialParams().query);
-  const [category, setCategory] = React.useState<string | null>(() => readInitialParams().category);
-  const [year, setYear] = React.useState(() => readInitialParams().year);
-  const [status, setStatus] = React.useState(() => readInitialParams().status);
-  const [sort, setSort] = React.useState<SortKey>(() => readInitialParams().sort);
-  const [page, setPage] = React.useState(() => readInitialParams().page);
+  const [query, setQuery] = React.useState("");
+  const [category, setCategory] = React.useState<string | null>(null);
+  const [year, setYear] = React.useState("all");
+  const [status, setStatus] = React.useState("all");
+  const [sort, setSort] = React.useState<SortKey>("top");
+  const [page, setPage] = React.useState(1);
   const [loading, setLoading] = React.useState(true);
   const [online, setOnline] = React.useState(true);
   const [detail, setDetail] = React.useState<Startup | null>(null);
   const [addOpen, setAddOpen] = React.useState(false);
   const [addTab, setAddTab] = React.useState<"github" | "website">("github");
+  const [density, setDensity] = React.useState<DensityMode>("gallery");
+  const [cmdOpen, setCmdOpen] = React.useState(false);
   const unlocked = useAdminToken() !== null;
   const reduce = useReducedMotion();
+
+  // Deep-linked filters (?q=…&page=…) are applied AFTER mount. Reading them in
+  // useState initializers made the first client render disagree with the
+  // server prerender (hydration prop mismatch on the search input). State
+  // starts at server defaults; urlApplied gates the replaceState effect so it
+  // can't wipe the URL first. The setStates run in a microtask — the project's
+  // react-hooks rule forbids synchronous setState in effect bodies, and the
+  // microtask still fires before the browser can paint or navigate.
+  const [urlApplied, setUrlApplied] = React.useState(false);
+  React.useEffect(() => {
+    void Promise.resolve().then(() => {
+      const init = readInitialParams();
+      setQuery(init.query);
+      setCategory(init.category);
+      setYear(init.year);
+      setStatus(init.status);
+      setSort(init.sort);
+      setPage(init.page);
+      setUrlApplied(true);
+    });
+  }, []);
 
   // Header firms up after the page scrolls past a 1px sentinel (one
   // IntersectionObserver, not a second useScroll rig). No height change —
@@ -172,6 +212,11 @@ export default function HomePage() {
     void loadAll();
   }, [loadAll]);
 
+  // Stable identity for AdminPanel's onSeeded — an inline lambda here changed
+  // on every render and cascaded new callback identities into the admin
+  // polling chain (interval teardown, HealthCheckSection effect churn).
+  const handleSeeded = React.useCallback(() => void loadAll(), [loadAll]);
+
   // Debounced client-side search + facets (dataset is small — no backend round-trip per keystroke)
   const results = React.useMemo(() => {
     const filtered = filterStartups(startups, {
@@ -182,15 +227,20 @@ export default function HomePage() {
     });
     const searching = query.trim().length > 0;
     // While searching on the default sort, keep Fuse's relevance ranking (the
-    // exact-name match must rank #1 — see review finding #1); an explicit sort
-    // choice from the user is still honored over relevance.
+    // exact-name match must rank #1 — see review finding #1). The sort select
+    // mirrors this: it offers "Relevance" instead of "Top (stars)" (a no-op
+    // mapping), and picking any other sort key exits relevance mode.
     return searching && sort === "top" ? filtered : sortStartups(filtered, sort);
   }, [startups, query, category, year, status, sort]);
 
   const totalPages = Math.max(1, Math.ceil(results.length / PAGE_SIZE));
   // Clamp during render (no setState-in-effect): a URL page beyond the last page
-  // after filtering shows the last page while `page` state stays untouched.
-  const currentPage = Math.min(page, totalPages);
+  // after filtering shows the last page. While loading, keep the raw deep-linked
+  // page so ?page=5 survives the empty-results skeleton.
+  const currentPage = loading ? page : Math.min(page, totalPages);
+  // Self-heal `page` to the clamp (React's adjust-state-during-render): without
+  // it the stale value resurfaces when filters later widen totalPages again.
+  if (!loading && page !== currentPage) setPage(currentPage);
   const paged = React.useMemo(
     () => results.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
     [results, currentPage],
@@ -254,6 +304,9 @@ export default function HomePage() {
     });
     return [...set].sort((a, b) => b.localeCompare(a));
   }, [startups]);
+  // Self-heal a deep-linked ?year= that exists in no filing (stale link):
+  // a Select value with no matching item renders blank while looking active.
+  if (!loading && year !== "all" && !years.includes(year)) setYear("all");
 
   // Same-name filings (e.g. Bird filed twice — genuinely different companies
   // that share a name). The archive admits the overlap instead of hiding it.
@@ -293,9 +346,37 @@ export default function HomePage() {
     changeStatus("all");
   };
 
-  // Shareable, back-button-safe URL state: replaceState (never pushState — no history spam)
+  // Global keyboard shortcut: press "/" to focus the archive search input.
   React.useEffect(() => {
-    if (typeof window === "undefined") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (
+        e.key !== "/" ||
+        e.ctrlKey ||
+        e.metaKey ||
+        e.altKey ||
+        // Never yank focus behind an open modal/dialog: with a scroll-locked
+        // page the input is under the backdrop, and typing into an invisible
+        // field is exactly the failure this guard exists to prevent.
+        document.body.style.overflow === "hidden" ||
+        (e.target instanceof HTMLElement &&
+          ["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName))
+      )
+        return;
+      e.preventDefault();
+      const input = document.querySelector<HTMLInputElement>(
+        "input[aria-label='Search startups']",
+      );
+      input?.focus();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Shareable, back-button-safe URL state: replaceState (never pushState — no history spam).
+  // Gated on urlApplied so the first pass can't wipe a deep-linked ?q=… before
+  // the mount effect above has read it.
+  React.useEffect(() => {
+    if (typeof window === "undefined" || !urlApplied) return;
     const p = new URLSearchParams();
     if (query) p.set("q", query);
     if (category) p.set("category", category);
@@ -305,15 +386,17 @@ export default function HomePage() {
     if (currentPage > 1) p.set("page", String(currentPage));
     const qs = p.toString();
     window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
-  }, [query, category, year, status, sort, currentPage]);
+  }, [urlApplied, query, category, year, status, sort, currentPage]);
 
   const handleAdded = (entry: Startup) => {
     setStartups((prev) => {
+      // Null URLs must not match each other — a GitHub-only entry (null
+      // website_url) would otherwise evict every other null-website row.
       const without = prev.filter(
         (s) =>
           s.id !== entry.id &&
-          s.website_url !== entry.website_url &&
-          s.github_url !== entry.github_url,
+          (!entry.website_url || s.website_url !== entry.website_url) &&
+          (!entry.github_url || s.github_url !== entry.github_url),
       );
       return sortStartups([...without, entry]);
     });
@@ -364,6 +447,14 @@ export default function HomePage() {
 
   return (
     <div className="flex min-h-full flex-col">
+      {/* Accessible skip-link */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-3 focus:py-1.5 focus:text-xs focus:text-primary-foreground focus:shadow-lg focus:outline-hidden focus:ring-2 focus:ring-ring"
+      >
+        Skip to archival records
+      </a>
+
       {/* Header — frosted glass; firms up under scroll (data-scrolled) */}
       <header
         data-scrolled={scrolled || undefined}
@@ -399,6 +490,21 @@ export default function HomePage() {
                 ]}
               />
             )}
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={() => {
+                sound.playTick();
+                setCmdOpen(true);
+              }}
+              className="hidden sm:inline-flex h-8 gap-1.5 rounded-full px-3 text-xs font-mono cursor-pointer hover:border-primary/50"
+              title="Open Command Palette (Cmd+K)"
+            >
+              <Command className="size-3" />
+              <span>Search</span>
+              <kbd className="rounded border border-border/70 bg-muted px-1 py-0.2 text-[9px] text-muted-foreground">⌘K</kbd>
+            </Button>
+            <AudioToggle />
             <ThemeToggle />
           </div>
         </div>
@@ -431,21 +537,14 @@ export default function HomePage() {
         </div>
       )}
 
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-20">
-        {/* Hero */}
-        <section className="mx-auto max-w-3xl pb-10 pt-12 text-center">
-          <h1 className="font-display text-4xl font-bold tracking-tight sm:text-5xl">
-            A human-kept archive of what exists.
-          </h1>
-          <p
-            className="reveal mx-auto mt-3 max-w-[52ch] text-sm text-muted-foreground"
-            style={{ animationDelay: "60ms" }}
-          >
-            Search the archive — what they do, where they live, and whether they&rsquo;re still alive.
-            Kept by a human — checked one at a time.
-          </p>
+      <main id="main-content" className="mx-auto w-full max-w-6xl flex-1 px-4 pb-20">
+        {/* Kinetic Hero */}
+        <section className="mx-auto max-w-4xl pb-8 pt-6 text-center">
+          <KineticMasthead />
 
-          <div className="reveal mt-7" style={{ animationDelay: "140ms" }}>
+          <LiveTelemetryBar stats={stats} className="mt-4 mb-6" />
+
+          <div className="mt-2">
             <MorphingDiscoveryBar
               categories={discoveryCategories}
               value={category}
@@ -455,6 +554,20 @@ export default function HomePage() {
               totalCount={stats?.total}
             />
           </div>
+
+          {/* Magic UI Monospace Archival Ticker */}
+          <ArchivalTicker
+            items={startups.slice(0, 12).map((s) => ({
+              name: s.name,
+              category: s.category ? titleCase(s.category) : "FinTech",
+              vintage: s.founded ? s.founded.substring(0, 4) : "2021",
+              status: "verified" as const,
+            }))}
+            onSelectItem={(name) => {
+              changeQuery(name);
+            }}
+            className="mt-4 rounded-xl border border-border/40"
+          />
 
           {/* Freshness + trust — one muted ledger line under the bar (the bar
               itself carries the live count as "All 94"). Distilled from the
@@ -480,6 +593,16 @@ export default function HomePage() {
             </span>
           </div>
         </section>
+
+        {/* Exhibition Density & Filter Bar controls */}
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              Exhibition
+            </span>
+            <DensityToggle value={density} onChange={setDensity} />
+          </div>
+        </div>
 
         {/* Filter bar: count, founded-year, status, sort */}
         <FilterBar
@@ -527,13 +650,22 @@ export default function HomePage() {
           )}
         </AnimatePresence>
 
-        {/* Grid */}
+        {/* Grid or Ledger View */}
         {loading ? (
-          <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
-            {Array.from({ length: 12 }).map((_, i) => (
-              <CardSkeleton key={i} />
-            ))}
-          </div>
+          density === "ledger" ? (
+            <div className="flex flex-col gap-2">
+              <LedgerTableHeader />
+              {Array.from({ length: 12 }).map((_, i) => (
+                <LedgerRowSkeleton key={i} />
+              ))}
+            </div>
+          ) : (
+            <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
+              {Array.from({ length: 12 }).map((_, i) => (
+                <CardSkeleton key={i} />
+              ))}
+            </div>
+          )
         ) : selfQuery ? (
           <div className="glass mx-auto max-w-md rounded-2xl px-6 py-12 text-center">
             <ShieldCheck className="mx-auto h-8 w-8 text-success" />
@@ -550,36 +682,26 @@ export default function HomePage() {
             </div>
           </div>
         ) : paged.length === 0 ? (
-            <div className="glass mx-auto max-w-md rounded-2xl px-6 py-12 text-center">
-            <Building2 className="mx-auto h-8 w-8 text-muted-foreground" />
-            <h2 className="mt-3 text-sm font-bold">
-              {hasAnyFilter ? "Nothing in the archive matches." : "Nothing on file yet."}
-            </h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {hasAnyFilter
-                ? unlocked
-                  ? "Try widening the net — or file it yourself. The archive grows with every seed."
-                  : "Try widening the net — this archive is curated, so entries arrive by hand."
-                : unlocked
-                  ? "Either it doesn't exist — or you're about to be the first to file it."
-                  : "Nothing has been filed here yet."}
-            </p>
-            <div className="mt-4 flex flex-wrap justify-center gap-2">
-              {hasAnyFilter && (
-                <Button variant="outline" size="sm" onClick={clearFilters}>
-                  Clear filters
-                </Button>
-              )}
-              {unlocked && (
-                <Button size="sm" className="gap-1.5" onClick={() => setAddOpen(true)}>
-                  <Sparkles className="h-3.5 w-3.5" /> Add it to the archive
-                </Button>
-              )}
-            </div>
-          </div>
+          <EmptyState
+            title={hasAnyFilter ? "NO ARCHIVAL FILINGS MATCH CRITERIA" : "ARCHIVAL VAULT EMPTY"}
+            description={
+              hasAnyFilter
+                ? "The vault scanned all active and historical startups, but found zero records matching your active filters."
+                : "No entities have been filed in this partition yet."
+            }
+            onResetFilters={hasAnyFilter ? clearFilters : undefined}
+            onOpenSubmit={unlocked ? () => setAddOpen(true) : undefined}
+          />
         ) : (
           <>
-            <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
+            {density === "ledger" && <LedgerTableHeader />}
+            <div
+              className={
+                density === "ledger"
+                  ? "flex flex-col gap-2"
+                  : "grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]"
+              }
+            >
               {paged.map((s, i) => (
                 <div
                   key={s.id}
@@ -587,7 +709,7 @@ export default function HomePage() {
                   style={
                     {
                       "--i": i,
-                      "--deal-tilt": i % 2 === 0 ? "-0.7deg" : "0.7deg",
+                      "--deal-tilt": density === "ledger" ? "0deg" : i % 2 === 0 ? "-0.7deg" : "0.7deg",
                     } as React.CSSProperties
                   }
                 >
@@ -595,7 +717,9 @@ export default function HomePage() {
                     startup={s}
                     onStatusChange={handleStatusChange}
                     onDetails={setDetail}
+                    onSearchName={changeQuery}
                     filings={nameCounts.get(s.name) ?? 1}
+                    density={density}
                   />
                 </div>
               ))}
@@ -621,6 +745,20 @@ export default function HomePage() {
           onTabChange={setAddTab}
           onAdded={handleAdded}
         />
+
+        {/* Command Palette (Cmd+K / Ctrl+K) */}
+        <CommandPalette
+          open={cmdOpen}
+          onOpenChange={setCmdOpen}
+          startups={startups}
+          onSelectStartup={setDetail}
+          onToggleDensity={() => {
+            setDensity((d) => (d === "gallery" ? "ledger" : "gallery"));
+          }}
+          onToggleSound={() => {
+            sound.toggleMute();
+          }}
+        />
       </main>
 
       {/* Footer */}
@@ -633,13 +771,13 @@ export default function HomePage() {
               <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
             )}
             <span className="font-mono text-[11px] tabular-nums">
-              <CountUp value={stats?.total ?? 0} /> startups
+              <OdometerNumber value={stats?.total ?? 0} /> startups
             </span>
           </span>
           <span className="flex items-center gap-1">
             <ShieldCheck className="h-3.5 w-3.5" />
             <span className="font-mono text-[11px] tabular-nums">
-              <CountUp value={stats?.verified ?? 0} /> verified
+              <OdometerNumber value={stats?.verified ?? 0} /> verified
             </span>
           </span>
           <span
@@ -652,7 +790,7 @@ export default function HomePage() {
             No accounts. No tracking. Searches stay on this machine.
           </span>
           <div className="ml-auto flex items-center gap-1.5">
-            <AdminPanel onSeeded={() => void loadAll()} />
+            <AdminPanel onSeeded={handleSeeded} />
           </div>
         </div>
       </footer>

@@ -33,6 +33,14 @@ export function LenisProvider({ children }: { children: React.ReactNode }) {
     };
     rafId = requestAnimationFrame(raf);
 
+    // The archive mounts after first paint (skeleton → data), growing the
+    // document several-fold. Lenis measures its scroll limit at init and on
+    // window resize only — without this the wheel stalls at the skeleton's
+    // height (measured: limit frozen at ~1,091px while real content was
+    // 3,498px). Watch the body's size and re-measure on every change.
+    const ro = new ResizeObserver(() => lenis.resize());
+    ro.observe(document.body);
+
     // Sync with the body scroll-lock used by the modals.
     const sync = () => {
       const locked = document.body.style.overflow === "hidden";
@@ -46,6 +54,7 @@ export function LenisProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelAnimationFrame(rafId);
       observer.disconnect();
+      ro.disconnect();
       lenis.destroy();
       lenisRef.current = null;
     };

@@ -44,23 +44,33 @@ function ActiveDot({ active }: { active: boolean }) {
   return <span aria-hidden className="size-1 shrink-0 rounded-full bg-primary" />;
 }
 
-/** Per-facet clear-× — pointerdown-stopped so it never opens the select. */
+/** Per-facet clear-×. A <span role="button">, not a <button>: it renders
+    inside the SelectTrigger's combobox <button>, and button-in-button is
+    invalid HTML that breaks hydration. Keyboard parity via Enter/Space. */
 function FacetClear({ label, onClear }: { label: string; onClear: () => void }) {
   return (
-    <button
-      type="button"
+    <span
+      role="button"
+      tabIndex={0}
       aria-label={`Clear ${label}`}
       title={`Clear ${label}`}
       onPointerDown={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          e.stopPropagation();
+          onClear();
+        }
+      }}
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
         onClear();
       }}
-      className="flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      className="flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
     >
       <X className="h-2.5 w-2.5" />
-    </button>
+    </span>
   );
 }
 
@@ -93,10 +103,15 @@ export function FilterBar({
   // "Relevance"; choosing any other sort exits it (mapped back to "top").
   const relevanceActive = searching && sort === "top";
   const sortValue = relevanceActive ? RELEVANCE_VALUE : sort;
+  // "Top (stars)" maps back to the relevance default while a query is active,
+  // so offering it would be a silent no-op (picking it snaps the select back
+  // to Relevance). Hide it until the query clears and it means something.
   const sortOptions: { value: string; label: string }[] = relevanceActive
     ? [
         { value: RELEVANCE_VALUE, label: "Relevance" },
-        ...Object.entries(SORT_LABELS).map(([v, l]) => ({ value: v, label: l })),
+        ...Object.entries(SORT_LABELS)
+          .filter(([v]) => v !== "top")
+          .map(([v, l]) => ({ value: v, label: l })),
       ]
     : Object.entries(SORT_LABELS).map(([v, l]) => ({ value: v, label: l }));
 
@@ -128,7 +143,7 @@ export function FilterBar({
             <SelectValue placeholder="Founded year" />
             {year !== "all" && <FacetClear label="founded year filter" onClear={() => onYear("all")} />}
           </SelectTrigger>
-          <SelectContent position="popper" align="start">
+          <SelectContent position="popper" align="start" className="max-h-60 overflow-y-auto archival-scrollbar">
             <SelectItem value="all">All years</SelectItem>
             {years.map((y) => (
               <SelectItem key={y} value={y}>
@@ -137,7 +152,12 @@ export function FilterBar({
             ))}
           </SelectContent>
         </Select>
-        <Select value={status} onValueChange={onStatus}>
+        <Select
+          value={status}
+          onValueChange={(v) => {
+            onStatus(v);
+          }}
+        >
           <SelectTrigger
             className={cn(
               "glass h-8 w-32 rounded-full text-xs",
@@ -149,7 +169,7 @@ export function FilterBar({
             <SelectValue placeholder="Status" />
             {status !== "all" && <FacetClear label="status filter" onClear={() => onStatus("all")} />}
           </SelectTrigger>
-          <SelectContent position="popper" align="start">
+          <SelectContent position="popper" align="start" className="max-h-60 overflow-y-auto archival-scrollbar">
             {STATUS_OPTIONS.map((o) => (
               <SelectItem key={o.value} value={o.value}>
                 {o.label}
@@ -157,7 +177,12 @@ export function FilterBar({
             ))}
           </SelectContent>
         </Select>
-        <Select value={sortValue} onValueChange={(v) => onSort(v === RELEVANCE_VALUE ? "top" : (v as SortKey))}>
+        <Select
+          value={sortValue}
+          onValueChange={(v) => {
+            onSort(v === RELEVANCE_VALUE ? "top" : (v as SortKey));
+          }}
+        >
           <SelectTrigger
             className={cn(
               "glass h-8 w-36 rounded-full text-xs",
@@ -169,7 +194,7 @@ export function FilterBar({
             <SelectValue placeholder="Sort" />
             {!relevanceActive && sort !== "top" && <FacetClear label="sort" onClear={() => onSort("top")} />}
           </SelectTrigger>
-          <SelectContent position="popper" align="start">
+          <SelectContent position="popper" align="start" className="max-h-60 overflow-y-auto archival-scrollbar">
             {sortOptions.map((o) => (
               <SelectItem key={o.value} value={o.value}>
                 {o.label}

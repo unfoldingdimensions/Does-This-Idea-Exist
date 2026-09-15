@@ -6,24 +6,29 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const py = path.join(root, "backend", ".venv", "Scripts", "python.exe");
+// venv layout differs by platform: Scripts\python.exe (Windows) vs bin/python (POSIX).
+const py = [
+  path.join(root, "backend", ".venv", "Scripts", "python.exe"),
+  path.join(root, "backend", ".venv", "bin", "python"),
+].find((p) => existsSync(p));
 const frontend = path.join(root, "frontend");
 
 let failed = 0;
 
-function run(name, cmd, args, cwd) {
-  const r = spawnSync(cmd, args, { cwd, stdio: "inherit" });
+function run(name, cmd, args, cwd, opts = {}) {
+  const r = spawnSync(cmd, args, { cwd, stdio: "inherit", ...opts });
   console.log(`\n[${r.status === 0 ? "PASS" : "FAIL"}] ${name} (exit ${r.status})`);
   if (r.status !== 0) failed = 1;
 }
 
 // A missing venv otherwise surfaces as an opaque spawn ENOENT (or, worse, an
 // import error from a venv that exists but has no app deps installed).
-if (!existsSync(py)) {
+if (!py) {
+  const pyExe = process.platform === "win32" ? "Scripts\\python.exe" : "bin/python";
   console.error(
-    `\n[FAIL] backend venv missing at ${py}\n` +
+    `\n[FAIL] backend venv missing at backend/.venv\n` +
       `       python -m venv backend/.venv && ` +
-      `backend/.venv/Scripts/python.exe -m pip install -r backend/requirements.txt`,
+      `backend/.venv/${pyExe} -m pip install -r backend/requirements.txt`,
   );
   process.exit(1);
 }
@@ -36,8 +41,20 @@ run(
   ["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", path.join(root, "scripts", "sort-check.ts")],
   root,
 );
-// .cmd files can't spawn directly in Node — route through cmd.exe /c
-run("frontend lint + build", "cmd.exe", ["/d", "/s", "/c", "npm test"], frontend);
+// npm is npm.cmd on Windows, and .cmd shims can't spawn directly (post-CVE-2024-27980
+// Node rejects them without a shell) — a shell invocation resolves both platforms.
+// ALLOW_LOCALHOST_BUILD: next.config.ts refuses a prod build with localhost API/SITE
+// defaults; this test build is exactly that intentional local case.
+run("frontend lint + build", "npm", ["test"], frontend, {
+  shell: true,
+  env: { ...process.env, ALLOW_LOCALHOST_BUILD: "1" },
+});
+run(
+  "frontend e2e verification",
+  process.execPath,
+  [path.join(root, "scripts", "e2e-verify.mjs")],
+  root,
+);
 
 console.log(failed ? "\nRESULT: FAILURES PRESENT" : "\nRESULT: ALL PASS");
 process.exitCode = failed;

@@ -46,3 +46,33 @@ export function CardSkeleton() {
     </div>
   );
 }
+
+/**
+ * LedgerRowSkeleton — exact geometric match for the dense tabular Ledger row
+ * (h-12 / 48px), preserving zero Cumulative Layout Shift in Ledger view.
+ */
+export function LedgerRowSkeleton() {
+  return (
+    <div
+      aria-hidden
+      className="relative flex items-center justify-between gap-3 rounded-xl border border-border/40 bg-background/45 px-3.5 py-2.5 overflow-hidden"
+    >
+      <span className="pointer-events-none absolute inset-y-0 -left-1/2 w-1/2 animate-[skeleton-sweep_1.2s_ease-in-out_infinite] bg-gradient-to-r from-transparent via-foreground/5 to-transparent" />
+      <div className="flex items-center gap-3">
+        <div className="size-6 shrink-0 rounded-md bg-foreground/8" />
+        <div className="space-y-1">
+          <div className="h-3 w-28 rounded-full bg-foreground/8" />
+          <div className="h-2 w-36 rounded-full bg-foreground/6" />
+        </div>
+      </div>
+      <div className="hidden sm:flex items-center gap-2">
+        <div className="h-4 w-16 rounded-full bg-foreground/6" />
+        <div className="h-3 w-12 rounded-full bg-foreground/6" />
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="h-5 w-16 rounded-full bg-foreground/6" />
+        <div className="h-6 w-14 rounded-lg bg-foreground/6" />
+      </div>
+    </div>
+  );
+}

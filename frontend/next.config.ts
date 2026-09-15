@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { NextConfig } from "next";
 
 // Security headers (M3 fix, additive):
@@ -36,9 +37,47 @@ const securityHeaders = (): Array<{ source: string; headers: Array<{ key: string
   return [{ source: "/(.*)", headers }];
 };
 
+// NEXT_PUBLIC_* vars are inlined at build time. A production build without
+// them silently ships a frontend that fetches localhost:8020 and stamps
+// localhost:3023 into canonicals/OG/sitemap — wrecking the app and SEO with
+// no error anywhere. Fail the build loudly instead. Set ALLOW_LOCALHOST_BUILD=1
+// to intentionally cut a local prod build for testing.
+const assertProdEnv = (): void => {
+  if (process.env.NODE_ENV !== "production" || process.env.ALLOW_LOCALHOST_BUILD === "1") return;
+  const offenders: string[] = [];
+  const api = process.env.NEXT_PUBLIC_API_BASE;
+  const site = process.env.NEXT_PUBLIC_SITE_URL;
+  // new URL throws on a scheme-less value ("api.example.com"), which would
+  // surface as an opaque TypeError instead of the curated message below —
+  // so parse defensively and treat an unparseable value as an offender too.
+  const host = (v: string | undefined): string | null => {
+    if (!v) return null;
+    try {
+      return new URL(v).hostname;
+    } catch {
+      return "localhost"; // unparseable → fail the build like localhost does
+    }
+  };
+  if (!api || host(api) === "localhost") offenders.push("NEXT_PUBLIC_API_BASE");
+  if (!site || host(site) === "localhost") offenders.push("NEXT_PUBLIC_SITE_URL");
+  if (offenders.length > 0) {
+    throw new Error(
+      `Refusing production build: ${offenders.join(", ")} unset, malformed, or pointing at localhost. ` +
+        "These are inlined at build time — a build without them ships a broken app. " +
+        "Set them to the deployed origins with a scheme (see DEPLOYMENT.md), or set " +
+        "ALLOW_LOCALHOST_BUILD=1 to override for local testing.",
+    );
+  }
+};
+assertProdEnv();
+
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   headers: securityHeaders,
+  // The repo root has a wrapper package-lock.json (test runner only); without
+  // this Next guesses the wrong workspace root and warns about multiple
+  // lockfiles on every dev/build. The app's tracing root is the frontend dir.
+  outputFileTracingRoot: path.join(__dirname),
 };
 
 export default nextConfig;

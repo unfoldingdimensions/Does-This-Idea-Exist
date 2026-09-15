@@ -29,19 +29,34 @@ export function titleCase(value: string | null | undefined): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+/**
+ * Parse a backend timestamp into a Date, or null when unparseable.
+ *
+ * SQLite `datetime('now')` writes UTC as "YYYY-MM-DD HH:MM:SS" — a space-
+ * separated form `new Date()` reads as LOCAL time, shifting every derived
+ * label and sort by the viewer's UTC offset (wrong day near midnight). Only
+ * that exact DB-datetime shape gets normalized to ISO UTC; date-only
+ * ("2026-08-09") and year-only ("2020") strings already parse per spec and
+ * must pass through untouched.
+ */
+export function parseDbDate(iso: string | null | undefined): Date | null {
+  if (!iso) return null;
+  const s = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(iso) ? `${iso.replace(" ", "T")}Z` : iso;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 /** Full date for detail views: "2026-08-09" / ISO → "Aug 9, 2026"; null/empty → "—". */
 export function formatDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
+  const d = parseDbDate(iso);
+  if (!d) return "—";
   return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 }
 
 /** Short date for cards: omits the year when it's the current year ("Aug 9"). */
 export function shortDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
+  const d = parseDbDate(iso);
+  if (!d) return "—";
   const opts: Intl.DateTimeFormatOptions =
     d.getFullYear() === new Date().getFullYear()
       ? { month: "short", day: "numeric" }
@@ -49,11 +64,9 @@ export function shortDate(iso: string | null | undefined): string {
   return d.toLocaleDateString("en-US", opts);
 }
 
-/**
- * Deterministic hue (0–360) from a name — the Identicon pattern (GitHub, 2013):
- * faceless entries still get a stable color identity. Same name → same hue, always.
- */
-export function hueFromName(name: string): number {
+/** Deterministic hue (0–360) from a name — the Identicon pattern (GitHub, 2013):
+ * faceless entries still get a stable color identity. Same name → same hue, always. */
+function hueFromName(name: string): number {
   let h = 0;
   for (let i = 0; i < name.length; i++) {
     h = (h * 31 + name.charCodeAt(i)) >>> 0;

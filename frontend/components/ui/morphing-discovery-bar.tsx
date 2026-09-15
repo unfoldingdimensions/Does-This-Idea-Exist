@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef } from "react";
+import React, { useRef, useState } from "react";
 import { motion, AnimatePresence, LayoutGroup, useReducedMotion } from "motion/react";
 import { ChevronDown, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -25,8 +25,9 @@ export interface MorphingDiscoveryBarProps {
   className?: string;
 }
 
-/* ---------- Motion ---------- */
+/* ---------- Motion & Sound ---------- */
 import { EASE } from "@/lib/motion";
+import { sound } from "@/lib/sound-engine";
 
 /**
  * Discovery bar — always-visible search input + a compact category bar:
@@ -52,12 +53,33 @@ export const MorphingDiscoveryBar: React.FC<MorphingDiscoveryBarProps> = ({
   const morph = reduce
     ? { type: "tween" as const, duration: 0 }
     : { type: "tween" as const, ease: EASE, duration: 0.35 };
-  const chipsRef = useRef<HTMLDivElement>(null);
+  const [searchFocused, setSearchFocused] = useState(false);
+
+  // The parent debounces onQueryChange (~150ms) before committing to state.
+  // A controlled input bound straight to the debounced prop would revert
+  // typed text on ANY parent re-render inside that window (scroll sentinel,
+  // counts refresh…). Keep a local draft that updates immediately and re-syncs
+  // only when the committed query actually changes underneath it (React's
+  // adjust-state-during-render pattern for prop→state mirroring).
+  const [draft, setDraft] = useState(query);
+  const [lastQuery, setLastQuery] = useState(query);
+  if (query !== lastQuery) {
+    setLastQuery(query);
+    setDraft(query);
+  }
 
   // When the active chip changes (click or deep-linked URL), bring it into
   // view on the mobile scroll row so the morphing pill is never off-screen.
+  // Skipped on the mount pass: value starts null ("All" is active) and the
+  // smooth scrollIntoView there nudges the page scroll at load, fighting
+  // Lenis's own scroll position.
   const activeRef = useRef<HTMLButtonElement>(null);
+  const mountedRef = useRef(false);
   React.useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      return;
+    }
     if (activeRef.current) {
       activeRef.current.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
     }
@@ -149,31 +171,90 @@ export const MorphingDiscoveryBar: React.FC<MorphingDiscoveryBarProps> = ({
           <motion.div
             layout
             transition={morph}
-            className="relative flex h-11 w-full shrink-0 items-center gap-2 rounded-full bg-background/80 px-4 transition-shadow sm:w-64"
+            className="relative flex h-11 w-full shrink-0 items-center rounded-full bg-background/80 transition-shadow sm:w-64"
           >
+            {/* Animated focus glow ring + Focus Beam */}
+            <AnimatePresence>
+              {searchFocused && !reduce && (
+                <motion.span
+                  key="focus-glow"
+                  aria-hidden
+                  className="pointer-events-none absolute inset-0 rounded-full"
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ duration: 0.2, ease: EASE }}
+                  style={{
+                    // Both layers token-driven — the old literal navy glow was
+                    // invisible on the charcoal dark background.
+                    boxShadow: "0 0 0 2px var(--ring), 0 0 18px var(--search-glow)",
+                  }}
+                />
+              )}
+              {searchFocused && !reduce && (
+                <motion.span
+                  key="focus-beam"
+                  aria-hidden
+                  className="search-beam pointer-events-none absolute inset-0 rounded-full"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.25, ease: EASE }}
+                />
+              )}
+            </AnimatePresence>
             {/* The ring target is a plain (non-motion) wrapper that owns the
                 input: framer-motion's layout projection writes an inline
                 transparent box-shadow on motion elements, which would clobber
                 a ring on this pill. :focus-within on the wrapper matches when
-                the input inside it is focused. */}
-            <div className="search-focus-ring flex h-full w-full items-center gap-2 rounded-full">
+                the input inside it is focused. The pill's px-4 lives HERE so
+                the ring traces the pill's outer edge — on the motion.div it
+                would float a ring 16px inside the pill. */}
+            <div className="search-focus-ring flex h-full w-full items-center gap-2 rounded-full px-4">
               <Search size={16} strokeWidth={2.5} className="shrink-0 text-muted-foreground" />
               <input
                 aria-label="Search startups"
                 placeholder={placeholder}
                 className={cn(
-                  "h-full w-full bg-transparent font-mono text-sm font-medium text-foreground outline-none placeholder:text-muted-foreground",
-                  query && "pr-6",
+                  // text-base below md: iOS auto-zooms the page on focus of any
+                  // input under 16px; md:text-sm restores the compact size.
+                  "h-full w-full bg-transparent font-mono text-base font-medium text-foreground outline-none placeholder:text-muted-foreground md:text-sm",
+                  draft && "pr-6",
                 )}
-                value={query}
-                onChange={(e) => onQueryChange(e.target.value)}
+                value={draft}
+                onChange={(e) => {
+                  setDraft(e.target.value);
+                  onQueryChange(e.target.value);
+                }}
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => setSearchFocused(false)}
               />
-              {query && (
+              {/* Keyboard shortcut badge — fades out when typing */}
+              <AnimatePresence>
+                {!draft && !searchFocused && !reduce && (
+                  <motion.kbd
+                    key="kbd"
+                    aria-hidden
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.8 }}
+                    transition={{ duration: 0.15, ease: EASE }}
+                    className="pointer-events-none flex h-5 select-none items-center rounded border border-border/60 px-1.5 font-mono text-[10px] text-muted-foreground/70"
+                  >
+                    /
+                  </motion.kbd>
+                )}
+              </AnimatePresence>
+              {draft && (
                 <button
                   type="button"
                   aria-label="Clear search"
                   title="Clear search"
-                  onClick={() => onQueryChange("")}
+                  onClick={() => {
+                    sound.playTick();
+                    setDraft("");
+                    onQueryChange("");
+                  }}
                   className="absolute right-2.5 flex size-5 items-center justify-center rounded-full bg-muted text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 >
                   <X size={12} strokeWidth={2.5} />
@@ -185,10 +266,10 @@ export const MorphingDiscoveryBar: React.FC<MorphingDiscoveryBarProps> = ({
           {/* Category bar — All + top 3 inline, "More" opens the rest.
               Mobile keeps a horizontal scroll fallback for very narrow rows. */}
           <motion.div
-            ref={chipsRef}
             layout
             transition={morph}
             onWheel={onChipsWheel}
+            data-lenis-prevent
             className="chip-scroll flex w-full min-w-0 flex-1 flex-nowrap items-center gap-0.5 overflow-x-auto py-0.5"
           >
             {visibleChips.map((cat) => {
@@ -199,8 +280,13 @@ export const MorphingDiscoveryBar: React.FC<MorphingDiscoveryBarProps> = ({
                   type="button"
                   layout
                   ref={active ? activeRef : undefined}
-                  onClick={() => onCategoryChange(cat.id === "__all" ? null : cat.id)}
+                  onClick={() => {
+                    sound.playTick();
+                    onCategoryChange(cat.id === "__all" ? null : cat.id);
+                  }}
                   aria-pressed={active}
+                  whileTap={reduce ? undefined : { scale: 0.93 }}
+                  transition={{ type: "spring", stiffness: 500, damping: 28 }}
                   className={cn(
                     "relative z-0 flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-2 text-xs font-semibold transition-colors sm:px-3.5",
                     active ? "text-primary-foreground" : "text-foreground hover:bg-accent/60",
@@ -224,7 +310,9 @@ export const MorphingDiscoveryBar: React.FC<MorphingDiscoveryBarProps> = ({
                     <span
                       className={cn(
                         "text-[10px] tabular-nums",
-                        active ? "text-primary-foreground/70" : "text-muted-foreground",
+                        // /90 not /70 — the count carries data; /70 dipped
+                        // below AA at this size.
+                        active ? "text-primary-foreground/90" : "text-muted-foreground",
                       )}
                     >
                       {cat.count}
@@ -260,6 +348,7 @@ export const MorphingDiscoveryBar: React.FC<MorphingDiscoveryBarProps> = ({
                 <AnimatePresence initial={false}>
                   {activeInMore && (
                     <motion.span
+                      layoutId="discovery-pill-bg"
                       className="absolute inset-0 z-[-1] rounded-full bg-primary shadow-sm"
                       transition={morph}
                       initial={{ opacity: 0, scale: 0.92 }}
@@ -283,9 +372,10 @@ export const MorphingDiscoveryBar: React.FC<MorphingDiscoveryBarProps> = ({
                   <motion.div
                     key="more-dropdown"
                     ref={dropdownRef}
-                    initial={reduce ? false : { opacity: 0, y: -6, scale: 0.97, filter: "blur(3px)" }}
-                    animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
-                    exit={{ opacity: 0, y: -4, scale: 0.97, filter: "blur(3px)" }}
+                    data-lenis-prevent
+                    initial={reduce ? false : { opacity: 0, y: -6, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -4, scale: 0.97 }}
                     transition={reduce ? { duration: 0 } : { type: "tween", ease: EASE, duration: 0.18 }}
                     className="glass-strong absolute right-0 top-full z-20 mt-2 max-h-80 w-56 origin-top-right overflow-y-auto rounded-2xl p-1.5"
                   >

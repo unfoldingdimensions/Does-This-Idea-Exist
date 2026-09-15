@@ -119,7 +119,9 @@ def _maybe_auto_verify() -> None:
 app = FastAPI(title="IdeaExists API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[config.FRONTEND_ORIGIN],
+    # FRONTEND_ORIGIN may be a comma-separated list (e.g. both the
+    # localhost: and 127.0.0.1: spellings of the dev frontend).
+    allow_origins=[o.strip() for o in config.FRONTEND_ORIGIN.split(",") if o.strip()],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -231,7 +233,12 @@ def require_admin(request: Request, x_admin_token: str | None = Header(default=N
     token is throttled to a crawl."""
     if not config.ADMIN_TOKEN:
         raise HTTPException(403, "Admin disabled — set ADMIN_TOKEN in backend/.env")
-    if not x_admin_token or not hmac.compare_digest(x_admin_token, config.ADMIN_TOKEN):
+    # compare_digest requires ASCII-only str inputs — Starlette decodes header
+    # bytes as latin-1, so a non-ASCII token would raise TypeError (500)
+    # instead of the intended 403. Compare as bytes.
+    supplied = (x_admin_token or "").encode("utf-8", "surrogateescape")
+    expected = config.ADMIN_TOKEN.encode("utf-8")
+    if not x_admin_token or not hmac.compare_digest(supplied, expected):
         _note_failed_auth(request)
         raise HTTPException(403, "Invalid admin token")
 

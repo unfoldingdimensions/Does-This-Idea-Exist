@@ -3,7 +3,7 @@
 import * as React from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { tween } from "@/lib/motion";
+import { tween, EASE } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 /**
@@ -19,8 +19,6 @@ export interface ContinuousPaginationProps {
   totalPages: number;
   onPageChange: (page: number) => void;
 }
-
-import { EASE } from "@/lib/motion";
 
 /** Windowed page list: 1 … (p-1) p (p+1) … total — never more than ~7 buttons. */
 function pageWindow(page: number, totalPages: number): (number | "…")[] {

@@ -1,12 +1,18 @@
 // 320px reflow check via CDP Emulation.setDeviceMetricsOverride (headless Chrome)
 // Usage: node reflow-check.mjs <url> [width]
-const url = process.argv[2] || "http://localhost:3024/";
+const url = process.argv[2] || "http://localhost:3023/";
 const width = parseInt(process.argv[3] || "320", 10);
 
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 
-const chromePath = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+// CHROME_PATH overrides; otherwise the per-platform default. Linux relies on
+// PATH resolution (google-chrome / chromium symlinked as one of the two).
+const chromePath =
+  process.env.CHROME_PATH ||
+  (process.platform === "win32" && "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe") ||
+  (process.platform === "darwin" && "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome") ||
+  "google-chrome";
 const port = 9333;
 const chrome = spawn(chromePath, [
   "--headless=new", "--no-sandbox", "--disable-gpu",
