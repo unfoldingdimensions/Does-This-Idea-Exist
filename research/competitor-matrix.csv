@@ -1,0 +1,60 @@
+player,segment,positioning,core_capability,pricing_model,target_founder_profile,evidence_link
+IdeaProof,A Validator,Free 120-second AI idea score,Idea scoring across 50+ criteria,Freemium (paid tiers not published),Pre-launch indie founder,https://ideaproof.io/
+DimeADozen,A Validator,"""No subscription"" report depth",Credit-based validation reports,One-time $9 / $129 / $179,Founder wanting a written report,https://www.dimeadozen.ai/pricing
+ValidatorAI,A Validator,Behavioural-data validation,Idea generate + validate,not published,Earliest-stage founder,https://validatorai.com/
+Preuve AI,A Validator,Real data vs AI content,Validation + comparison hub,Free scan + $29 one-time,Data-sceptical founder,https://preuve.ai/compare
+ScribeAI,A Validator,AI co-founder + research,Viability report + competitor discovery,Free plan + from $59/report,Solo founder,https://usescribeai.com/compare/dimeadozen
+StartupConcept.ai,A Validator,Cheap report bundle,3 reports with forecasts,$19.99 / 3 reports,Idea-stage founder,https://startupconcept.ai/pricing
+FounderSpace,A Validator,"Pay-as-you-go, no subscription",Idea validation credits,Pay-as-you-go credits,Sub-averse founder,https://www.founderspace.work/pricing
+BigIdeasDB,A Validator,1M+ data points,Idea DB + market-gap scores,Pro $199.99 lifetime [ASSUMPTION],Micro-SaaS builder,https://bigideasdb.com/
+IdeaBrowser,A Validator,Free daily ideas → full intel,Idea feed + AI research,Freemium (tiers not published),Indie founder wanting ideas,https://www.ideabrowser.com/pricing
+Startups.RIP,A Validator,"""Dead YC startups, alive ideas""","1,700+/5,700+ post-mortems + rebuild plans",not published,Founder reviving a failed idea,https://startups.rip/
+Loot Drop,A Validator,"""The startup graveyard""","1,749 failed startups + burn data",Free,Founder/investor mining failures,https://www.loot-drop.io/
+Failory,A Validator,"""90% of startups fail""","+400 failed startups, interviews",Free content,Founder studying failure,https://www.failory.com/cemetery
+AlternativeTo,B Alternatives,Crowd-sourced alternatives,Alternatives discovery + votes,Free,Software switcher,https://alternativeto.net/
+OpenSourceAlternative.to,B Alternatives,"""World's largest OSS directory""",500+ OSS alternatives,Free,Privacy/cost-conscious dev,https://www.opensourcealternative.to/
+Alternative.me,B Alternatives,Alternatives comparisons,"""Alternative to X"" pages",Free,General switcher,https://alternative.me/stackshare
+StackShare,B Alternatives,Largest dev-community tool graph,Tech-stack sharing + compare,Free for devs; vendor not published,Engineer choosing tools,https://stackshare.io/about
+G2,B Directories,Review-led B2B discovery; acquiring Capterra/GetApp/Software Advice,1.2M+ reviews; buying Gartner's directory trio,"Vendor ~$2,999/yr",B2B buyer/vendor,https://www.g2.com/compare/capterra-vs-g2
+Capterra,B Directories,SMB software discovery,Review-led software finder,Vendor PPC ~$500/mo min,SMB software buyer,https://blastra.io/blog/g2-capterra-vendor-pricing-compared/
+GetApp,B Directories,Software finder (Gartner),Review-led discovery,not published,SMB buyer,https://company.g2.com/news/g2-acquires-capterra-software-advice-getapp
+Software Advice,B Directories,Guided software advice,Comparison + advisors,not published,SMB buyer,https://www.prnewswire.com/news-releases/g2-to-acquire-capterra-software-advice-and-getapp-from-gartner-302673901.html
+TrustRadius,B Directories,In-depth long-form reviews,B2B review platform (~12M visitors),not published,Enterprise buyer/vendor,https://www.trustradius.com/products/software-advice/competitors
+Crunchbase,C Databases,Private-company data + AI predictions,4M+ companies; funding insights,Free; Pro $49/mo annual ($99 monthly); Business ~$199/mo,Investor/sales researcher,https://about.crunchbase.com/products/crunchbase-pro
+PitchBook,C Databases,Best private-market data,VC/PE deal data,not published (enterprise),Institutional investor,https://pitchbook.com/
+CB Insights,C Databases,Market intelligence on private cos,Company/trend tracking,~$50k+/yr [ASSUMPTION],Corp strategy/VC,https://reply.io/blog/pitchbook-alternatives/
+Tracxn,C Databases,Lower-cost private-market data,Sector/geo company tracking,not published,Investors/research,https://www.trustradius.com/compare-products/pitchbook-vs-tracxn
+Dealroom,C Databases,Startup/VC data platform,Funding + ecosystem data,not published,VC/econ-dev,https://tracxn.com/d/companies/cb-insights/__AjUMmA68X1adTPWe5P_SKYCvufUss_JxPt1ktcmscnM
+Wellfound,C/D Databases+Launch,Startup talent marketplace,"10M+ candidates / 27,000+ cos",Free to post; paid recruiting tiers,Founder hiring,https://wellfound.com/about
+F6S,C Databases,Startup programs + perks,"Profiles, accelerators, perks",Free,Early startup seeking programs,https://www.f6s.com/company/wellfound
+Owler,C Databases,Competitor + company intel,Company profiles/alerts,Free; Pro ~$39/user/mo,Sales/analyst,https://pipeline.zoominfo.com/sales/owler-review
+ZoomInfo,C Databases,GTM data platform,"Company/contact data, intent","not public; ~$14,995/yr tier [ASSUMPTION]",B2B sales org,https://www.enginy.ai/blog/zoominfo-pricing
+Product Hunt,D Launch,"Best new products, daily",Daily launch + upvote discovery,Free to launch,Maker launching,https://www.producthunt.com/
+BetaList,D Launch,Pre-launch startup showcase,Curated pre-launch directory,Free + paid featured tiers,Pre-launch founder,https://smollaunch.com/alternatives/indie-hackers
+TinyLaunch,D Launch,Backlinks + badges for makers,Lightweight launch platform,Free submission; paid service not published,Indie maker,https://www.tinylaunch.com/
+MicroLaunch,D Launch,"""Submit to 150+ directories""",Launch + bulk submission,From £99 (submission); listing free,Indie maker,https://microlaunch.net/p/submit
+Peerlist,D Launch,Proof-of-work professional network,Launchpad + network,Free core; paid promo not published,Engineer/maker,https://peerlist.io/lipkovskiy/articles/5-more-free-platforms-besides-product-hunt-to-showcase-your-
+DevHunt,D Launch,Dev-tool launch platform,PH-style launches for dev tools,Free [ASSUMPTION],Dev-tool maker,https://getlaunchlist.com/blog/where-to-launch-your-startup
+Hacker News,D Launch,Tech community + Show HN,Link/launch community,Free,Technical founder,https://news.ycombinator.com/item?id=44881440
+Indie Hackers,D Launch,Learn from profitable businesses,Community + interviews,Free,Bootstrapped founder,https://www.indiehackers.com/about
+There's An AI For That,E AI dirs,"""#1 AI directory""","~47,400 listed AI tools",Free browse; listing fees not published,AI tool seeker/vendor,https://theresanaiforthat.com/leaderboard/
+Futurepedia,E AI dirs,"""World's first AI tool directory""","4,000+ tools; 500k+ accounts",Free browse; paid tiers not published,AI tool seeker/vendor,https://www.futurepedia.io/
+Toolify,E AI dirs,Massive AI catalog,"22,000+ tools / 230+ categories",Free browse; listing fees not published,AI tool seeker/vendor,https://www.radiustheme.com/best-ai-tool-directories/
+FutureTools,E AI dirs,Curated AI tools + newsletter,"4,000+ tools; 250k+ subscribers",Free submission,AI tool seeker/vendor,https://futuretools.io/
+AI Tools Directory,E AI dirs,"""World's best curated list""",Curated AI tool list,not published,AI tool seeker/vendor,https://aitoolsdirectory.com/
+Crayon,F CI/Research,Real-time competitive intel,Competitor monitoring + battlecards,~$15–16k/yr; scales by competitors,Product-marketing/sales,https://www.crayon.co/
+Klue,F CI/Research,"Sales-first CI, per-user pricing",Competitor tracking + win-loss,~$15–16k/yr,Sales enablement,https://klue.com/klue-vs-crayon
+Kompyte,F CI/Research,Automated competitor tracking,Monitoring + battlecards,not published (CI range $15k–$100k/yr),Product marketing,https://www.kompyte.com/blog/top-competitive-intelligence-tools
+Semrush,F CI/Research,Brand visibility across AI/SEO/PPC,Keyword + competitor + AI search,From ~$139.95/mo,Marketer/growth,https://www.semrush.com/
+Similarweb,F CI/Research,Traffic intelligence,Website/app traffic panel,From ~$149/mo (~$125/mo annual),Marketer/investor,https://www.demandsage.com/similarweb-vs-semrush/
+Ahrefs,F CI/Research,SEO/backlink research,Keywords + backlinks,From ~$129/mo,SEO/content,https://ampifire.com/blog/semrush-vs-ahrefs-vs-similarweb-for-keyword-research-reviews-pricing/
+Exploding Topics,F CI/Research,"""Discover the hottest new trends""",Trend detection,From ~$39/mo,Founder/investor,https://explodingtopics.com/
+Glimpse,F CI/Research,"""Discover trends before they're trending""",Topic trend tracking,~$49–$140/mo,Founder/researcher,https://meetglimpse.com/
+awesome-selfhosted,G Community,Canonical self-host list,Curated OSS directory,Free,Self-hoster/dev,https://github.com/awesome-selfhosted/awesome-selfhosted
+selfh.st,G Community,Self-hosted apps directory,Searchable app directory,Free,Homelabber,https://selfh.st/apps/
+Up For Grabs,G Community,Find OSS to contribute to,Beginner-issue directory,Free,New contributor,https://up-for-grabs.net/
+made-in-iran,G Community,"""Projects made in Iran""",Regional curated list,Free,Local dev community,https://github.com/topics/curated-list
+GitHub awesome-lists,G Community,Hub of community curation,Meta-list of awesome lists,Free,Developer/curator,https://github.com/topics/awesome-lists
+Google Search / Trends,H Status quo,The default reflex,Web search + demand trends,Free,Everyone,https://trends.google.com/
+ChatGPT,H Status quo,"Founders ""attack"" ideas with AI",General LLM research,Free + paid (not published),Founder/researcher,https://www.inc.com/diana-bocco/ai-claude-chatgpt-stress-test-startup-idea/91363659
+Perplexity,H Status quo,Cited AI answer engine,AI research with citations,Free + paid (not published),Founder/researcher,https://www.userintuition.ai/posts/best-competitive-intelligence-platforms/
