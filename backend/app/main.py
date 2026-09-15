@@ -34,7 +34,7 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 
-from . import capture, compare as compare_mod, db, enrich, founder, seeder, verify  # noqa: E402
+from . import capture, compare as compare_mod, db, enrich, founder, search as search_mod, seeder, verify  # noqa: E402
 
 log = logging.getLogger("ideasexist")
 
@@ -534,6 +534,56 @@ def list_startups(
         return [dict(r) for r in conn.execute(sql, params).fetchall()]
     finally:
         conn.close()
+
+
+@app.get("/api/search")
+def search(
+    q: str | None = Query(
+        default=None,
+        description="free-text query; split into words, all of which must match",
+    ),
+    limit: int = Query(LIST_LIMIT_DEFAULT, ge=1, le=LIST_LIMIT_MAX),
+) -> list[dict]:
+    """Classified search with a per-result reason (F-18).
+
+    The server-side escape hatch for the client-side Fuse path (which stays as
+    it is — Phase 6 switches to this endpoint without changing what a user
+    sees). Ordered by the plan's ladder: exact name → exact domain →
+    phrase/name → tagline → problem-description → category/keyword → fuzzy,
+    with dead/pivoted rows last and stars as a tie-break only. See
+    `app/search.py` for the ladder's mapping onto the columns that exist today,
+    the frozen reason vocabulary and the divergences from lib/search.ts.
+
+    EMPTY-QUERY CONTRACT (documented + tested): a missing, blank, whitespace-only
+    or punctuation-only `q` (`%`, `_`) returns 200 with an EMPTY list. It is not
+    an error (the UI clears the box without a banner), it is never the whole
+    archive, and it is not an accident of a LIKE '%%' — the query is split into
+    word terms and a query with no terms has nothing to match. A distinct 4xx
+    was the alternative; the empty shape was chosen so "no query" and "no
+    matches" are the same, harmless state for a live search box.
+
+    LIKE-ESCAPE: this route builds no SQL at all, so a metacharacter cannot
+    become a wildcard by construction. `/api/startups` keeps its own
+    `_like_escape` (that path still uses LIKE) and is untouched.
+
+    PURE READ: unlike `/api/compare`, a search never triggers the JIT capture
+    (F-22). It reads stored data only — a search that fetched pages and called
+    the LLM would be slow, non-deterministic and expensive on every keystroke.
+
+    ponytail: linear scan in Python (app.search). Pleasant to ~3,000 rows, the
+    same knee as the client path (LIST_LIMIT_DEFAULT); FTS5 + bm25 is the next
+    step when the archive outgrows it, not a bigger scan.
+    """
+    if not search_mod.query_terms(q):
+        return []  # the documented empty-query contract
+    conn = db.connect()
+    try:
+        rows = [dict(r) for r in conn.execute("SELECT * FROM startups").fetchall()]
+    finally:
+        conn.close()
+    # Archive rows only — the founder store is a different file and is never
+    # read here (F-20).
+    return search_mod.rank(rows, q, limit=limit)
 
 
 @app.get("/api/categories")
