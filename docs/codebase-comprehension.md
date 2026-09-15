@@ -6,6 +6,8 @@
 
 > **Phase 1 note (2026-09-15):** this document was prepared on 2026-09-14 and describes the pre-Phase-1 codebase. Phase 1 (F-01–F-05, F-19) added the teardown columns and the `evidence` table, removed the `verify_log` retention sweep, and introduced `provenance` / `date_source`. The affected passages are corrected inline below and marked. Everything else still holds.
 
+> **Phase 2 note (2026-09-15):** Phase 2 (F-06–F-14, F-20, F-22–F-24) added the teardown pipeline — a page plan (`app/pages.py`), a second LLM prompt (`llm_teardown`), `app/teardown.py`, `app/evidence.py`, `app/negatives.py`, `app/reviews.py`, the just-in-time capture (`app/capture.py`) and the founder's own store (`app/founder.py` + `FOUNDER_DB_PATH`). The backend gained seven modules and thirteen endpoints; the archive schema did not change. The affected passages are corrected inline below and marked.
+
 This document exists so a reader who has never opened the repo can describe, accurately, what the product is, how it is built, what it actually does today, and where the founder-facing value sits in the code.
 
 ---
@@ -30,18 +32,25 @@ There is **no hosted multi-tenant version**. The backend is a single-owner servi
 
 ```
 backend/
-  app/            the whole server (10 modules, ~1,600 LOC of hand-written Python)
+  app/            the whole server (17 modules, ~3,700 LOC of hand-written Python)
     config.py     env-driven settings, validated at boot
-    db.py         schema v1 + connection + URL identity normalisation
+    db.py         schema v1 + connection + URL identity normalisation + table_ddl
     main.py       FastAPI app, all routes, admin gate, rate limiting, auto-verify
-    seeder.py     job queues + workers, batch sources, job persistence/recovery
+    seeder.py     job queues + workers (seed / verify / capture), batch sources, job persistence
     verify.py     the liveness pass + the human-approval queue
-    enrich.py     seed orchestration, LLM output bounding, upsert
+    enrich.py     seed orchestration, LLM output bounding, upsert, the website draft primitive
     github.py     GitHub REST client
     website.py    homepage fetch, text extraction, Wayback + RDAP date lookups
-    llm.py        OpenAI-compatible chat client for profile drafting
+    llm.py        OpenAI-compatible chat client: the identity prompt AND the teardown prompt
     netguard.py   SSRF guard + size-capped GET
-  data/           ideasexist.db (git-ignored) + bundled seed lists + backups
+    pages.py      the page plan: homepage + /pricing + /docs, each with an explicit read state (Phase 2)
+    teardown.py   bounds + writes features / pricing / positioning (Phase 2)
+    evidence.py   the only evidence writer — no source, no row (Phase 2)
+    negatives.py  the strict "doesn't do" rule: deterministic probes first, LLM second (Phase 2)
+    reviews.py    what their users ask for — never a score (Phase 2)
+    capture.py    just-in-time teardown capture, 7-day window, one job per competitor (Phase 2)
+    founder.py    the founder's own store + the two gates + the submission lifecycle (Phase 2)
+  data/           ideasexist.db (git-ignored) + founder.db (its own store) + seed lists + backups
   scripts/        merge_duplicates.py, restore_false_dead.py (operator tools)
   tests/smoke.py  in-process test suite (~900 lines, no network)
 frontend/
@@ -58,7 +67,7 @@ Everything else at the root is documentation (`PRODUCT.md`, `DESIGN.md`, `README
 
 ---
 
-## 3. Data model — four tables *(was three before Phase 1)*
+## 3. Data model — four tables in the archive, two more in the founder store *(four from Phase 1)*
 
 `backend/app/db.py` creates the entire schema. **Phase 1 (F-01) added a migration path:** `init_db()` now runs `executescript(SCHEMA)` (the full schema, `CREATE … IF NOT EXISTS`, for a fresh DB) **and** `db.migrate(conn)`, which adds any missing columns from `NEW_STARTUP_COLUMNS` to an existing database. That one tuple feeds both paths, so a fresh DB and an upgraded one cannot drift apart; `migrate()` is idempotent by construction (`PRAGMA table_info` decides what is missing) and the rule still holds: **additive changes only** — no `DROP`, no `RENAME`, no row rewrite.
 
@@ -70,10 +79,15 @@ Two unique indexes: `lower(website_url)` and `lower(github_url)`.
 `id, startup_id, checked_at, website_ok, github_ok, notes`. Written once per entry per verification pass. **Phase 1 (F-03): the audit trail is permanent** — the 90-day retention sweep that used to sit at the end of `run_verify_job` is gone, and the pass only ever inserts.
 
 ### `evidence` (one row per claim) — added in Phase 1 (F-02)
-`id, startup_id, evidence_type, source_url, captured_at, claim, value, provenance, confidence, reviewed_at`. `source_url` and `captured_at` are **NOT NULL** — evidence without a source is not evidence, and the DB is the last line of defence behind the API's checks. `evidence_type` values: `feature` · `pricing` · `positioning` · `negative` · `review` · `repo_created` · `homepage_claim` · `wayback_first` · `reachability` · `curator_confirmation`. Indexed on `startup_id`. Phase 2 is what starts writing rows here.
+`id, startup_id, evidence_type, source_url, captured_at, claim, value, provenance, confidence, reviewed_at`. `source_url` and `captured_at` are **NOT NULL** — evidence without a source is not evidence, and the DB is the last line of defence behind the API's checks. `evidence_type` values: `feature` · `pricing` · `positioning` · `negative` · `review` · `repo_created` · `homepage_claim` · `wayback_first` · `reachability` · `curator_confirmation`. Indexed on `startup_id`. **Phase 2 is what writes rows here** — `app/evidence.py` is the only writer, and it refuses a source-less claim by construction. The freshest teardown row is also what the JIT capture's 7-day freshness window is measured against.
 
 ### `jobs` (job history that survives restarts)
-19 columns: identity, `kind`, `source`, `params_json`, counters, `errors_json`, `ok_urls_json`, `skipped_urls_json`, timestamps, `breakdown_json`, `result_json`. The in-memory `JOBS` dict in `seeder.py` is mirrored here on every state change.
+19 columns: identity, `kind`, `source`, `params_json`, counters, `errors_json`, `ok_urls_json`, `skipped_urls_json`, timestamps, `breakdown_json`, `result_json`. The in-memory `JOBS` dict in `seeder.py` is mirrored here on every state change. **Phase 2 added a third kind, `capture`** (the just-in-time teardown capture), on its own worker.
+
+### The founder store — a second database (Phase 2, F-10 / F-20 / F-24)
+`config.FOUNDER_DB_PATH` (default `backend/data/founder.db`) is its own SQLite file with two tables, and **no archive endpoint ever reads it** — that separation is the property the split exists for:
+- `founder_apps` — the founder's own record, the **same column shape as `startups`** (both built from `db.table_ddl`), plus three bookkeeping columns (`source_kind`, `input_json`, `confirmed_at`) so the gap table can diff the two records like for like.
+- `founder_submissions` — `id, founder_app_id, submitted_at, status (pending|approved|rejected|withdrawn), archive_startup_id, decided_at, decided_by, note`. `archive_status` is **derived** from the newest row (`local_only` when there are none) rather than stored on the founder record, and a resubmission after a rejection is a NEW row, so rejected → resubmitted → approved stays auditable.
 
 ### Live data facts (queried from `backend/data/ideasexist.db`, 2026-09-14)
 
@@ -122,15 +136,19 @@ Importing `seeder` starts two daemon threads (`seeder.py:427-428`): the **seed w
 ### 4.2 HTTP surface
 **Public reads (no token):**
 - `GET /api/health`, `GET /api/categories`, `GET /api/stats`
+- `GET /api/founder-app/{id}` — the founder's own draft plus both gates and the derived `archive_status` (Phase 2; reads the founder store, never the archive).
 - `GET /api/startups` — the whole archive as one JSON array. Server accepts `?q=`, `?category=`, `?limit=`, `?offset=` but the frontend uses none of them for filtering; it pulls everything and filters client-side. Default limit **3,000**, max 5,000 (`main.py:LIST_LIMIT_DEFAULT`). Truncation returns HTTP 200 with a short body — the frontend detects it by comparing against `/api/stats`.
 
 **Owner-gated reads (`X-Admin-Token`):**
 - `GET /api/admin/check`, `/api/admin/seed/jobs`, `/api/admin/seed/status/{id}`, `/api/admin/verify/suggested`, `/api/admin/verify/status/{id}`, `/api/admin/verify/current`
+- **Phase 2:** `GET /api/admin/founder/submissions` (pending publish requests) and `GET /api/admin/capture/status/{job_id}`. `verify/suggested` now **unions** the archive's suggested rows with the founder store's pending submissions (F-24) — a submission in another file would not appear there otherwise. There is deliberately **no public capture-job endpoint**: a job payload carries error strings and fetched URLs.
 
 **Mutations (token required because `MUTATION_AUTH` defaults on):**
 - `POST /api/seed/github`, `/api/seed/website`, `/api/verify/run`
 - `POST /api/startups/{id}/verify|unverify|dead`
 - `POST /api/admin/seed`, `POST /api/admin/verify/approve`
+- **Phase 2, founder app (deliberately NOT admin-gated — the path cannot write the archive):** `POST /api/founder-app` (URL / form / agent-JSON), `POST /api/founder-app/{id}/confirm`, `POST /api/founder-app/{id}/publish`.
+- **Phase 2, admin:** `POST /api/admin/founder/submissions/{id}/approve|reject`, `POST /api/admin/capture/{startup_id}`.
 
 ### 4.3 Security layer (all in `main.py` + `netguard.py`)
 - `require_admin` (`main.py:230`) — HMAC constant-time compare, compared as **bytes** so a non-ASCII header 403s instead of raising.
@@ -148,6 +166,15 @@ Importing `seeder` starts two daemon threads (`seeder.py:427-428`): the **seed w
 - `_upsert` returns `_inserted`, and a unique-index collision becomes a clear `ValueError` (→ HTTP 400) rather than a raw 502.
 
 `github.py` is a thin REST client with explicit 404 (gone) vs 403/429 (rate-limited) semantics. `website.py` extracts homepage text with a stdlib `HTMLParser`, reads `<title>`/meta description with regexes, resolves `<title>`-less names from the URL, and derives `founded` from **LLM → Wayback CDX first-200 snapshot → RDAP domain registration** — in that order. `llm.py` is an OpenAI-compatible chat client tuned for a reasoning model (8,000 max tokens, 180 s timeout, one retry, tolerant JSON parsing).
+
+**Phase 2 — the teardown is not the seed.** Capturing a competitor's teardown is a separate, just-in-time path that never runs on seed or on approval:
+
+- `pages.fetch_pages` fetches the **page plan** — homepage, `/pricing`, `/docs` — each through `netguard.safe_get`, and reports one of three explicit states per page: `readable`, `unreadable` (404/403/429/empty shell) or `not_fetched`. "Unreadable" is never collapsed into "no page": that collapse is the easiest way to fake a negative.
+- `llm.llm_teardown` is a **second prompt**, passed explicitly to the same client; `SYSTEM_PROMPT` (the identity profile) is untouched because the GitHub path shares it and has no pricing page to read.
+- `teardown.clean_teardown` bounds the reply before it touches SQLite: features 5–10 or `[]` (unknown, never padded), plans `{name, price, period}` with malformed rows **dropped**, positioning one capped line, JSON via `json.dumps`.
+- `negatives` runs the **deterministic probes first** (pricing page → free tier / self-host; docs index → API; footer links → mobile) and the **LLM's negatives second, validated against pages we actually read**. A 404 on a guessed URL produces nothing — the guessed capability paths are never fetched at all.
+- `reviews` fetches the configured `REVIEW_SOURCES`, stores one `evidence` row per review (`evidence_type='review'`, permalink as the source) and extracts the asks; a walled provider is a skip, and no score is stored anywhere.
+- `capture.start_capture` is the JIT entry point: cache inside a 7-day window, otherwise one job per competitor (keyed on the existing `try_enqueue_exclusive` guard), and an explicit "capture in progress — retry" state while one is in flight.
 
 ### 4.5 Verification — the product's trust engine (`verify.py`)
 `check_url_ok` (`verify.py:30`) and `check_github_ok` are both **tri-state** `(ok, note, skipped)`:
@@ -205,6 +232,7 @@ Both journeys are covered by the in-process smoke suite and previously by two do
 - `npm test` (root `package.json`) → `scripts/verify.mjs` runs four suites: the backend smoke suite, the frontend sort regression, the frontend lint + production build, and `scripts/e2e-verify.mjs`.
 - `backend/tests/smoke.py` (~900 lines, 80+ assertions) spins up a throwaway SQLite DB with `TestClient` and pins: the API surface, schema bootstrap, admin gate on all six write endpoints, the startup refusal, the job lifecycle with fake sources, queue serialization, dedup upsert, tri-state verify logic, restart recovery, the human-gate invariants, LIKE escaping, the SSRF guard, rate limiting and the category whitelist. **No network, no LLM.**
 - `scripts/sort-check.ts` runs the *real* `frontend/lib/search.ts` under Node's native type-stripping to pin the dead-last ordering for all five sort keys.
+- **Phase 2:** `scripts/phase2-verify.py` is the exit-gate verifier for the teardown work. It works on a copy of the live archive (SQLite's backup API — the archive is in WAL mode) plus a throwaway founder store, stubs the fetcher and both LLM prompts, and prints `[PASS]`/`[FAIL]` per check plus `RESULT: ALL PASS` or `RESULT: n FAILED`; it exits non-zero on failure. Nothing in it touches the network or the live files.
 - Known limitation, documented in `README.md`: the runner is Windows-only (it shells out to `backend/.venv/Scripts/python.exe` and `npm` through a shell) and there is **no CI**.
 
 ---
@@ -218,6 +246,7 @@ Both journeys are covered by the in-process smoke suite and previously by two do
 | Target websites | `website.fetch_homepage` via `netguard.safe_get` | homepage text, title, meta | none |
 | Wayback CDX API | `website.wayback_first_snapshot` | first archived snapshot → `founded` fallback | none |
 | RDAP (`rdap.org`) | `website.rdap_registration_date` | domain registration → `founded` fallback | none |
+| Reddit (public `.json` + RSS) | `reviews.fetch_source` via `netguard.safe_get` | what a competitor's users ask for (F-23) | none — public endpoints |
 
 Nothing else leaves the machine. There is no analytics, no CDN font fetch at runtime, no favicon fetching (a deliberate privacy rule stated in `PRODUCT.md` and `README.md`), and no third-party script in the frontend.
 
