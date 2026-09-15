@@ -19,6 +19,27 @@ backend/data/*
 # misc
 .DS_Store
 
+# runtime logs
+*.log
+
+# agent/session working state — machine-local, never ship
+.agents/
+.mimosa/
+.zcode/
+.hermes/
+.impeccable/
+.openclaw/
+.openclaw-attachments/
+AGENTS.md
+SOUL.md
+IDENTITY.md
+USER.md
+TOOLS.md
+HEARTBEAT.md
+
+# screen recordings / video captures — large binaries, stay local
+video tests/
+
 # QA output — ad-hoc runs stay local. The reviewed reports and the screenshots
 # they cite are project history (referenced from PRODUCT.md) and stay tracked;
 # the blanket `dogfood-output/` rule used to contradict those 6 committed files.
