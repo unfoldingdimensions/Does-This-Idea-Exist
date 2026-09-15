@@ -2,7 +2,7 @@
 
 **Purpose:** the single source of truth for *"is the backend fully working?"* The Phase 5 gate is PASS only when every item here has a test that passes and recorded evidence.
 **Read with:** `implementation-plan.md` (phases) · `reworked-revamp-plan.md` §10–§12 · `docs/teardown-spec.md` (canonical column names in §5.1, trust model in §8, reviews in §9 — the names there win over any older doc).
-**Round 5 (2026-09-15):** the trust model, the founder-app link rule and its separate store, just-in-time capture and reviews are decided. F-04 changed (no rename), and F-19–F-23 are new.
+**Round 5 (2026-09-15):** the trust model, the founder-app link rule and its separate store, just-in-time capture and reviews are decided. F-04 changed (no rename), and F-19–F-24 are new.
 
 Each feature is itemized as: **behaviour → inputs → outputs → acceptance check → test id**. Test ids `F-xx` map to the functional suite in Phase 5.
 
@@ -74,7 +74,7 @@ Each feature is itemized as: **behaviour → inputs → outputs → acceptance c
 
 ### F-13 Founder-app confirm and publish gate
 - **Behaviour:** `POST /api/founder-app/{id}/confirm` flips the draft to confirmed. Publishing is a **separate** gate: link present **and** the opt-in checkbox ticked → the app is submitted to the archive and enters the **same admin approval queue as competitors**.
-- **Acceptance:** compare/gap-table refuses an unconfirmed founder app (explicit "not confirmed" state); the checkbox is only offered when a fetchable link exists; `archive_status` moves `local_only` → `pending` → `approved`/`rejected` and is readable by the founder locally (there are no accounts to notify).
+- **Acceptance:** compare/gap-table refuses an unconfirmed founder app (explicit "not confirmed" state); the checkbox is only offered when a fetchable link exists; the outcome is a `founder_submissions` row and `archive_status` is **derived** from the newest one (F-24) rather than stored — readable by the founder locally, since there are no accounts to notify.
 
 ### F-14 Idempotency & dedup preserved
 - **Behaviour:** `reuse_profile` still skips the LLM for known URLs; unique-index collisions still 400.
@@ -131,6 +131,12 @@ Each feature is itemized as: **behaviour → inputs → outputs → acceptance c
 
 ---
 
+### F-24 `founder_submissions` lifecycle
+- **Behaviour:** a `founder_submissions` table in the **founder store** records every publish request and its outcome — `id, founder_app_id, submitted_at, status (pending|approved|rejected|withdrawn), archive_startup_id, decided_at, decided_by, note`. `archive_status` is a **derived view** (newest row per founder app, or `local_only` when none).
+- **Acceptance:** resubmitting after a rejection creates a **new row**, never edits the old one (rejected → resubmitted → approved is auditable); `archive_startup_id` is set only on approval and links the founder record to its archive twin; the admin queue **unions** pending submissions from the founder store with the archive's suggested rows — a submission in another file does not appear in `list_suggested()` on its own; a rejection carries a `note` the founder can read.
+
+---
+
 ## 6. Unchanged invariants that must keep passing
 
 These are the existing human-gate/verification guarantees — the functional suite must assert them **still** hold after the new work:
@@ -150,7 +156,7 @@ These are the existing human-gate/verification guarantees — the functional sui
 
 The orchestrator records in `docs/phase-ledger.md`:
 
-1. `F-01`–`F-23` + the invariants above: **all tests pass, failed = 0**.
+1. `F-01`–`F-24` + the invariants above: **all tests pass, failed = 0**.
 2. The command run and its actual output (e.g. `python -m tests.functional` with the pass/fail summary).
 3. A **real-backend smoke**: the dev backend is started against the real DB and the new endpoints return real responses (pasted sample output, not an assertion).
 4. Date + who ran it.

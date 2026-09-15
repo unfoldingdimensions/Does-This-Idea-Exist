@@ -85,7 +85,32 @@ Two separate gates, deliberately not merged:
 | **Eligibility — a real link** | A founder app may only enter the archive if it has at least one verifiable link: `website_url` · `github_url` · `app_store_url` · `play_store_url`. **No link → comparison only, never published, and no consent question is asked** (nothing is published, so there is nothing to consent to). |
 | **Consent — the checkbox** | The opt-in checkbox is shown **only** when a fetchable link exists. Ticked → the app is submitted to the archive alongside competitors and goes through the same admin approval queue. Unticked → founder store only. |
 
-The founder's own record carries an `archive_status` (`local_only` · `pending` · `approved` · `rejected`) so the outcome is visible to them locally. Without it a ticked-and-rejected submission is invisible forever — there are no accounts to notify, and the submission path must not depend on one.
+**The outcome is tracked in `founder_submissions`, and `archive_status` is derived from it — not stored on the founder record.** There are no accounts to notify, so the submission row is what makes a ticked-and-rejected request visible to the founder instead of vanishing.
+
+Both tables live in the **founder store** (`FOUNDER_DB_PATH`):
+
+```
+founder_apps            -- the founder's own record; same column shape as `startups` (F-10)
+  id, name, ..., features_json, pricing_json, positioning, website_url,
+  github_url, app_store_url, play_store_url, ...
+
+founder_submissions
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT
+  founder_app_id     INTEGER NOT NULL   -- FK → founder_apps.id (same file)
+  submitted_at       TEXT NOT NULL
+  status             TEXT NOT NULL      -- pending | approved | rejected | withdrawn
+  archive_startup_id INTEGER            -- set on approval: the row created in the archive DB
+  decided_at         TEXT               -- when the admin gate resolved it
+  decided_by         TEXT               -- the admin stamp, same gate as any competitor
+  note               TEXT               -- rejection reason / review note, shown to the founder
+```
+
+Rules:
+
+1. **`archive_status` is a derived view**, not a column: the `status` of the **newest** submission row for that founder app, or `local_only` when there are none.
+2. **Resubmission after a rejection is a new row**, never an edit — so rejected → resubmitted → approved is auditable, which is the same posture as the permanent `verify_log` and the phase ledger.
+3. **`archive_startup_id` is the cross-store link.** It closes the gap flagged when the founder store was split off: without it, the founder's app and its archive twin are two unconnected records and the diff can end up comparing the founder with themselves. It is a soft reference across two files, like everything else in the compare path.
+4. **The admin queue unions both stores.** "The same queue as competitors" now means the queue endpoint reads pending `founder_submissions` from the founder store and merges them with the archive's suggested rows — a submission row in another file will not appear in `list_suggested()` on its own.
 
 Privacy note: "stays on this machine" is true when the founder store is local. If an instance is hosted, the founder's app sits in that instance's founder DB — so hosting must exclude `FOUNDER_DB_PATH` from backups and the privacy copy must say which of the two is true.
 
@@ -176,9 +201,11 @@ Resolved in Round 5 follow-up (2026-09-15):
 3. **Machine Verified — DECIDED: an explicit API field.** `machine_verified` (+ `machine_verified_at`) is exposed per row rather than left implicit, and the weekly pass re-checks **all** entries including old ones, so the badge refreshes archive-wide instead of only for new rows (§8.1).
 4. **The URL columns — DECIDED: defined here, in §5.3.**
 
-Still open:
+Resolved in Round 5 follow-up (2026-09-15), second pass:
 
-1. **`archive_status`'s home.** The field that shows a founder the outcome of a publish request (`local_only` → `pending` → `approved`/`rejected`) is agreed; where it physically lives waits on the founder-store shape (F-10–F-13) being real.
+5. **`archive_status`'s home — DECIDED: a `founder_submissions` table** in the founder store, with `archive_status` **derived** from its newest row rather than stored on the founder record (§3.1). Chosen over a column so a rejected-then-resubmitted request keeps its history, and so the approval carries the cross-store `archive_startup_id` link.
+
+**No open items remain on this spec.** Everything in §7 above is decided; anything new that comes up should be added here rather than settled in a phase prompt.
 
 ---
 
