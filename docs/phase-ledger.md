@@ -7,7 +7,7 @@
 |---|---|---|---|
 | 0 — Onboarding & baseline | **PASS** | Docs read (implementation-plan, handoff, codebase-comprehension, reworked-revamp-plan, teardown-spec, gap-table-format, backend-checklist, phase-ledger). `npm test` → **RESULT: ALL PASS** (backend smoke exit 0 · frontend sort check exit 0 · frontend lint+build exit 0 · e2e 35 passed/0 failed). `backend\.venv\Scripts\python.exe scripts/phase0-baseline.py` → `[baseline] matches expected baseline` — **1,282 total / 1,278 verified / 0 dead / 57 github**; tables `jobs, sqlite_sequence, startups, verify_log`; last_checked 2026-09-04. No drift. Full output in §Phase 0 evidence below. | 2026-09-15 |
 | 1 — Schema & evidence foundation | **PASS** | Migration verified on a **copy** of the live DB: `backend\.venv\Scripts\python.exe scripts\phase1-verify.py` → **RESULT: ALL PASS** (31 checks) — 1,282 rows before and after, 18 → 40 columns, all 22 teardown columns added incl. `app_store_url` / `play_store_url` / `date_source`, `founded` unchanged and never renamed, `evidence` table present with a NOT NULL `source_url`, second migration run added 0 columns (idempotent), every new column present in `enrich.UPDATABLE`, a 200-day-old `verify_log` row survived a real pass (F-03), and the F-04/F-05 branches behave (rdap / wayback / llm / unknown, machine_drafted stamped, human confirm flips it and a reuse refresh does not downgrade it). Suites: `..\backend\.venv\Scripts\python.exe -m tests.smoke` (from `backend/`) → **RESULT: ALL PASS** (85 PASS / 0 FAIL); `npm test` with Node 24 first on PATH → **RESULT: ALL PASS**. Full output in §Phase 1 evidence below. | 2026-09-15 |
-| 2 — Enrichment & teardown fields | pending | | |
+| 2 — Enrichment & teardown fields | **PASS** | Branch `phase/02-enrichment-teardown-fields` (stacked on the still-open Phase 1 PR #4 — see the note below). `backend\.venv\Scripts\python.exe scripts\phase2-verify.py` → **RESULT: ALL PASS** (70 checks, exit 0) on a copy of the live archive + a throwaway founder store, fetcher and both LLM prompts **stubbed**: a capture yields `features_json` with 6 items, 3 well-formed pricing plans (2 malformed rows dropped) with `pricing_captured_at` + `pricing_source_url`, a non-empty `positioning`, **one evidence row per feature / plan / free tier / positioning line / negative / review**, provenance `machine_drafted` until a human confirms. Negatives: every one traces to an **enumerating** page; a 404 on a guessed `/api` produces nothing; an unreadable page is `unknown` at confidence 0.1; a verdict-shaped LLM claim is rephrased and a duplicate of the deterministic probe is dropped. Founder app: all three paths draft (URL / form / agent-JSON), a form without 5–10 features → 400, malformed JSON → 400, unknown keys → 400, **nothing reaches the archive DB or `/api/startups` `/api/stats` `/api/categories`** (`1285 → 1285`), the compare guard refuses an unconfirmed app, link-less → `local_only` with **no opt-in offered**, link + opt-in → `pending` → approve → `archive_startup_id` set with the founder record still in its own file, and a rejection carries a readable note (a resubmission is a new row). JIT: two concurrent captures of one competitor → **exactly one job**, in-flight → explicit `capture in progress — retry`, inside 7 days → `cached`, outside → re-queued. Reviews: a 403 provider is a **skip**, every ask links to its review, no score of ours stored. Suites: `..\backend\.venv\Scripts\python.exe -m tests.smoke` → **RESULT: ALL PASS**; `npm test` with Node 24 first on PATH → **RESULT: ALL PASS** (35 e2e passed / 0 failed). No `frontend/` file touched (asserted in the verifier). Full output in §Phase 2 evidence below.
 | 3 — Comparison, gap table & export | pending | | |
 | 4 — Search classification & match reasons | pending | | |
 | 5 — Backend functional test gate | pending | | |
@@ -200,3 +200,207 @@ RESULT: ALL PASS
 - **Doc drift caused by this phase — corrected in this branch.** Phase 1 falsified three statements in `docs/codebase-comprehension.md` (the doc a fresh agent reads to learn what the code *is*): §3 called `startups` a 20-column table and said `verify_log` is pruned to 90 days, and §10 listed the missing evidence/provenance model as technical debt. All three, plus the §11 consistency row on LLM prose, are now corrected in place and marked "Phase 1", with a note at the top of that document. (The `20-column` figure was independently wrong: the live schema has 18.) `docs/handoff.md` needed no change.
 - **No `frontend/` file, no Phase 2 table, no `founded_at` rename.** `git diff --stat main` on this branch touches `backend/app/{db,enrich,verify}.py`, `scripts/phase1-verify.py` and `docs/phase-ledger.md` only.
 - **Row status after this phase:** Phases 0–1 `PASS`; Phases 2–5 `pending`; Phases 6–8 stay `blocked` — the frontend remains blocked until Phase 5 is `PASS`.
+
+---
+
+## Phase 2 evidence — enrichment & teardown fields (2026-09-15)
+
+**Branch:** `phase/02-enrichment-teardown-fields`. **Backend only** — no `frontend/` file was touched (the verifier asserts it: `git diff --name-only phase/01-schema-evidence-foundation..HEAD -- frontend` and `git status --porcelain -- frontend` are both empty).
+
+**Deviation from the phase prompt, deliberate and flagged:** the prompt says to branch off `main`. Phase 1's PR (#4) is **still open and unmerged**, so `main` does not contain the F-01–F-05/F-19 code this phase is told to build on (no teardown columns, no `evidence` table, no `enrich.UPDATABLE` extension). Branching off `main` would have meant re-doing Phase 1 or building on a schema that does not exist. The Phase 2 branch is therefore cut from `phase/01-schema-evidence-foundation`, and the PR is opened `phase/02-… → main`; it will show Phase 1's six commits as well until PR #4 merges. If the reviewers prefer, the fix is to retarget the Phase 2 PR at the Phase 1 branch, or to merge #4 first and rebase — the code does not change either way.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `backend/app/config.py` | `FOUNDER_DB_PATH` (its own file, mirrors `DB_PATH`), `CAPTURE_STALE_DAYS = 7`, `REVIEW_SOURCES` + `DEFAULT_REVIEW_SOURCES` (providers are config, not code). |
+| `backend/app/db.py` | `table_ddl(name, extra)` so `startups` and `founder_apps` share one column shape from one source of truth; `connect_path()` so the founder store gets identical WAL/busy-timeout settings. |
+| `backend/app/pages.py` | **New.** The page plan: homepage + `/pricing` + `/docs`, each through `netguard.safe_get`, each with an explicit `readable` / `unreadable` / `not_fetched` state and its own fetched_at/links. |
+| `backend/app/llm.py` | `TEARDOWN_SYSTEM_PROMPT` + `llm_teardown()` + `teardown_brief()`; `llm_json()` gained a `system_prompt=` parameter (default unchanged, so the GitHub seed path keeps the identity prompt). |
+| `backend/app/evidence.py` | **New.** The only evidence writer: `write_evidence` refuses a source-less claim by construction, `write_many`, `for_startup`, `count_for_startup`. Commits — an uncommitted row is a row that vanishes. |
+| `backend/app/teardown.py` | **New.** Bounding (`clean_features` 5–10 or `[]`, `clean_plans` drops malformed rows, `clean_positioning` one capped line) + `write_teardown` (columns + one evidence row per claim, pricing stamps, unknowns recorded). |
+| `backend/app/negatives.py` | **New.** Deterministic probes → `unknown` for unreadable enumerating pages → LLM negatives validated against readable enumerating URLs; guessed capability paths are never fetched; verdict-shaped claims are rephrased. |
+| `backend/app/reviews.py` | **New.** `review_sources` providers, reddit-json + RSS parsers, tri-state fetch (403/429 = skip), deterministic classify + ask extraction, one evidence row per review, `asks_from_evidence` for Phase 3's dimension 7. No score anywhere. |
+| `backend/app/capture.py` | **New.** `start_capture` (cached / queued / in_progress / not_found), `capture_teardown` (the callable), `run_capture_job`, freshness from the teardown evidence itself. |
+| `backend/app/founder.py` | **New.** The founder store: `founder_apps` (same shape as `startups`), `founder_submissions` (§3.1 exactly), the three input paths, validation, the two gates, derived `archive_status`, approve/reject, `publish_to_archive` through `enrich._upsert`. |
+| `backend/app/enrich.py` | `draft_from_page` / `draft_from_website` (one draft primitive, shared by the archive seed and the founder URL path), `values_from_record`, `mark_human_confirmed(..., table=)` with a whitelist, and the F-14 carve-out comment on the `reuse_profile` branch. |
+| `backend/app/seeder.py` | A third job kind `capture` (own queue + worker, so a founder request never waits behind a 500-candidate seed); `try_enqueue_exclusive(job, key=…)` — kind-scoped by default, per-competitor for captures. |
+| `backend/app/main.py` | 13 endpoints: `POST /api/founder-app`, `GET /api/founder-app/{id}`, `POST …/confirm`, `POST …/publish`, `GET /api/admin/founder/submissions`, `POST /api/admin/founder/submissions/{id}/approve|reject`, `POST /api/admin/capture/{id}`, `GET /api/admin/capture/status/{job_id}`; `admin_suggested()` now unions the founder store's pending submissions with the archive's rows. |
+| `backend/tests/smoke.py` | `FOUNDER_DB_PATH` pinned into the throwaway temp dir, so a test run never writes `backend/data/founder.db`. |
+| `backend/.env.example` | Documents `FOUNDER_DB_PATH`, `CAPTURE_STALE_DAYS`, `REVIEW_SOURCES`. |
+| `scripts/phase2-verify.py` | **New.** The exit-gate verifier: 70 checks, stubbed fetcher + both LLM prompts, throwaway archive copy + throwaway founder store. |
+| `docs/phase-ledger.md`, `docs/backend-checklist.md`, `docs/codebase-comprehension.md` | This entry, the F-06 correction, and the comprehension refresh. |
+
+### 1. Exit gate — the real output
+
+Command: `backend\.venv\Scripts\python.exe scripts\phase2-verify.py` → `EXIT=0`
+
+It runs against `backend/data/ideasexist.db.phase2-test` (a **copy** made with SQLite's backup API) and `backend/data/founder.db.phase2-test` (a fresh throwaway file). The live archive and the live founder store are never opened for writing, and no test in the file touches the network.
+
+```
+==============================================================================
+Phase 2 — enrichment & teardown fields: exit-gate verification
+==============================================================================
+[PASS] live archive present — E:\New-Personal-Projects\Does this Startup Exist\backend\data\ideasexist.db
+[PASS] the verifier is pointed at a copy, not the live archive — …\ideasexist.db.phase2-test
+[PASS] the verifier is pointed at a throwaway founder store — …\founder.db.phase2-test
+
+--- capture: fixture site through a stubbed fetcher and LLM ---
+[PASS] capture reports state=captured — captured
+[PASS] features_json holds 5-10 items (F-06) — 6: ['local files', 'markdown notes', 'backlinks', 'graph view', 'sync (paid)', 'publish']
+[PASS] pricing_json rows each carry a price and a period (F-07) — [{'name': 'Pro', 'price': '$8', 'period': 'monthly'}, {'name': 'Team', 'price': '$12', 'period': 'monthly'}, {'name': 'Enterprise', 'price': 'custom', 'period': 'annual'}]
+[PASS] malformed plan rows are dropped, not stored half-formed (F-07) — ['Pro', 'Team', 'Enterprise']
+[PASS] pricing_captured_at is stamped (F-07) — 2026-09-15 10:35:37
+[PASS] pricing_source_url is stamped (F-07) — https://acme.example/pricing
+[PASS] positioning is non-empty (F-08) — A private, local-first note app that links your thinking.
+[PASS] one evidence row per feature, each with a source_url (F-06) — 6 rows for 6 features
+[PASS] one evidence row per pricing plan + the free tier (F-07) — 4 rows for 3 plans + free tier
+[PASS] the positioning line carries its source (F-08) — [{'id': 11, 'startup_id': 1296, 'evidence_type': 'positioning', 'source_url': 'https://acme.example', …}]
+[PASS] provenance is machine_drafted until a human confirms (F-05) — machine_drafted
+[PASS] every teardown evidence row is machine_drafted — ['machine_drafted']
+[PASS] features with fewer than 5 supported items become unknown, never padded — []
+
+--- negatives: deterministic first, LLM second, no verdicts ---
+[PASS] a sourced negative traces to an enumerating page (F-09) — ['no self-host', 'no API', 'no mobile app', 'no real-time collaboration'] from ['https://acme.example', 'https://acme.example/docs', 'https://acme.example/pricing']
+[PASS] no negative is derived from a guessed URL (F-09) — ['https://acme.example', 'https://acme.example/docs', 'https://acme.example/pricing']
+[PASS] the LLM's negatives survive only when they trace to a page we read (F-09) — ['no self-host', 'no API', 'no mobile app', 'no real-time collaboration']
+[PASS] a deterministic probe wins over the LLM's duplicate of the same fact (F-09) — ['no self-host', 'no API', 'no mobile app', 'no real-time collaboration']
+[PASS] a verdict-shaped claim is rephrased into an observation (F-09) — ['no self-host', 'no API', 'no mobile app', 'no real-time collaboration']
+[PASS] a 404 on a guessed URL produces nothing at all (F-09) — guessed-record probe returned None
+[PASS] the page plan never fetches a guessed capability path — (('pricing', '/pricing'), ('docs', '/docs'))
+[PASS] a negative with no enumerating source is refused, not stored — empty source and non-enumerating source both refused
+[PASS] a retrieval failure is unknown with low confidence, never a negative (F-09) — 3 unknown row(s), conf=[0.1, 0.1, 0.1]
+[PASS] an unreadable page still gets a source_url (the page we tried) — ['https://walled.example', 'https://walled.example/docs', 'https://walled.example/pricing']
+[PASS] no pricing is stored when the pricing page could not be read (F-07) — pricing_json=None
+
+--- reviews: what their users ask for, never a score ---
+[PASS] one evidence row per review, source_url = the review permalink (F-23) — ['https://www.reddit.com/r/notes/comments/abc123/love_it/', 'https://www.reddit.com/r/notes/comments/def456/works_well/']
+[PASS] a walled provider (403) is a skip, not a failure (F-23) — skipped=1 rows=2
+[PASS] positive and negative are both classified (F-23) — ['negative', 'positive']
+[PASS] no score, aggregate or NPS of our own is stored (F-23) — [['asks', 'classification'], ['asks', 'classification']]
+[PASS] every extracted ask links to the review it came from (F-23) — [{'ask': 'Love it, but I wish it worked offline.', 'source_url': 'https://www.reddit.com/r/notes/comments/abc123/love_it/', …}]
+
+--- founder app: three paths, two gates, containment ---
+[PASS] URL path drafts the founder's app (F-10) — Acme Notes
+[PASS] the URL path does not invent the founder's feature list (F-10) — []
+[PASS] form path drafts a full teardown record (F-11) — ['local files', 'markdown notes', 'quick capture', 'backlinks', 'sync (paid)', 'publish']
+[PASS] a form without 5-10 features is a clear 400 (F-11) — 400/400: features is required: 5-10 short capability strings (the gap table compares feature by feature)
+[PASS] agent-JSON path drafts the founder's app (F-12) — 200
+[PASS] malformed agent JSON is a 400 (F-12) — malformed agent JSON: Expecting property name enclosed in double quote
+[PASS] unknown agent keys are a 400, never silently dropped (F-12) — unknown key(s) in agent payload: ['invented_field']
+[PASS] nothing the founder path wrote reached the archive (F-20) — 1285 -> 1285
+[PASS] no founder record appears in /api/startups (F-20) — []
+[PASS] no founder record is counted by /api/stats (F-20) — 1285 vs 1285
+[PASS] no founder record appears in /api/categories (F-20) — [{'category': 'other', 'count': 302}, …]
+[PASS] the verify walk never sees the founder store (F-20) — list_suggested is archive-only
+[PASS] the two stores are two files, each with its own schema (F-10/F-20) — founder_apps is absent from the archive; startups is absent from the founder store
+[PASS] a link-less submission is comparison-only (F-20) — {'has_link': False, 'link': '', 'link_field': None}
+[PASS] no consent question is asked when there is no link (F-20) — this app has no link (website / github / app store / play store) — it is comparison-only…
+[PASS] the compare path refuses an unconfirmed founder app (F-13) — founder app 2 is not confirmed — confirm the draft before the gap table runs…
+[PASS] confirm flips the record to human_confirmed (F-05/F-13) — human_confirmed confirmed_at=2026-09-15 10:35:37
+[PASS] nothing is auto-confirmed by a draft (F-13) — all three drafts start unconfirmed
+[PASS] ticking the opt-in creates a pending submission (F-13/F-24) — {'submitted': True, 'submission_id': 1, 'archive_status': 'pending', …}
+[PASS] the admin queue unions founder submissions with the archive's rows (F-24) — 1 founder row(s) among 8 queue rows
+[PASS] approval creates the archive row and links it (F-13/F-24) — archive_startup_id=1299 name=Founder Co
+[PASS] the founder record keeps its own row — the archive got a twin, not the record (F-10) — archive 1285 -> 1286
+[PASS] archive_status is derived from the newest submission (F-24) — approved
+[PASS] a rejection carries a note the founder can read (F-24) — The site is behind a login, so nothing could be read.
+[PASS] a rejection with no note is refused (F-24) — 400
+[PASS] resubmitting after a rejection creates a NEW row, never an edit (F-24) — [(2, 'rejected'), (3, 'pending')]
+[PASS] archive_status follows the newest submission (F-24) — pending
+
+--- just-in-time capture: one job per competitor, cached for 7 days ---
+[PASS] two concurrent captures of one competitor produce exactly one job (F-22) — jobs=1 first=queued second=in_progress
+[PASS] an in-flight capture returns an explicit retry state, not a partial teardown (F-22) — {'state': 'in_progress', 'startup_id': 1300, 'message': 'capture in progress — retry'}
+[PASS] the capture job completes and records its result (F-22) — done
+[PASS] a request inside the 7-day window is served from cache (F-22) — {'state': 'cached', 'startup_id': 1296, 'captured_at': '2026-09-15 10:35:37', …}
+[PASS] a request outside the window re-captures (F-22) — {'state': 'queued', 'startup_id': 1296, 'job_id': '8ee71480b3ea', …}
+[PASS] the freshness window is 7 days, the same rhythm as VERIFY_AUTO_STALE_DAYS (F-22) — CAPTURE_STALE_DAYS=7 (VERIFY default is also 7; this run pins it to 0 to keep the network out of the test)
+
+--- re-seed: dedup kept, teardown fields not lost ---
+[PASS] a re-seed does not duplicate the row (F-14) — id 1296 -> 1296
+[PASS] a re-seed keeps the teardown fields (F-14 carve-out) — features=True pricing=True
+[PASS] a re-seed never downgrades human_confirmed (F-14 carve-out) — human_confirmed
+[PASS] a unique-index collision is still a clear ValueError → 400 (F-14) — duplicate website_url refused
+[PASS] no frontend/ file was touched in this phase — committed=[] working=[]
+
+==============================================================================
+RESULT: ALL PASS
+```
+
+### 2. Sample row dump (from the same run)
+
+The dump runs after the aging check and the human-confirm check, which is why the pricing stamp is a month old and the provenance is `human_confirmed` rather than `machine_drafted`:
+
+```
+  startups.id            = 1296  (Acme Notes)
+  features_json          = ["local files", "markdown notes", "backlinks", "graph view", "sync (paid)", "publish"]
+  pricing_json           = {"free_tier": "Free up to 3 docs", "plans": [{"name": "Pro", "price": "$8", "period": "monthly"}, {"name": "Team", "price": "$12", "period": "monthly"}, {"name": "Enterprise", "price": "custom", "period": "annual"}]}
+  pricing_captured_at    = 2026-08-16 10:35:38
+  pricing_source_url     = https://acme.example/pricing
+  positioning            = A private, local-first note app that links your thinking.
+  provenance             = human_confirmed
+  evidence rows:
+    [feature    ] local files                                            conf=0.6 src=https://acme.example
+    [feature    ] markdown notes                                         conf=0.6 src=https://acme.example
+    [feature    ] backlinks                                              conf=0.6 src=https://acme.example
+    [feature    ] graph view                                             conf=0.6 src=https://acme.example
+    [feature    ] sync (paid)                                            conf=0.6 src=https://acme.example
+    [feature    ] publish                                                conf=0.6 src=https://acme.example
+    [pricing    ] Pro                                                    conf=0.7 src=https://acme.example/pricing
+    [pricing    ] Team                                                   conf=0.7 src=https://acme.example/pricing
+    [pricing    ] Enterprise                                             conf=0.7 src=https://acme.example/pricing
+    [pricing    ] free_tier                                              conf=0.7 src=https://acme.example/pricing
+    [positioning] A private, local-first note app that links your thin   conf=0.6 src=https://acme.example
+    [negative   ] no self-host                                           conf=0.8 src=https://acme.example/pricing
+    [negative   ] no API                                                 conf=0.8 src=https://acme.example/docs
+    [negative   ] no mobile app                                          conf=0.8 src=https://acme.example
+    [negative   ] no real-time collaboration                             conf=0.5 src=https://acme.example/docs
+    [review     ] Love it, but I wish it worked offline                  conf=0.5 src=https://www.reddit.com/r/notes/comments/abc123/love_it/
+    [review     ] Works well for our team                                conf=0.5 src=https://www.reddit.com/r/notes/comments/def456/works_well/
+  founder_apps: id=2 name='Founder Co' source_kind=form provenance=human_confirmed confirmed_at=2026-09-15 10:35:37
+  founder_submissions: [('approved', 1299, None)]
+```
+
+The three negatives at `conf=0.8` are the deterministic probes (the pricing page lists tiers and no self-host; the docs index lists no API section; the page's own links list no store link). `no real-time collaboration` at `conf=0.5` is the LLM's, kept because it cites `acme.example/docs`, a page we read. The `Malformed` and `HalfFormed` plans the stub returned are absent — dropped, not stored.
+
+### 3. Test suites
+
+```
+cd backend
+..\backend\.venv\Scripts\python.exe -m tests.smoke
+RESULT: ALL PASS        (exit 0)
+```
+
+```
+$env:PATH = "C:\Program Files\nodejs;" + $env:PATH
+npm test
+[PASS] backend smoke (exit 0)              RESULT: ALL PASS
+[PASS] frontend sort check (exit 0)
+[PASS] frontend lint + build (exit 0)
+[PASS] frontend e2e verification (exit 0)  TEST RESULTS: 35 PASSED, 0 FAILED
+RESULT: ALL PASS
+```
+
+### 4. Phase 3 wiring — the one line this phase owes
+
+`POST /api/compare` starts the capture on the first founder request for a competitor and never before:
+
+```python
+state = capture.start_capture(competitor_id)   # cached | queued | in_progress | not_found
+if state["state"] in ("queued", "in_progress"):
+    return {"state": state["state"], "message": state["message"]}   # "capture in progress — retry"
+# state == "cached": read the teardown fields the capture wrote
+```
+
+The callable and the job are tested here; no `/api/compare` route was added (that is Phase 3), and no public capture-job endpoint exists (job payloads carry error strings and fetched URLs — the admin-gated pair is `POST /api/admin/capture/{id}` / `GET /api/admin/capture/status/{job_id}`).
+
+### 5. Notes recorded at Phase 2
+
+- **The founder endpoints are deliberately not behind the admin token** (`POST /api/founder-app`, `…/confirm`, `…/publish`). They cannot write the archive — the approval path does that, and that one IS admin-gated — so the token would only stand between a founder and their own local draft. They are rate-limited (`20/min` per IP) like every other mutating route. If the owner prefers the archive's gate on them too, it is a two-line change.
+- **A founder URL-path draft leaves `features_json` empty on purpose.** Spec §3 lists five fields for that path (name, tagline, category, description, founded), and the product must not invent the founder's own feature list — the confirm step's inline editing (Phase 6) is where those arrive. Until then the gap table will show `unknown` for feature rows against a URL-path app, which is the honest state. Phase 6 needs this to be visible, not silently filled.
+- **The freshness anchor is the teardown evidence itself** (newest `feature`/`pricing`/`positioning`/`negative`/`review` row, with `pricing_captured_at` as a secondary signal). A capture that could read nothing writes no rows and therefore leaves no cache entry, so it is retried rather than mistaken for a fresh teardown.
+- **A third job kind was added to the queue** (`capture`, its own worker) and `seeder.try_enqueue_exclusive` gained an optional `key`. The default scope is unchanged (kind-wide), so the verify/seed serialization semantics are exactly as they were; the capture's key is what makes "two concurrent requests, one job" true per competitor.
+- **`evidence.write_evidence` commits.** Found while writing the gate: the first draft relied on the caller's commit and the rows silently disappeared when the connection closed — the teardown columns looked perfect and the evidence table was empty. Caught by the "one evidence row per feature" check, which is exactly the check that would have been skipped if the gate only asserted the visible fields.
+- **Doc drift caused by this phase — corrected in this branch.** `docs/backend-checklist.md` F-06 said `seed_from_website`/`seed_from_github` populate `features_json`; Phase 2 (and Round 5's F-22) makes the just-in-time capture the writer, so F-06 now says so and points at F-22. `docs/codebase-comprehension.md` gained a Phase 2 note, the seven new modules, the founder store's two tables, the new endpoints, the capture paragraph in §4.4, the Phase 2 verifier in §7 and Reddit in the integration list.
+- **Row status after this phase:** Phases 0–2 `PASS`; Phases 3–5 `pending`; Phases 6–8 stay `blocked` — the frontend remains blocked until Phase 5 is `PASS`.
