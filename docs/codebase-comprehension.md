@@ -138,6 +138,8 @@ Importing `seeder` starts two daemon threads (`seeder.py:427-428`): the **seed w
 - `GET /api/health`, `GET /api/categories`, `GET /api/stats`
 - `GET /api/founder-app/{id}` — the founder's own draft plus both gates and the derived `archive_status` (Phase 2; reads the founder store, never the archive).
 - `GET /api/startups` — the whole archive as one JSON array. Server accepts `?q=`, `?category=`, `?limit=`, `?offset=` but the frontend uses none of them for filtering; it pulls everything and filters client-side. Default limit **3,000**, max 5,000 (`main.py:LIST_LIMIT_DEFAULT`). Truncation returns HTTP 200 with a short body — the frontend detects it by comparing against `/api/stats`.
+- **Phase 3:** `GET /api/startups/{slug}` — one product by its name slug (the backend for the future `/products/<slug>` route). A same-name collision resolves deterministically (the human-verified row first, then the lowest id) and the payload names the row it got (`resolved_id`, `resolved_name`, `duplicate_group`); the two trust badges ship as explicit fields (`admin_verified`/`admin_verified_at` from `verified`/`verified_at`, `machine_verified`/`machine_verified_at` from `status`/`last_checked`/`check_failures`, F-21). An unknown slug is a clean 404.
+- **Phase 3:** `GET /api/export/{markdown|json|csv}` — the gap table in the three formats (`docs/gap-table-format.md` §5). **Stateless**: it takes the same inputs as `POST /api/compare` as query parameters (`?you=<id|slug>&competitors=<id|slug>`, repeatable or comma-separated) and recomputes deterministically, so re-running with the same inputs yields the same bytes. It is a pure read — an export never triggers a capture.
 
 **Owner-gated reads (`X-Admin-Token`):**
 - `GET /api/admin/check`, `/api/admin/seed/jobs`, `/api/admin/seed/status/{id}`, `/api/admin/verify/suggested`, `/api/admin/verify/status/{id}`, `/api/admin/verify/current`
@@ -149,6 +151,7 @@ Importing `seeder` starts two daemon threads (`seeder.py:427-428`): the **seed w
 - `POST /api/admin/seed`, `POST /api/admin/verify/approve`
 - **Phase 2, founder app (deliberately NOT admin-gated — the path cannot write the archive):** `POST /api/founder-app` (URL / form / agent-JSON), `POST /api/founder-app/{id}/confirm`, `POST /api/founder-app/{id}/publish`.
 - **Phase 2, admin:** `POST /api/admin/founder/submissions/{id}/approve|reject`, `POST /api/admin/capture/{startup_id}`.
+- **Phase 3:** `POST /api/compare` — the gap table (F-15). Body `{you: {...}, competitors: [...]}` (≤3); the sides are **named** because the `you` record lives in the founder store and the competitors in the archive, so a bare `id=7` is ambiguous across the two files. It refuses an unconfirmed `you` with an explicit `409 {"state": "not_confirmed"}` (F-13), triggers the just-in-time capture for each competitor (F-22 — queued before it is cached), then diffs the two stores in Python and returns the five bands (`you_have_they_dont`, `they_have_you_dont`, `both_have`, `unknown`, `asked_for`).
 
 ### 4.3 Security layer (all in `main.py` + `netguard.py`)
 - `require_admin` (`main.py:230`) — HMAC constant-time compare, compared as **bytes** so a non-ASCII header 403s instead of raising.
@@ -233,6 +236,7 @@ Both journeys are covered by the in-process smoke suite and previously by two do
 - `backend/tests/smoke.py` (~900 lines, 80+ assertions) spins up a throwaway SQLite DB with `TestClient` and pins: the API surface, schema bootstrap, admin gate on all six write endpoints, the startup refusal, the job lifecycle with fake sources, queue serialization, dedup upsert, tri-state verify logic, restart recovery, the human-gate invariants, LIKE escaping, the SSRF guard, rate limiting and the category whitelist. **No network, no LLM.**
 - `scripts/sort-check.ts` runs the *real* `frontend/lib/search.ts` under Node's native type-stripping to pin the dead-last ordering for all five sort keys.
 - **Phase 2:** `scripts/phase2-verify.py` is the exit-gate verifier for the teardown work. It works on a copy of the live archive (SQLite's backup API — the archive is in WAL mode) plus a throwaway founder store, stubs the fetcher and both LLM prompts, and prints `[PASS]`/`[FAIL]` per check plus `RESULT: ALL PASS` or `RESULT: n FAILED`; it exits non-zero on failure. Nothing in it touches the network or the live files.
+- **Phase 3:** `scripts/phase3-verify.py` is the exit-gate verifier for comparison, the gap table and the exports. Same discipline as Phase 2 (a copy of the live archive via SQLite's backup API, a throwaway founder store, the fetcher and both LLM prompts stubbed, `[PASS]`/`[FAIL]` + `RESULT:` and a non-zero exit on failure) and it pins: the five bands for a fixture, sourced-or-unknown cells, the enumerating-page negative rule, dimension 7's two destinations, the F-13 compare guard, the F-22 JIT wiring, the three exports (parsing + byte-determinism), the slug collision rule, the two trust badges, and that the founder store never leaks into the archive surface.
 - Known limitation, documented in `README.md`: the runner is Windows-only (it shells out to `backend/.venv/Scripts/python.exe` and `npm` through a shell) and there is **no CI**.
 
 ---
@@ -263,6 +267,8 @@ If the thesis is "help a founder understand what already exists and decide what 
 5. **The freshness surfaces** — `last_checked` on every card, the "Recently verified / Dead recently" strips, and the `/api/stats` counters. Honesty about staleness is the trust product's raw material.
 
 **What is missing where the value would actually be captured:** there is no "these are the closest alternatives to *your* idea", no "here is why each one matched", no side-by-side comparison, no export, and no stable URL for a single product (`/products/<slug>` does not exist — the app is one route). The archive is strong; the *decision support* layer the revamp plan describes has almost no code behind it yet.
+
+**Phase 3 correction (2026-09-15):** the *backend* half of that gap is now closed — `POST /api/compare` produces the side-by-side gap table, `GET /api/export/{markdown|json|csv}` exports it, and `GET /api/startups/{slug}` is the stable per-product endpoint the frontend's `/products/<slug>` route will read. What is still missing is the **frontend** on top of it: there is no gap-table view, no export buttons and no `/products/<slug>` route in the app yet, and search-with-reasons is Phase 4. Those are Phases 4–6 and stay blocked until the Phase 5 backend gate is PASS.
 
 ---
 
