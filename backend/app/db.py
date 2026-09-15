@@ -5,8 +5,54 @@ from urllib.parse import urlparse
 
 from . import config
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS startups (
+# --- F-01 additive migration: one source of truth -------------------------
+# Canonical teardown column names live in docs/teardown-spec.md §5.1 (older
+# plan documents spell some of them differently; §5.1 wins). Every column here
+# is nullable TEXT, so `ALTER TABLE ... ADD COLUMN` is a metadata-only change:
+# existing rows keep their values, nothing is dropped, nothing is rewritten.
+#
+# This tuple feeds BOTH the fresh-DB CREATE TABLE below and migrate(), so the
+# two paths cannot drift. The same trap exists one level up in
+# enrich.UPDATABLE — a column that is in the schema but missing from that
+# tuple is silently dropped by _upsert, with no error and no warning — so
+# scripts/phase1-verify.py asserts that this list and UPDATABLE agree.
+#
+# date_source is F-04 rather than F-01: WHERE a date came from was never
+# recorded, so existing rows start at "unknown". Phase 6 stops the UI
+# presenting an RDAP/Wayback date as a founding year (Notion is filed as
+# 2000-11-01 when it was founded in 2013).
+NEW_STARTUP_COLUMNS: tuple[tuple[str, str], ...] = (
+    # identity & classification
+    ("entity_type", "TEXT"),            # product | company | project | repository | domain | unknown
+    ("canonical_domain", "TEXT"),
+    ("aliases", "TEXT"),                # JSON list
+    # the idea
+    ("problem_statement", "TEXT"),
+    ("target_users", "TEXT"),
+    # product surface (URL definitions: docs/teardown-spec.md §5.3)
+    ("product_url", "TEXT"),
+    ("docs_url", "TEXT"),
+    ("demo_url", "TEXT"),
+    ("app_store_url", "TEXT"),          # F-19: iOS listing — also the mobile-app probe
+    ("play_store_url", "TEXT"),         # F-19: Google Play listing
+    # pricing, plan-by-plan, with its own capture stamps
+    ("pricing_json", "TEXT"),
+    ("pricing_captured_at", "TEXT"),
+    ("pricing_source_url", "TEXT"),
+    # teardown content
+    ("features_json", "TEXT"),          # JSON flat list, 5-10 items
+    ("positioning", "TEXT"),
+    ("content_notes", "TEXT"),
+    ("activity_checked_at", "TEXT"),
+    ("activity_summary", "TEXT"),
+    ("last_human_reviewed_at", "TEXT"),
+    ("review_notes", "TEXT"),
+    # provenance (F-05 / F-04)
+    ("provenance", "TEXT"),             # machine_drafted | human_confirmed | sourced | unknown
+    ("date_source", "TEXT DEFAULT 'unknown'"),  # llm | wayback | rdap | human | unknown
+)
+
+_STARTUPS_BASE = """CREATE TABLE IF NOT EXISTS startups (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   tagline TEXT,
@@ -24,10 +70,41 @@ CREATE TABLE IF NOT EXISTS startups (
   check_failures INTEGER NOT NULL DEFAULT 0,
   source TEXT NOT NULL DEFAULT 'manual',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))"""
+
+# Fresh DB and upgraded DB both end up with the same column list: the CREATE
+# statement above is the base, the teardown columns are appended from the one
+# list the migration also reads.
+_STARTUPS_TABLE = (
+    _STARTUPS_BASE
+    + "".join(f",\n  {name} {decl}" for name, decl in NEW_STARTUP_COLUMNS)
+    + "\n);"
+)
+
+SCHEMA = (
+    _STARTUPS_TABLE
+    + """
 CREATE UNIQUE INDEX IF NOT EXISTS idx_startups_website ON startups(lower(website_url));
 CREATE UNIQUE INDEX IF NOT EXISTS idx_startups_github ON startups(lower(github_url));
+-- F-02: one row per claim, each with the source it came from. source_url and
+-- captured_at are NOT NULL by design — evidence without a source is not
+-- evidence, and the DB is the last line of defence behind the API's checks.
+CREATE TABLE IF NOT EXISTS evidence (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  startup_id INTEGER NOT NULL,
+  evidence_type TEXT NOT NULL,
+  source_url TEXT NOT NULL,
+  captured_at TEXT NOT NULL DEFAULT (datetime('now')),
+  claim TEXT,
+  value TEXT,
+  provenance TEXT,
+  confidence REAL,
+  reviewed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_evidence_startup ON evidence(startup_id);
+"""
+    + """
+
 CREATE TABLE IF NOT EXISTS verify_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   startup_id INTEGER NOT NULL,
@@ -58,6 +135,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   result_json TEXT
 );
 """
+)
 
 
 def connect() -> sqlite3.Connection:
@@ -71,11 +149,36 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+def migrate(conn: sqlite3.Connection) -> list[str]:
+    """F-01: bring an existing DB up to the current schema. Additive only.
+
+    SQLite's ADD COLUMN with a constant (or NULL) default is a metadata write:
+    rows are not rewritten and existing values are untouched. Idempotent by
+    construction — PRAGMA table_info decides what is missing, so re-running
+    adds nothing and returns []. Never DROP, never RENAME.
+
+    Returns the names of the columns actually added, so a caller (or a test)
+    can prove the first run was not a no-op and the second run was.
+    """
+    present = {row["name"] for row in conn.execute("PRAGMA table_info(startups)")}
+    added: list[str] = []
+    for name, decl in NEW_STARTUP_COLUMNS:
+        if name in present:
+            continue
+        conn.execute(f"ALTER TABLE startups ADD COLUMN {name} {decl}")
+        added.append(name)
+    if added:
+        conn.commit()
+    return added
+
+
 def init_db() -> None:
     conn = connect()
-    conn.executescript(SCHEMA)
-    conn.commit()
-    conn.close()
+    try:
+        conn.executescript(SCHEMA)  # CREATE ... IF NOT EXISTS: fresh DBs get the full schema
+        migrate(conn)               # existing DBs get the new columns; no-op on a fresh one
+    finally:
+        conn.close()
 
 
 def normalize_url(url: str | None) -> str:
