@@ -7,8 +7,9 @@ import threading
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
+from typing import Any
 
-from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
@@ -33,7 +34,7 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 
-from . import capture, db, enrich, founder, seeder, verify  # noqa: E402 — must follow logging setup
+from . import capture, compare as compare_mod, db, enrich, founder, seeder, verify  # noqa: E402
 
 log = logging.getLogger("ideasexist")
 
@@ -265,6 +266,19 @@ class FounderAppIn(BaseModel):
 
 class RejectIn(BaseModel):
     note: str
+
+
+class CompareIn(BaseModel):
+    """`{you: {...}, competitors: [...]}` (F-15).
+
+    The sides are NAMED rather than passed as one flat id list: the `you` record
+    lives in the founder store (`FOUNDER_DB_PATH`) and the competitors in the
+    archive, so a bare `id=7` is ambiguous across the two files.  Each reference
+    may be an id, a slug, or a `{id|slug|...}` object; the resolver accepts both.
+    """
+
+    you: Any = None
+    competitors: list[Any] = []
 
 
 def require_admin(request: Request, x_admin_token: str | None = Header(default=None)) -> None:
@@ -719,6 +733,159 @@ def stats() -> dict:
         dead = conn.execute("SELECT COUNT(*) AS c FROM startups WHERE status = 'dead'").fetchone()["c"]
         last = conn.execute("SELECT MAX(last_checked) AS m FROM startups").fetchone()["m"]
         return {"total": total, "verified": verified, "dead": dead, "last_checked": last}
+    finally:
+        conn.close()
+
+
+# --- Phase 3: comparison, gap table, exports and the stable slug endpoint ----
+# The cross-store diff runs in Python (compare.py): the two sides live in two
+# different files and the band logic is not expressible as SQL.  These routes
+# read the founder store only for the ONE founder record the caller named — the
+# archive endpoints above are untouched and never learn the founder store exists.
+
+
+def _resolve_you_or_4xx(ref) -> dict:
+    fid = compare_mod.founder_ref_to_id(ref)
+    if fid is None:
+        raise HTTPException(
+            status_code=400,
+            detail="'you' must name a founder app (founder id, or its name slug)",
+        )
+    row = founder.get(fid)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"founder app {fid} not found")
+    return row
+
+
+def _assert_confirmed(founder_row) -> None:
+    """F-13: the gap table never runs against an unconfirmed draft.  Surfaced as
+    an explicit state, never a generic 500 or a silently empty table."""
+    try:
+        founder.assert_comparable(founder_row["id"])
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"state": "not_confirmed", "message": str(exc)},
+        ) from exc
+
+
+def _resolve_competitors(refs) -> list:
+    refs = list(refs or [])
+    if not refs:
+        raise HTTPException(status_code=400, detail="at least one competitor is required")
+    if len(refs) > compare_mod.MAX_COMPETITORS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"at most {compare_mod.MAX_COMPETITORS} competitors are allowed",
+        )
+    conn = db.connect()
+    try:
+        rows = []
+        for ref in refs:
+            row = compare_mod.resolve_startup(conn, ref)
+            if not row:
+                raise HTTPException(status_code=404, detail=f"competitor not found: {ref!r}")
+            rows.append(row)
+    finally:
+        conn.close()
+    return rows
+
+
+def _split_refs(values) -> list[str]:
+    """Accept `?competitors=a&competitors=b` and `?competitors=a,b` alike."""
+    out: list[str] = []
+    for value in values or []:
+        for part in str(value).split(","):
+            part = part.strip()
+            if part:
+                out.append(part)
+    return out
+
+
+def _capture_or_retry(competitor_rows):
+    """JIT capture (F-22), the wiring Phase 2 left open: the first founder
+    request for a competitor triggers the capture.  Until it lands the caller
+    gets the explicit queued/in-progress state and retries — never a partial
+    teardown.  Returns a retry payload dict, or None when every competitor is
+    served from cache and the table may be built."""
+    for row in competitor_rows:
+        state = capture.start_capture(row["id"])
+        if state.get("state") in ("queued", "in_progress"):
+            return {
+                "state": state["state"],
+                "message": state.get("message"),
+                "startup_id": state.get("startup_id"),
+            }
+    return None
+
+
+@app.post("/api/compare", dependencies=[Depends(rate_limited("compare", 60, 60))])
+def api_compare(body: CompareIn) -> dict:
+    """The gap table (F-15): refuse an unconfirmed `you`, capture any competitor
+    whose teardown is missing or stale, then diff the two stores in Python."""
+    you_row = _resolve_you_or_4xx(body.you)
+    _assert_confirmed(you_row)
+    competitor_rows = _resolve_competitors(body.competitors)
+    retry = _capture_or_retry(competitor_rows)
+    if retry:
+        retry["you"] = {"founder_app_id": int(you_row["id"]), "name": you_row["name"]}
+        retry["competitors"] = [{"id": int(r["id"]), "name": r["name"]} for r in competitor_rows]
+        return retry
+    conn = db.connect()
+    try:
+        return compare_mod.build_table(you_row, competitor_rows, conn)
+    finally:
+        conn.close()
+
+
+@app.get("/api/export/{fmt}")
+def api_export(
+    fmt: str,
+    you: str = Query(..., description="founder app id or name slug"),
+    competitors: list[str] = Query(default=[], description="competitor id/slug, repeatable or comma-separated"),
+) -> Response:
+    """The three exports (F-16), shapes in `docs/gap-table-format.md` §5.
+
+    Stateless: same inputs as `/api/compare`, recomputed here with no stored
+    "last comparison", so one founder's comparison can never be read back by
+    another request and re-running with the same inputs yields the same bytes.
+    Pure reads — an export never triggers a capture (that is the compare path's
+    side effect), so it stays deterministic.
+    """
+    fmt_key = (fmt or "").lower()
+    if fmt_key not in compare_mod.EXPORT_FORMATS:
+        raise HTTPException(
+            status_code=404,
+            detail=f"unknown export format {fmt!r}; use one of {', '.join(compare_mod.EXPORT_FORMATS)}",
+        )
+    you_row = _resolve_you_or_4xx(you)
+    _assert_confirmed(you_row)
+    competitor_rows = _resolve_competitors(_split_refs(competitors))
+    conn = db.connect()
+    try:
+        table = compare_mod.build_table(you_row, competitor_rows, conn)
+    finally:
+        conn.close()
+    text, media_type = compare_mod.render(fmt_key, table)
+    return Response(
+        content=text,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="gap-table.{fmt_key}"'},
+    )
+
+
+@app.get("/api/startups/{slug}")
+def get_startup_by_slug(slug: str) -> dict:
+    """The stable per-product endpoint (F-17) the frontend's `/products/<slug>`
+    route calls.  A same-name collision resolves deterministically (human-verified
+    first, then the lowest id) and the payload names the row it got; the two trust
+    badges are explicit fields (F-21), never inferred from a timestamp."""
+    conn = db.connect()
+    try:
+        row, candidates = compare_mod.resolve_startup_slug(conn, slug)
+        if not row:
+            raise HTTPException(status_code=404, detail=f"no product with slug {slug!r}")
+        return compare_mod.startup_payload(row, candidates)
     finally:
         conn.close()
 
