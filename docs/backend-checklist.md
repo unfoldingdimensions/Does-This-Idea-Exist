@@ -38,8 +38,10 @@ Each feature is itemized as: **behaviour → inputs → outputs → acceptance c
 
 ## 2. Enrichment & teardown fields (Phase 2)
 
+**Phase 2 exit gate:** `scripts/phase2-verify.py` (stubbed fetcher + LLM, throwaway copies) — its real output is recorded in `docs/phase-ledger.md`.
+
 ### F-06 Feature extraction
-- **Behaviour:** `seed_from_website`/`seed_from_github` populate `features_json` (flat 5–10 items).
+- **Behaviour:** the **just-in-time capture** populates `features_json` (flat 5–10 items) from the page plan. **Phase 2 correction (2026-09-15):** this item originally said `seed_from_website`/`seed_from_github` populate it. Round 5's just-in-time decision (F-22: *never on seed, never on approval*) supersedes that wording — the writer is `capture.capture_teardown()`, triggered by the first founder request for the competitor. The seed paths deliberately do not capture, and a `reuse_profile` refresh leaves the teardown columns standing rather than blanking them (the F-14 carve-out).
 - **Inputs:** a homepage/repo URL.
 - **Outputs:** `features_json` list; one `evidence` row per feature.
 - **Acceptance:** 5–10 features; each feature has a source; an empty source list → `unknown`, not a guessed list.
