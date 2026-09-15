@@ -24,8 +24,12 @@ Before any frontend work:
 5. **Stable routes.** `app/products/[slug]/page.tsx` + a matching route to `/api/startups/{slug}`; "Share Entity" points here instead of `?q=`.
 6. **Search-with-reasons.** Show the `reason` string on each result card; keep the existing client-side Fuse path for the small-archive fast path, but render reasons from `/api/search`.
 7. **Preserve identity.** WCAG AA in both themes; `prefers-reduced-motion` respected; keyboard/focus reachable; footer still "No accounts. No tracking. Searches stay on this machine."; status pill semantics untouched.
+8. **Carry-over from two closed scan PRs (2026-09-15).** Both were real findings opened against the pre-refactor frontend, and both conflict with `main` (`startup-card.tsx` was restructured after they were written), so they were closed and are re-applied here instead:
+   - **`rel="noopener"`** — every external-link anchor still carries `rel="noreferrer"` alone: `admin-shared.tsx` (the BucketItem "open" link), `startup-card.tsx` ×2 (Website / Code), `startup-detail.tsx` ×2. Change each to `rel="noopener noreferrer"`. Modern browsers add `noopener` implicitly for `target="_blank"`, so this is hardening rather than a live hole — but it is the declared standard and it is five attributes.
+   - **`aria-label` on the four context-switching links** — a screen reader is not told that Website / Code open a new tab. Use the shape the scan proposed: ``aria-label={`Visit ${startup.name} website (opens in a new tab)`}`` and ``aria-label={`View ${startup.name} source code (opens in a new tab)`}``.
+   - **Do not resurrect the scans' `.jules/` / `.Jules/` note files.** They are agent scan state, not product files, and neither spelling is in `.gitignore` — the repo keeps machine-local agent state out of the product tree.
 
-**Exit gate:** all seven render against the verified backend in a running dev instance; no hardcoded/mock data.
+**Exit gate:** all eight render against the verified backend in a running dev instance; no hardcoded/mock data.
 
 ---
 
@@ -40,7 +44,7 @@ Before any frontend work:
 | 5 | Gap table | three bands correct; sourced cells link; `unknown` shown as unknown |
 | 6 | Export | each format downloads and parses |
 | 7 | `/products/<slug>` | loads the right product; 404 themed |
-| 8 | Visual & a11y | light+dark, reduced-motion, mobile viewport, focus/aria, empty/loading/error states |
+| 8 | Visual & a11y | light+dark, reduced-motion, mobile viewport, focus/aria, empty/loading/error states; **every external link carries `rel="noopener noreferrer"` and an `aria-label` naming what it opens (Phase 6 carry-over item 8)** |
 | 9 | Trust badges | Admin vs Machine Verified render as two distinct signals; a stale `last_checked` shows Machine Verified as lapsed while the record stays admin-verified; **no badge appears against a claim cell** |
 | 10 | Link eligibility & consent | the publish checkbox is absent for a link-less profile; a link-less submission still returns a comparison and states it is not published |
 | 11 | Reviews / dimension 7 | "what their users ask for" renders as gap-table dimension 7 with sourced items linked to their review, correctly banded (covered by your features → group 1; covered by neither → group 4); **no score or aggregate exists anywhere in the UI** |
