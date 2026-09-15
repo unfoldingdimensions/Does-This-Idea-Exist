@@ -4,6 +4,8 @@
 **Repo:** `E:\New-Personal-Projects\Does this Startup Exist`
 **Method:** full read of every hand-written source file in `backend/`, `frontend/`, `scripts/`, plus the project docs, changelog and prior dogfood reports. No file in those trees was skipped (see §12 for the exact list and for generated/vendored paths that are not hand-written source).
 
+> **Phase 1 note (2026-09-15):** this document was prepared on 2026-09-14 and describes the pre-Phase-1 codebase. Phase 1 (F-01–F-05, F-19) added the teardown columns and the `evidence` table, removed the `verify_log` retention sweep, and introduced `provenance` / `date_source`. The affected passages are corrected inline below and marked. Everything else still holds.
+
 This document exists so a reader who has never opened the repo can describe, accurately, what the product is, how it is built, what it actually does today, and where the founder-facing value sits in the code.
 
 ---
@@ -56,16 +58,19 @@ Everything else at the root is documentation (`PRODUCT.md`, `DESIGN.md`, `README
 
 ---
 
-## 3. Data model — exactly three tables
+## 3. Data model — four tables *(was three before Phase 1)*
 
-`backend/app/db.py:9-57` creates the entire schema. There is no migration framework; `init_db()` runs `executescript(SCHEMA)` with `CREATE TABLE IF NOT EXISTS`, and the file header states the rule: **additive changes only**.
+`backend/app/db.py` creates the entire schema. **Phase 1 (F-01) added a migration path:** `init_db()` now runs `executescript(SCHEMA)` (the full schema, `CREATE … IF NOT EXISTS`, for a fresh DB) **and** `db.migrate(conn)`, which adds any missing columns from `NEW_STARTUP_COLUMNS` to an existing database. That one tuple feeds both paths, so a fresh DB and an upgraded one cannot drift apart; `migrate()` is idempotent by construction (`PRAGMA table_info` decides what is missing) and the rule still holds: **additive changes only** — no `DROP`, no `RENAME`, no row rewrite.
 
-### `startups` (the archive) — 20 columns
-`id, name, tagline, description, category, website_url, github_url, founded, stars, language, status, verified, verified_at, last_checked, check_failures, source, created_at, updated_at`
+### `startups` (the archive) — 40 columns
+`id, name, tagline, description, category, website_url, github_url, founded, stars, language, status, verified, verified_at, last_checked, check_failures, source, created_at, updated_at` — plus the **22 nullable teardown columns added in Phase 1** (`entity_type`, `canonical_domain`, `aliases`, `problem_statement`, `target_users`, `product_url`, `docs_url`, `demo_url`, `app_store_url`, `play_store_url`, `pricing_json`, `pricing_captured_at`, `pricing_source_url`, `features_json`, `positioning`, `content_notes`, `activity_checked_at`, `activity_summary`, `last_human_reviewed_at`, `review_notes`, `provenance`, `date_source`). Canonical names: `docs/teardown-spec.md` §5.1. (`founded` keeps its name — the `founded_at` rename is rejected.)
 Two unique indexes: `lower(website_url)` and `lower(github_url)`.
 
 ### `verify_log` (append-only audit trail)
-`id, startup_id, checked_at, website_ok, github_ok, notes`. Written once per entry per verification pass; pruned to a 90-day window by the pass itself (`verify.py`, retention statement at the end of `run_verify_job`).
+`id, startup_id, checked_at, website_ok, github_ok, notes`. Written once per entry per verification pass. **Phase 1 (F-03): the audit trail is permanent** — the 90-day retention sweep that used to sit at the end of `run_verify_job` is gone, and the pass only ever inserts.
+
+### `evidence` (one row per claim) — added in Phase 1 (F-02)
+`id, startup_id, evidence_type, source_url, captured_at, claim, value, provenance, confidence, reviewed_at`. `source_url` and `captured_at` are **NOT NULL** — evidence without a source is not evidence, and the DB is the last line of defence behind the API's checks. `evidence_type` values: `feature` · `pricing` · `positioning` · `negative` · `review` · `repo_created` · `homepage_claim` · `wayback_first` · `reachability` · `curator_confirmation`. Indexed on `startup_id`. Phase 2 is what starts writing rows here.
 
 ### `jobs` (job history that survives restarts)
 19 columns: identity, `kind`, `source`, `params_json`, counters, `errors_json`, `ok_urls_json`, `skipped_urls_json`, timestamps, `breakdown_json`, `result_json`. The in-memory `JOBS` dict in `seeder.py` is mirrored here on every state change.
@@ -153,7 +158,7 @@ Importing `seeder` starts two daemon threads (`seeder.py:427-428`): the **seed w
 
 The human gate is `approve_suggested` (`verify.py:154`) — the **only** bulk writer of `verified=1` — plus the single-row endpoint. `list_suggested` (`verify.py:137`) is the queue: `verified=0 AND status='active' AND check_failures=0`.
 
-`run_verify_job` (`verify.py:205`) walks every row, buckets its *current* state into a verified/unverified/dead breakdown, commits **per row** (so a parallel seed is never blocked by a long write lock), writes a `verify_log` row per entry, prunes the log to 90 days, and persists live progress to `jobs` as it goes.
+`run_verify_job` (`verify.py:205`) walks every row, buckets its *current* state into a verified/unverified/dead breakdown, commits **per row** (so a parallel seed is never blocked by a long write lock), writes a `verify_log` row per entry (**never pruned** — Phase 1 / F-03 removed the 90-day sweep), and persists live progress to `jobs` as it goes.
 
 ---
 
@@ -236,9 +241,9 @@ If the thesis is "help a founder understand what already exists and decide what 
 
 | # | Item | Evidence | Impact on the revamp |
 |---|---|---|---|
-| 1 | **No evidence/provenance model.** Three tables only. | `db.py:9-57` | Blocks "evidence-backed research result" and the whole Phase 4 of the revamp plan. |
-| 2 | **LLM prose is indistinguishable from fact.** `description`/`tagline`/`category`/`founded` come from `llm.py` with no stored provenance flag. | `enrich.py:86-160` | The revamp's "machine-drafted vs human-confirmed" rule has no schema to sit in. |
-| 3 | **`founded` is often a domain-registration date, not a founding date.** Live rows: Notion `2000-11-01` (Notion was founded 2013), Zoom `1996-10-18` (Zoom was founded 2011). Source order is LLM → Wayback → RDAP. | `website.py:102-145`, live DB | A "founded" column used for filtering/sorting is misleading — a direct provenance bug. |
+| 1 | ~~**No evidence/provenance model.** Three tables only.~~ **Resolved in Phase 1 (F-02/F-05):** four tables; `evidence` added; `provenance` and `date_source` columns added. | `db.py` | Unblocks the evidence-backed research result — Phase 2 writes the rows. |
+| 2 | ~~**LLM prose is indistinguishable from fact.**~~ **Resolved in Phase 1 (F-05):** `enrich.stamp_provenance()` marks every payload carrying LLM-drafted text `machine_drafted`, applied inside `_upsert` as a safety net; `mark_human_confirmed()` is the human half (Phase 2 wires it to the founder confirm path). The UI label is Phase 6. | `enrich.py` | The "machine-drafted vs human-confirmed" rule now has a schema to sit in. |
+| 3 | **`founded` is often a domain-registration date, not a founding date.** Live rows: Notion `2000-11-01` (founded 2013), Zoom `1996-10-18` (founded 2011). Source order is LLM → Wayback → RDAP. **Phase 1 (F-04) now records WHICH branch produced the date, in `date_source`; the live rows are still unmigrated and the UI still presents the date as a founding year — that half is Phase 6.** | `website.py`, live DB | Half-fixed: the data can express the distinction; the display is Phase 6. |
 | 4 | **99.7% verified, 0 dead.** The trust model is proven mechanically but never actually exercised at scale against real deaths; the "dead" surfaces are untested with data. | live DB | The revamp's dead-vs-live story is currently theoretical. |
 | 5 | **Client-side search ceiling ~3,000 rows.** Measured 22 ms/term at 1,292, 70 ms at 5,000. Beyond that, `LIST_LIMIT_DEFAULT` truncates and the UI banners it. | `main.py:129-146`, `page.tsx` truncation banner | Any "add evidence + more sources" plan must decide FTS5 vs staying capped. |
 | 6 | **Single-page = no canonical product URL.** Everything is `?q=` state on `/`. | `frontend/app/` (one page + SEO routes) | Blocks `/products/<slug>`, sharing, SEO, and the hosted-archive option. |
@@ -258,7 +263,7 @@ If the thesis is "help a founder understand what already exists and decide what 
 | "Search relevance needs classification, not just ranking." | **Yes.** `lib/search.ts` ranks well (exact first, dead last) but produces no *reason* per result — no "exact name match" label anywhere in the frontend. |
 | "Stars are used as a primary ranking signal." | **Partly.** Stars are the tie-breaker and the `top` sort's second key, and only 4.4% of rows have them. The plan's own framing slightly overstates the current weight. |
 | "Details are modal-only; no canonical dossier route." | **Yes.** One route; detail is a modal; "Share Entity" copies `/?q=<name>`. |
-| "LLM prose is treated as fact." | **Yes.** No provenance column or UI label exists. |
+| "LLM prose is treated as fact." | **Fixed in the backend by Phase 1 (F-05)** — `provenance` is stamped `machine_drafted`; the UI label is Phase 6. |
 | "Duplicates exist and contradict each other." | **Mostly resolved.** 10 groups merged; 6 same-name/different-company groups remain, correctly flagged, not merged. |
 | "Dead entries retained." | **Mechanically yes, empirically empty.** 0 dead rows today. |
 
