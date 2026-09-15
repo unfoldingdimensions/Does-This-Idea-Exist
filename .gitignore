@@ -57,3 +57,21 @@ dogfood-output/screenshots/*
 
 # lighthouse QA artifacts
 scripts/lh-*.json
+
+# planning, handover & working documents — local-only by decision (2026-09-15)
+# The build specs and the phase ledger are deliberately NOT here: the phase
+# prompts read them and Phase 1 needs docs/phase-ledger.md on main.
+implementation-plan.md
+docs/handoff.md
+docs/prompts/
+revamp-plan.md
+reworked-revamp-plan.md
+revamp-plan-delta.md
+Revamp-thinking.txt
+docs/discussion-record.md
+docs/revamp-documents-review.md
+deliverables-index.md
+
+# memory items
+MEMORY.md
+memory/
