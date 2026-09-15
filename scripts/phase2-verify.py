@@ -511,6 +511,34 @@ with TestClient(api) as client:
           form_app["confirmed"] is False and url_app["confirmed"] is False
           and agent_app.json()["confirmed"] is False, "all three drafts start unconfirmed")
 
+    # Consent is NOT a field on the create endpoint (follow-up, 2026-09-15).
+    # It was, until this fix, and it could never work: the draft is written by
+    # this same request, so the consent gate always refused it — *after* the
+    # row existed. Two properties are pinned here: the refusal is loud, and
+    # nothing is written that a retry could turn into a duplicate draft.
+    def founder_app_rows() -> int:
+        conn = founder.connect()
+        try:
+            return conn.execute("SELECT COUNT(*) FROM founder_apps").fetchone()[0]
+        finally:
+            conn.close()
+
+    rows_before_flag = founder_app_rows()
+    legacy_flag = client.post("/api/founder-app",
+                              json={**form_payload, "name": "Legacy Flag Co", "publish": True})
+    check("a `publish` key on the create endpoint is refused, not ignored (F-13)",
+          legacy_flag.status_code in (400, 422), f"HTTP {legacy_flag.status_code}")
+    check("the refusal names the call that does publish (F-13)",
+          "founder-app/{id}/publish" in json.dumps(legacy_flag.json()),
+          str(legacy_flag.json())[:130])
+    check("the refused request wrote no draft — no partial write to retry into a duplicate",
+          founder_app_rows() == rows_before_flag, f"{rows_before_flag} -> {founder_app_rows()}")
+    unknown_key = client.post("/api/founder-app",
+                              json={**form_payload, "name": "Typo Co", "positioningg": "oops"})
+    check("an unknown top-level key is refused too (F-12's rule, one level up)",
+          unknown_key.status_code in (400, 422) and founder_app_rows() == rows_before_flag,
+          f"HTTP {unknown_key.status_code}")
+
     # consent -> pending -> approve -> archive_startup_id
     published = client.post(f"/api/founder-app/{fid}/publish").json()
     check("ticking the opt-in creates a pending submission (F-13/F-24)",

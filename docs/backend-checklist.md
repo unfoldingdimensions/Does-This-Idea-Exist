@@ -75,7 +75,7 @@ Each feature is itemized as: **behaviour → inputs → outputs → acceptance c
 - **Acceptance:** valid JSON → draft; malformed/unknown keys → 400; invented fields are not silently accepted.
 
 ### F-13 Founder-app confirm and publish gate
-- **Behaviour:** `POST /api/founder-app/{id}/confirm` flips the draft to confirmed. Publishing is a **separate** gate: link present **and** the opt-in checkbox ticked → the app is submitted to the archive and enters the **same admin approval queue as competitors**.
+- **Behaviour:** `POST /api/founder-app/{id}/confirm` flips the draft to confirmed. Publishing is a **separate** gate, reached through `POST /api/founder-app/{id}/publish` and **never a field on the create call** — a `publish` key there is **refused, not ignored** (the draft cannot be confirmed by the time the create request returns, so such a flag could only ever fail after writing the row): link present **and** the opt-in checkbox ticked → the app is submitted to the archive and enters the **same admin approval queue as competitors**.
 - **Acceptance:** compare/gap-table refuses an unconfirmed founder app (explicit "not confirmed" state); the checkbox is only offered when a fetchable link exists; the outcome is a `founder_submissions` row and `archive_status` is **derived** from the newest one (F-24) rather than stored — readable by the founder locally, since there are no accounts to notify.
 
 ### F-14 Idempotency & dedup preserved

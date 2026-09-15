@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from . import config
 
@@ -240,10 +240,30 @@ class FounderAppIn(BaseModel):
     Agent `agent_json` (pasted text) or `agent` (already-parsed object), the
           shape in docs/teardown-spec.md §3 plus the links block (F-12).
 
-    `publish` is the CONSENT checkbox, not a save button: the eligibility gate
-    is evaluated first and the question is never offered when there is no link
-    (F-20). Nothing is auto-confirmed.
+    Consent is NOT a field here: publishing runs through
+    `POST /api/founder-app/{id}/publish`, after a confirm (F-13). A `publish`
+    key is refused rather than ignored — see `_no_publish_flag` — so no client
+    can believe it published something it did not. Nothing is auto-confirmed.
     """
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_publish_flag(cls, data):
+        """`publish` was accepted on this endpoint until 2026-09-15 and could
+        never succeed: the draft is created in this same request, so it is
+        never confirmed by the time the consent gate runs — every such call
+        answered 400 *after* writing the row, which is a partial write dressed
+        as a no-op, and a retrying client wrote a second draft. Consent is its
+        own call now, and an old client is told exactly that instead of being
+        silently ignored."""
+        if isinstance(data, dict) and "publish" in data:
+            raise ValueError(
+                "publish is not accepted here — create the draft, confirm it, then "
+                "POST /api/founder-app/{id}/publish"
+            )
+        return data
 
     url: str | None = None
     name_hint: str | None = None
@@ -261,7 +281,6 @@ class FounderAppIn(BaseModel):
     github_url: str | None = None
     app_store_url: str | None = None
     play_store_url: str | None = None
-    publish: bool = False
 
 
 class RejectIn(BaseModel):
@@ -559,8 +578,9 @@ def create_founder_app(body: FounderAppIn) -> dict:
     (F-20), so the token that guards archive mutations would only stand between
     a founder and their own local draft. It is rate-limited all the same.
 
-    Nothing is auto-confirmed, and `publish=true` is the consent gate — the
-    eligibility rule is evaluated first, so a link-less app is never even asked.
+    Nothing is auto-confirmed. Consent is a separate call —
+    `POST /api/founder-app/{id}/publish` — because the eligibility rule is
+    evaluated first and a link-less app is never even asked (F-20).
     """
     try:
         if body.agent_json or body.agent is not None:
@@ -573,11 +593,6 @@ def create_founder_app(body: FounderAppIn) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 — a fetch/LLM failure on the URL path
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    if body.publish:
-        try:
-            result["publish"] = founder.request_publish(result["founder_app_id"], True)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
     return result
 
 
