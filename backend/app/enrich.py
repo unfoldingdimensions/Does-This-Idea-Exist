@@ -47,6 +47,10 @@ MACHINE_DRAFTED = "machine_drafted"
 HUMAN_CONFIRMED = "human_confirmed"
 PROVENANCE_VALUES = (MACHINE_DRAFTED, HUMAN_CONFIRMED, "sourced", "unknown")
 
+# The tables mark_human_confirmed may stamp. A whitelist, not a parameter: the
+# table name goes into the SQL text, so it may never come from a caller.
+CONFIRMABLE_TABLES = ("startups", "founder_apps")
+
 # The fields the LLM drafts. `founded` is machine-derived too (LLM extraction,
 # Wayback or RDAP) and is in the list because the app presents it as a fact.
 GENERATED_TEXT_FIELDS = (
@@ -85,16 +89,19 @@ def stamp_provenance(values: dict, existing=None) -> dict:
     return values
 
 
-def mark_human_confirmed(conn: sqlite3.Connection, startup_id: int) -> int:
+def mark_human_confirmed(conn: sqlite3.Connection, startup_id: int, table: str = "startups") -> int:
     """F-05, human half: flip a machine-drafted row to human_confirmed.
 
-    Phase 2 wires this to the founder-app confirm path. It is deliberately NOT
-    wired to the liveness approve gate (verify.approve_suggested): an Admin
-    Verified stamp describes the business, not the accuracy of its marketing
-    copy, and badges never attach to claims.
+    Phase 2 wires this to the founder-app confirm path (F-13) — which is why the
+    table is selectable: the founder's record carries the same column shape and
+    the same marker. It is deliberately NOT wired to the liveness approve gate
+    (verify.approve_suggested): an Admin Verified stamp describes the business,
+    not the accuracy of its marketing copy, and badges never attach to claims.
     """
+    if table not in CONFIRMABLE_TABLES:
+        raise ValueError(f"refusing to mark {table!r} human_confirmed")
     cur = conn.execute(
-        "UPDATE startups SET provenance = ?, updated_at = datetime('now') WHERE id = ?",
+        f"UPDATE {table} SET provenance = ?, updated_at = datetime('now') WHERE id = ?",
         (HUMAN_CONFIRMED, startup_id),
     )
     conn.commit()
@@ -156,6 +163,62 @@ def _text(value) -> str:
 
 def _build_evidence(parts: dict) -> str:
     return json.dumps({k: v for k, v in parts.items() if v}, ensure_ascii=False)
+
+
+def draft_from_page(page: dict, domain: str, name_hint: str | None = None) -> dict:
+    """Draft the identity profile from an ALREADY-fetched homepage.
+
+    ONE place produces the website draft, so the founder's own app (F-10, the URL
+    path) is drafted by exactly the primitive that drafts a competitor — same
+    evidence, same prompt, same bounds. Returns the cleaned profile and the
+    chosen name; the caller owns the DB writes.
+    """
+    evidence = _build_evidence({
+        "page_title": page["title"],
+        "meta_description": page["meta_description"],
+        "homepage_text_excerpt": page["text"][:6000],
+    })
+    user = "Generate a startup profile from this website evidence:\n" + evidence
+    if name_hint:
+        user = f"The startup's name is: {name_hint}\n" + user
+    profile = _clean_profile(llm.llm_json(user))
+    name = _text(profile.get("name")) or _text(name_hint) or domain or ""
+    if not name:
+        raise RuntimeError("LLM returned no name")
+    return {"page": page, "domain": domain, "profile": profile, "name": name}
+
+
+def draft_from_website(website_url: str, name_hint: str | None = None) -> dict:
+    """Fetch a homepage and draft the identity profile from it."""
+    page = ws.fetch_homepage(website_url)
+    return draft_from_page(page, urlparse(page["final_url"]).netloc, name_hint)
+
+
+def values_from_record(record) -> dict:
+    """An UPDATABLE-shaped values dict built from an existing record.
+
+    Used by the founder-app approval to create the archive row THROUGH THE
+    NORMAL WRITER (_upsert, with its dedup and its provenance stamp) instead of a
+    second INSERT path that would drift. Only the columns that carry a value are
+    copied — an empty field must not overwrite a real one on an existing row.
+    """
+    carried = (
+        "name", "tagline", "description", "category", "website_url", "github_url",
+        "founded", "date_source", "app_store_url", "play_store_url", "product_url",
+        "docs_url", "demo_url", "problem_statement", "target_users",
+        "features_json", "pricing_json", "pricing_captured_at", "positioning",
+        "provenance",
+    )
+    values: dict = {}
+    for key in carried:
+        try:
+            value = record[key]
+        except (KeyError, IndexError, TypeError):
+            continue
+        if value is not None and value != "":
+            values[key] = value
+    values["source"] = "founder"
+    return values
 
 
 def seed_from_github(github_url: str, reuse_profile: bool = False) -> dict:
@@ -244,27 +307,23 @@ def seed_from_website(
                 "date_source": date_source if found else None,
                 "source": "website",
             }
+            # F-14 teardown carve-out (Phase 2). This payload carries metadata
+            # only, and _upsert writes only the keys it is handed — so
+            # features_json / pricing_json / positioning / the pricing stamps are
+            # left standing rather than blanked, and stamp_provenance never
+            # downgrades a human_confirmed marker. The teardown is not silently
+            # LOST on a re-seed; because pricing decays, refreshing it is the JIT
+            # capture's job (app/capture.py, 7-day window), not the seed's.
             return _upsert(conn, values, existing)
-        evidence = _build_evidence({
-            "page_title": page["title"],
-            "meta_description": page["meta_description"],
-            "homepage_text_excerpt": page["text"][:6000],
-        })
-        user = "Generate a startup profile from this website evidence:\n" + evidence
-        if name_hint:
-            user = f"The startup's name is: {name_hint}\n" + user
-        profile = _clean_profile(llm.llm_json(user))
-        name = _text(profile.get("name")) or _text(name_hint) or domain or ""
-        if not name:
-            raise RuntimeError("LLM returned no name")
+        draft = draft_from_page(page, domain, name_hint)
         # F-04: record WHICH branch produced the date — the three-branch
         # fallback used to throw that knowledge away.
-        founded, date_source = _resolve_founded(domain, _text(profile.get("founded")))
+        founded, date_source = _resolve_founded(domain, _text(draft["profile"].get("founded")))
         values = {
-            "name": name,
-            "tagline": _text(profile.get("tagline")),
-            "description": _text(profile.get("description")),
-            "category": _text(profile.get("category")) or "other",
+            "name": draft["name"],
+            "tagline": _text(draft["profile"].get("tagline")),
+            "description": _text(draft["profile"].get("description")),
+            "category": _text(draft["profile"].get("category")) or "other",
             "website_url": page["final_url"],
             "github_url": None,
             "founded": founded,

@@ -33,7 +33,7 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 
-from . import db, enrich, seeder, verify  # noqa: E402 — must follow logging setup
+from . import capture, db, enrich, founder, seeder, verify  # noqa: E402 — must follow logging setup
 
 log = logging.getLogger("ideasexist")
 
@@ -74,6 +74,10 @@ async def _auto_verify_loop() -> None:
 async def lifespan(app: FastAPI):
     _check_auth_config()
     db.init_db()
+    # F-10: the founder store is its own file and its own schema. Creating it at
+    # boot (not lazily on first write) means a broken FOUNDER_DB_PATH fails here,
+    # loudly, instead of on a founder's first request.
+    founder.init_founder_db()
     seeder.recover_interrupted_jobs()  # restart recovery: queued/running → failed(interrupted)
     log.info(
         "starting: mutation_auth=%s rate_limit=%s admin=%s",
@@ -227,6 +231,42 @@ class SeedIn(BaseModel):
     params: dict = {}
 
 
+class FounderAppIn(BaseModel):
+    """The founder's own app — three input shapes, one endpoint.
+
+    URL   `url` (plus an optional `name_hint`) → the website draft primitive.
+    Form  the flat fields below, with `features` REQUIRED (5-10, F-11).
+    Agent `agent_json` (pasted text) or `agent` (already-parsed object), the
+          shape in docs/teardown-spec.md §3 plus the links block (F-12).
+
+    `publish` is the CONSENT checkbox, not a save button: the eligibility gate
+    is evaluated first and the question is never offered when there is no link
+    (F-20). Nothing is auto-confirmed.
+    """
+
+    url: str | None = None
+    name_hint: str | None = None
+    agent_json: str | None = None
+    agent: dict | None = None
+    # form path
+    name: str | None = None
+    description: str | None = None
+    target_user: str | None = None
+    category: str | None = None
+    features: list[str] | None = None
+    positioning: str | None = None
+    pricing: dict | None = None
+    website_url: str | None = None
+    github_url: str | None = None
+    app_store_url: str | None = None
+    play_store_url: str | None = None
+    publish: bool = False
+
+
+class RejectIn(BaseModel):
+    note: str
+
+
 def require_admin(request: Request, x_admin_token: str | None = Header(default=None)) -> None:
     """Owner gate: ADMIN_TOKEN from the environment — fails loudly (403), never
     silently. Failed attempts are counted per IP (10/min) so brute-forcing the
@@ -294,8 +334,33 @@ class ApproveIn(BaseModel):
 @admin.get("/verify/suggested")
 def admin_suggested() -> list[dict]:
     """Human-approval queue — entries the automated check considers alive (or
-    never checked) that no human has stamped yet."""
-    return verify.list_suggested()
+    never checked) that no human has stamped yet, UNIONED with the founder
+    store's pending submissions (F-24).
+
+    `verify.list_suggested()` reads the archive only; a submission living in
+    another FILE does not appear there on its own, so the union happens here.
+    Every row carries `kind` so the panel can render the two differently and
+    post a decision to the right endpoint.
+    """
+    rows = [{**row, "kind": "archive"} for row in verify.list_suggested()]
+    for sub in founder.pending_submissions():
+        rows.append(
+            {
+                "kind": "founder_submission",
+                "id": sub["submission_id"],
+                "submission_id": sub["submission_id"],
+                "founder_app_id": sub["founder_app_id"],
+                "name": sub["name"],
+                "website_url": sub["website_url"],
+                "github_url": sub["github_url"],
+                "app_store_url": sub["app_store_url"],
+                "play_store_url": sub["play_store_url"],
+                "category": sub["category"],
+                "last_checked": None,
+                "created_at": sub["submitted_at"],
+            }
+        )
+    return rows
 
 
 @admin.post("/verify/approve", dependencies=[Depends(rate_limited("approve", 60, 60))])
@@ -318,6 +383,57 @@ def admin_approve(body: ApproveIn) -> dict:
             detail="Provide ids, approve_all=true, or a created_after/created_before window",
         )
     return {"approved": n}
+
+
+# --- founder submissions: the same admin gate as competitors (F-24) ---
+@admin.get("/founder/submissions")
+def admin_founder_submissions() -> dict:
+    """Pending publish requests from the founder store. Admin-gated: the payload
+    carries the founder's own draft, which is nobody else's business."""
+    return {"pending": founder.pending_submissions()}
+
+
+@admin.post("/founder/submissions/{submission_id}/approve", dependencies=[Depends(rate_limited("founder_decide", 60, 60))])
+def admin_founder_approve(submission_id: int) -> dict:
+    """Approve a publish request: the archive row is created through the normal
+    seed writer and its id is recorded as the cross-store link."""
+    if not founder.get_submission(submission_id):
+        raise HTTPException(status_code=404, detail="Submission not found")
+    try:
+        return founder.approve_submission(submission_id, decided_by="admin")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@admin.post("/founder/submissions/{submission_id}/reject", dependencies=[Depends(rate_limited("founder_decide", 60, 60))])
+def admin_founder_reject(submission_id: int, body: RejectIn) -> dict:
+    """Reject with a note the founder can read. A resubmission is a new row."""
+    if not founder.get_submission(submission_id):
+        raise HTTPException(status_code=404, detail="Submission not found")
+    try:
+        return founder.reject_submission(submission_id, body.note, decided_by="admin")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+# --- just-in-time capture (F-22): admin-gated, because a job payload carries
+# error strings and fetched URLs. There is deliberately no PUBLIC job endpoint.
+@admin.post("/capture/{startup_id}", dependencies=[Depends(rate_limited("capture", 30, 60))])
+def admin_start_capture(startup_id: int) -> dict:
+    """Trigger a capture by hand (the panel's button; Phase 3 wires the founder
+    request). Idempotent inside the freshness window and while one is in flight."""
+    state = capture.start_capture(startup_id)
+    if state.get("state") == "not_found":
+        raise HTTPException(status_code=404, detail="Startup not found")
+    return state
+
+
+@admin.get("/capture/status/{job_id}")
+def admin_capture_status(job_id: str) -> dict:
+    job = capture.get_capture_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
 
 
 @app.get("/api/health")
@@ -419,6 +535,86 @@ def seed_website(body: WebsiteSeedIn) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/api/founder-app", dependencies=[Depends(rate_limited("founder_app", 20, 60))])
+def create_founder_app(body: FounderAppIn) -> dict:
+    """Draft the founder's own app into the FOUNDER store (F-10/F-11/F-12).
+
+    Deliberately NOT behind the admin token: this path cannot write the archive
+    (F-20), so the token that guards archive mutations would only stand between
+    a founder and their own local draft. It is rate-limited all the same.
+
+    Nothing is auto-confirmed, and `publish=true` is the consent gate — the
+    eligibility rule is evaluated first, so a link-less app is never even asked.
+    """
+    try:
+        if body.agent_json or body.agent is not None:
+            result = founder.create_from_agent_json(body.agent_json or body.agent)
+        elif body.url:
+            result = founder.create_from_url(body.url, body.name_hint)
+        else:
+            result = founder.create_from_form(body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 — a fetch/LLM failure on the URL path
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if body.publish:
+        try:
+            result["publish"] = founder.request_publish(result["founder_app_id"], True)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result
+
+
+@app.get("/api/founder-app/{founder_app_id}")
+def get_founder_app(founder_app_id: int) -> dict:
+    """The founder's own draft, plus the two gates and the derived
+    `archive_status`. Local read — there are no accounts, so there is no
+    notification: the status is what makes a rejected request visible."""
+    row = founder.get(founder_app_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Founder app not found")
+    gates = founder.eligibility(row)
+    return {
+        "founder_app_id": row["id"],
+        "profile": founder.profile_of(row),
+        "confirmed": bool(row.get("confirmed_at")),
+        "source_kind": row.get("source_kind"),
+        "eligibility": gates,
+        "publish_offered": gates["has_link"],
+        "archive_status": founder.archive_status(row["id"]),
+        "submission": founder.newest_submission(row["id"]),
+        "submissions": founder.decisions(row["id"]),
+    }
+
+
+@app.post("/api/founder-app/{founder_app_id}/confirm", dependencies=[Depends(rate_limited("founder_app", 20, 60))])
+def confirm_founder_app(founder_app_id: int) -> dict:
+    """The confirm-before-diff gate (F-13): flips the draft to human_confirmed
+    (F-05's human half) so the gap table may run against it. Publishing stays a
+    separate decision."""
+    if not founder.get(founder_app_id):
+        raise HTTPException(status_code=404, detail="Founder app not found")
+    try:
+        return founder.confirm(founder_app_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/founder-app/{founder_app_id}/publish", dependencies=[Depends(rate_limited("founder_app", 20, 60))])
+def publish_founder_app(founder_app_id: int) -> dict:
+    """The consent gate on its own (the checkbox ticked after a confirm).
+
+    Eligibility first: no link means comparison-only, and no consent question is
+    asked at all (F-20).
+    """
+    if not founder.get(founder_app_id):
+        raise HTTPException(status_code=404, detail="Founder app not found")
+    try:
+        return founder.request_publish(founder_app_id, True)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/verify/run", dependencies=[Depends(require_mutation_auth), Depends(rate_limited("verify_run", 10, 60))])
