@@ -8,7 +8,7 @@
 | 0 — Onboarding & baseline | **PASS** | Docs read (implementation-plan, handoff, codebase-comprehension, reworked-revamp-plan, teardown-spec, gap-table-format, backend-checklist, phase-ledger). `npm test` → **RESULT: ALL PASS** (backend smoke exit 0 · frontend sort check exit 0 · frontend lint+build exit 0 · e2e 35 passed/0 failed). `backend\.venv\Scripts\python.exe scripts/phase0-baseline.py` → `[baseline] matches expected baseline` — **1,282 total / 1,278 verified / 0 dead / 57 github**; tables `jobs, sqlite_sequence, startups, verify_log`; last_checked 2026-09-04. No drift. Full output in §Phase 0 evidence below. | 2026-09-15 |
 | 1 — Schema & evidence foundation | **PASS** | Migration verified on a **copy** of the live DB: `backend\.venv\Scripts\python.exe scripts\phase1-verify.py` → **RESULT: ALL PASS** (31 checks) — 1,282 rows before and after, 18 → 40 columns, all 22 teardown columns added incl. `app_store_url` / `play_store_url` / `date_source`, `founded` unchanged and never renamed, `evidence` table present with a NOT NULL `source_url`, second migration run added 0 columns (idempotent), every new column present in `enrich.UPDATABLE`, a 200-day-old `verify_log` row survived a real pass (F-03), and the F-04/F-05 branches behave (rdap / wayback / llm / unknown, machine_drafted stamped, human confirm flips it and a reuse refresh does not downgrade it). Suites: `..\backend\.venv\Scripts\python.exe -m tests.smoke` (from `backend/`) → **RESULT: ALL PASS** (85 PASS / 0 FAIL); `npm test` with Node 24 first on PATH → **RESULT: ALL PASS**. Full output in §Phase 1 evidence below. | 2026-09-15 |
 | 2 — Enrichment & teardown fields | **PASS** | Branch `phase/02-enrichment-teardown-fields`, cut from Phase 1's branch and rebased onto `main` after #4 merged (see the note below). `backend\.venv\Scripts\python.exe scripts\phase2-verify.py` → **RESULT: ALL PASS** (70 checks, exit 0) on a copy of the live archive + a throwaway founder store, fetcher and both LLM prompts **stubbed**: a capture yields `features_json` with 6 items, 3 well-formed pricing plans (2 malformed rows dropped) with `pricing_captured_at` + `pricing_source_url`, a non-empty `positioning`, **one evidence row per feature / plan / free tier / positioning line / negative / review**, provenance `machine_drafted` until a human confirms. Negatives: every one traces to an **enumerating** page; a 404 on a guessed `/api` produces nothing; an unreadable page is `unknown` at confidence 0.1; a verdict-shaped LLM claim is rephrased and a duplicate of the deterministic probe is dropped. Founder app: all three paths draft (URL / form / agent-JSON), a form without 5–10 features → 400, malformed JSON → 400, unknown keys → 400, **nothing reaches the archive DB or `/api/startups` `/api/stats` `/api/categories`** (`1285 → 1285`), the compare guard refuses an unconfirmed app, link-less → `local_only` with **no opt-in offered**, link + opt-in → `pending` → approve → `archive_startup_id` set with the founder record still in its own file, and a rejection carries a readable note (a resubmission is a new row). JIT: two concurrent captures of one competitor → **exactly one job**, in-flight → explicit `capture in progress — retry`, inside 7 days → `cached`, outside → re-queued. Reviews: a 403 provider is a **skip**, every ask links to its review, no score of ours stored. Suites: `..\backend\.venv\Scripts\python.exe -m tests.smoke` → **RESULT: ALL PASS**; `npm test` with Node 24 first on PATH → **RESULT: ALL PASS** (35 e2e passed / 0 failed). No `frontend/` file touched (asserted in the verifier). Full output in §Phase 2 evidence below.
-| 3 — Comparison, gap table & export | pending | | |
+| 3 — Comparison, gap table & export | **PASS** | Branch `phase/03-comparison-gap-export`, cut from `main` at `d41fdd0`. `backend\.venv\Scripts\python.exe scripts\phase3-verify.py` → **RESULT: ALL PASS** (45 checks, exit 0) on a copy of the live archive + a throwaway founder store, fetcher and both LLM prompts **stubbed**: the five bands are correct for a fixture (you-only → `you_have_they_dont`, they-only → `they_have_you_dont`, both → `both_have`, no data on either side → `unknown`); every non-`unknown` "they" cell carries a source; an unsourced "doesn't do" cell renders `unknown` (never "no") and only observations that trace to an enumerating page enter the negative list; dimension 7 sends an ask your features cover to `you_have_they_dont` and an uncovered one to `asked_for`, each linked to its review; compare refuses an unconfirmed founder app with an explicit `409 not_confirmed` state (F-13); the JIT wiring queues a capture on the first founder request (F-22), serves the table once it is cached, and two concurrent calls still collapse into **one** job; all three exports parse and re-run **byte-identical** (stateless + deterministic), and CSV carries `asked_for` as a band value; a known slug resolves, an unknown slug 404s, and the real `cal-com` duplicate group resolves deterministically (human-verified first, then lowest id); a stale `last_checked` reads `machine_verified=false` while `admin_verified` stays true, and no badge appears in a claim cell; the founder store never reaches `/api/startups` / `/api/stats` / `/api/categories`. Suites: `..\backend\.venv\Scripts\python.exe -m tests.smoke` (from `backend/`) → **RESULT: ALL PASS** (85 PASS / 0 FAIL); `npm test` with Node 24 first on PATH → **RESULT: ALL PASS** (backend smoke exit 0 · frontend sort check exit 0 · frontend lint+build exit 0 · e2e 35 passed / 0 failed). No `frontend/` file touched (asserted in the verifier). Full output in §Phase 3 evidence below. | 2026-09-15 |
 | 4 — Search classification & match reasons | pending | | |
 | 5 — Backend functional test gate | pending | | |
 | 6 — Frontend implementation (blocked) | blocked | | |
@@ -406,3 +406,112 @@ The callable and the job are tested here; no `/api/compare` route was added (tha
 - **`evidence.write_evidence` commits.** Found while writing the gate: the first draft relied on the caller's commit and the rows silently disappeared when the connection closed — the teardown columns looked perfect and the evidence table was empty. Caught by the "one evidence row per feature" check, which is exactly the check that would have been skipped if the gate only asserted the visible fields.
 - **Doc drift caused by this phase — corrected in this branch.** `docs/backend-checklist.md` F-06 said `seed_from_website`/`seed_from_github` populate `features_json`; Phase 2 (and Round 5's F-22) makes the just-in-time capture the writer, so F-06 now says so and points at F-22. `docs/codebase-comprehension.md` gained a Phase 2 note, the seven new modules, the founder store's two tables, the new endpoints, the capture paragraph in §4.4, the Phase 2 verifier in §7 and Reddit in the integration list.
 - **Row status after this phase:** Phases 0–2 `PASS`; Phases 3–5 `pending`; Phases 6–8 stay `blocked` — the frontend remains blocked until Phase 5 is `PASS`.
+---
+
+## Phase 3 evidence — comparison, gap table & export (2026-09-15)
+
+**Branch:** `phase/03-comparison-gap-export`, cut from `main` at `d41fdd0`. Backend only — nothing under `frontend/` was touched (asserted in the verifier by a `git diff`/`git status` check on that path).
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `backend/app/compare.py` | **New.** The whole comparison engine: the slug rule and its collision resolution (F-17), the explicit trust badges (F-21), the two sides gathered from their two stores, the seven-dimension cross-store diff and the five bands (`docs/gap-table-format.md`), and the three export renderers (F-16). |
+| `backend/app/main.py` | `POST /api/compare` (F-15, with the F-13 guard and the F-22 JIT wiring), `GET /api/export/{markdown\|json\|csv}` (F-16), `GET /api/startups/{slug}` (F-17). |
+| `scripts/phase3-verify.py` | **New.** The exit-gate verifier (the evidence tool below). |
+| `docs/codebase-comprehension.md` | §4.2 HTTP surface, §7 harness, §9 "what is missing" — corrected for what Phase 3 falsified (see the doc-drift note). |
+| `docs/phase-ledger.md` | This entry. |
+
+No new tables, no new columns (the badges are derived, per F-21).
+
+### 1. The exit gate — comparison, gap table & export
+
+Command (from the repo root, venv python): `backend\.venv\Scripts\python.exe scripts\phase3-verify.py` → **`EXIT=0`**. Every check on a copy of the live archive (SQLite's backup API — WAL mode) plus a throwaway founder store, with the fetcher and both LLM prompts **stubbed**, so nothing touched the network or the live files.
+
+```
+[PASS] a capability only 'you' have lands in you_have_they_dont (F-15) — {'dimension': 'Features', 'band': 'you_have_they_dont', 'you': 'public API', 'them': 'no — no API (Acme Notes)', 'source': 'https://acme.example/docs', 'captured_at': '...'}
+[PASS] a capability only 'they' have lands in they_have_you_dont (F-15) — {'you': 'not offered', 'them': 'backlinks (Acme Notes)', 'source': 'https://acme.example'}
+[PASS] a capability both have lands in both_have (F-15) — {'you': 'markdown notes', 'them': 'markdown notes (Acme Notes)'}
+[PASS] missing data on either side is shown as unknown, never scored (F-15) — {'you': 'public API', 'them': 'unknown — no teardown captured', 'source': ''}
+[PASS] every non-unknown 'they' cell carries a source (cell rule 1) — []
+[PASS] an unsourced doesn't-do cell renders unknown, never 'no' (cell rule 2) — {'dimension': "What it doesn't do", 'band': 'unknown', 'them': 'unknown — could not read the page (Orphan Negative Co)'}
+[PASS] the negative list only contains observations that trace to an enumerating page (F-09) — ['https://acme.example', 'https://acme.example/docs', 'https://acme.example/pricing']
+[PASS] a reviewer ask neither side covers lands in asked_for (dim 7) — {'band': 'asked_for', 'source': 'https://www.reddit.com/r/notes/comments/aaa1/needs_mobile/'}
+[PASS] the same ask, when your declared features cover it, lands in you_have_they_dont (dim 7) — {'you': 'yes — declared: public API', 'source': 'https://www.reddit.com/r/notes/comments/bbb2/api/'}
+[PASS] compare refuses an unconfirmed app with an explicit not-confirmed state (F-13) — 409: {'state': 'not_confirmed', 'message': 'founder app 1 is not confirmed — confirm the draft before the gap table runs (confirm-before-diff)'}
+[PASS] Markdown has the four groups incl. the demand group (F-16) — []
+[PASS] CSV has the exact columns band, dimension, you, them, source_url, captured_at (F-16)
+[PASS] CSV carries asked_for as a band value (F-16) — ['asked_for', 'both_have', 'they_have_you_dont', 'unknown', 'you_have_they_dont']
+[PASS] re-running an export with the same inputs gives the same bytes (F-16 stateless+deterministic)
+[PASS] a real same-name group resolves deterministically: verified first, then lowest id (F-17) — slug=cal-com got=5 expected=5 group=2
+[PASS] a stale last_checked reads machine_verified=false while admin_verified stays true (F-21)
+[PASS] a fresh check reads machine_verified=true (F-21)
+[PASS] no badge is emitted inside a claim/row cell (F-21 / §8.1)
+[PASS] no founder record appears in /api/startups / is counted by /api/stats / appears in /api/categories
+[PASS] a never-captured competitor returns the queued/retry state, not a partial teardown (F-22) — 200: queued / capture queued
+[PASS] once captured, the same call returns the table (F-22)
+[PASS] two concurrent captures of one competitor produce exactly one job (F-22) — jobs=1 first=queued second=in_progress
+[PASS] no frontend/ file was touched in this phase — committed=[] working=[]
+
+RESULT: ALL PASS
+```
+
+45 checks, 0 failed.
+
+### 2. Sample gap table (the ledger's raw evidence)
+
+`you` = the founder's confirmed app **Loom-note** (an online-first note app with an API and collaboration); `them` = the captured competitor **Acme Notes** (a local-first note app). Bands from the run:
+
+| Band | Rows | Example |
+|---|---|---|
+| `you_have_they_dont` (6) | Features ×3, What it doesn't do ×2, What their users ask for ×1 | `public API` → *no — no API* (source `acme.example/docs`) |
+| `they_have_you_dont` (6) | Pricing ×2, Features ×3, … | `Team $12/monthly` (source `acme.example/pricing`) |
+| `both_have` (7) | Pricing ×1, Free tier ×1, Features ×2, Positioning ×1, What it doesn't do ×2 | `Pro $7/monthly` vs `Pro $8/monthly` |
+| `unknown` (1) | Activity / liveness ×1 | `you=n/a` — the founder side has no liveness signal |
+| `asked_for` (1) | What their users ask for ×1 | `native mobile app` — 2 reviewers asked (source `reddit.com/r/notes/...`) |
+
+The competitor's negative evidence rows (the "doesn't do" list), every one traced to a page that enumerates:
+
+```
+('no self-host',                 'https://acme.example/pricing')
+('no API',                       'https://acme.example/docs')
+('no mobile app',                'https://acme.example')
+('no real-time collaboration',   'https://acme.example/docs')
+```
+
+Markdown export (head):
+
+```
+# Gap table — Loom-note vs Acme Notes
+_You: Loom-note. Competitor(s): Acme Notes._
+## You have — they don't
+| Dimension | You | Competitor | Source |
+|---|---|---|---|
+| Features | public API | no — no API (Acme Notes) | https://acme.example/docs (captured 2026-09-15 ...) |
+| Features | real-time collaboration | no — no real-time collaboration (Acme Notes) | https://acme.example/docs (captured ...) |
+| Features | export | not in their feature list (Acme Notes) | https://acme.example (captured ...) |
+| What it doesn't do | yes — declared: public API | no API (Acme Notes) | https://acme.example/docs (captured ...) |
+```
+
+### 3. The two suites (unchanged, still green)
+
+- `cd backend` then `..\backend\.venv\Scripts\python.exe -m tests.smoke` → **`RESULT: ALL PASS`** (85 `[PASS]` / 0 `[FAIL]`, exit 0).
+- `$env:PATH = "C:\Program Files\nodejs;" + $env:PATH` then `npm test` (Node 24 first on PATH; AutoClaw's bundled Node 22 otherwise shadows it) → **`RESULT: ALL PASS`**:
+
+```
+[PASS] backend smoke (exit 0)              RESULT: ALL PASS
+[PASS] frontend sort check (exit 0)        RESULT: ALL PASS
+[PASS] frontend lint + build (exit 0)      ✓ Compiled successfully
+[PASS] frontend e2e verification (exit 0)  TEST RESULTS: 35 PASSED, 0 FAILED
+RESULT: ALL PASS
+```
+
+### 4. Notes recorded at Phase 3
+
+- **The compare guard, the JIT wiring and the diff, in that order.** `POST /api/compare` resolves the `you` founder record, then calls `founder.assert_comparable` **before anything else** (F-13): an unconfirmed draft is a 409 `{"state": "not_confirmed"}` with the message, never a generic 500 and never a silently empty table. Only then does it trigger the capture (F-22) — the ledger's one open line, now wired — and only when every competitor is `cached` does it build the table.
+- **The exports are deliberately not the compare path.** They take the same named inputs as query parameters and recompute from stored data; they **never** trigger a capture. That is what makes "re-running an export with the same inputs gives the same bytes" true, and it is why the export has no retry state: an export of a competitor with no teardown renders `unknown` rows rather than a job.
+- **`both_have` carries parity, including parity of absence.** The spec has no "neither side has it" band. A *sourced* negative whose capability you also lack is therefore placed in `both_have` (no differentiation), while a negative whose capability you **do** cover is a real edge in `you_have_they_dont`. An unsourced (or `unknown`-valued) negative is placed in `unknown` — the cell reads "unknown", never "no" (cell rule 2). This is the one place the five bands needed a judgement call; it is written down here so it is not re-litigated silently.
+- **Capability-level matching is a short, reviewable alias table** (`compare.CAPABILITY_ALIASES`), not a fuzzy matcher: an unlisted variant stays its own row, which is the honest failure mode (a spurious merge would hide a real gap). "markdown" == "Markdown" needs no entry; "offline mode" == "local files" == "work without internet" is one entry, shared by the feature rows and dimension 7.
+- **`machine_verified`'s window falls back to `CAPTURE_STALE_DAYS` when `VERIFY_AUTO_STALE_DAYS` is 0.** Found while writing the gate: with auto-verify disabled for a throwaway instance the naive window made the badge read false for every row. The fallback keeps the badge meaningful (a stale check still reads false) without a second config knob.
+- **Doc drift caused by this phase — corrected in this branch.** `docs/codebase-comprehension.md` §9 said there was "no side-by-side comparison, no export, and no stable URL for a single product". Phase 3 closes the *backend* half of that, so §9 now carries the correction and names what is still missing (the frontend view, the `/products/<slug>` route, search-with-reasons). §4.2 gains the three new routes and §7 gains the Phase 3 verifier.
+- **Row status after this phase:** Phases 0–3 `PASS`; Phases 4–5 `pending`; Phases 6–8 stay `blocked` — the frontend remains blocked until Phase 5 is `PASS`.
