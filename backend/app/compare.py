@@ -462,11 +462,22 @@ def them_side(conn, row) -> dict:
 
     feature_source = home
     feature_captured = _text(_field(row, "pricing_captured_at"))
-    if not features:
-        for feat in parse_features(_field(row, "features_json")):
-            cap = canonical_capability(feat)
-            if cap and cap not in features:
-                features[cap] = {"text": feat, "source": home, "captured_at": ""}
+    # UNION the two sources, never either/or. The capture writes `features_json`
+    # and the per-feature evidence rows together, so in the normal path they
+    # agree and the evidence rows supply the better provenance (each capability
+    # paired with the page it came from). They are still merged rather than
+    # swapped, because if they ever diverge — an interrupted capture between the
+    # column write and the evidence inserts, a manual edit, a future prune — a
+    # capability present in only ONE of them must still count as PRESENT.
+    # Taking evidence alone would under-report the competitor's features, which
+    # flips a parity row into a "you have — they don't" edge: a false edge in
+    # the founder's favour, the one failure this table must never produce. The
+    # union fails toward parity/unknown instead, and evidence keeps its source
+    # whenever both carry the same capability.
+    for feat in parse_features(_field(row, "features_json")):
+        cap = canonical_capability(feat)
+        if cap and cap not in features:
+            features[cap] = {"text": feat, "source": home, "captured_at": ""}
     if not positioning:
         pos_text = _text(_field(row, "positioning"))
         if pos_text:
