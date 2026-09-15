@@ -28,6 +28,62 @@ SYSTEM_PROMPT = (
     "If a name is already provided in the input, use it as-is."
 )
 
+# F-06/F-07/F-08/F-09: the TEARDOWN prompt is a SECOND prompt, not an edit of the
+# one above. It receives page text that was already fetched (by
+# app/pages.py) and returns the four teardown blocks. The rules are in the
+# prompt because they are the product's contract: a missing field becomes
+# unknown, and a negative is an observation about a page that was actually read.
+TEARDOWN_SYSTEM_PROMPT = """You are extracting a competitor teardown from page text that was \
+ALREADY fetched for you. You cannot fetch anything: the only pages that exist for \
+this task are the ones listed in the input, each with its URL.
+
+Return JSON only, with exactly these keys:
+{"features": ["5-10 short capability strings, ONE capability each, in the founder's \
+terms ("local files", "public API") rather than marketing terms ("seamless delight")],
+ "positioning": "one line: how they describe themselves and who for",
+ "pricing": {"free_tier": "string, e.g. 'Free up to 3 docs' or 'No free tier'",
+             "plans": [{"name": "string", "price": "string",
+                        "period": "monthly|annual|one-time"}]},
+ "negatives": [{"claim": "no self-host",
+                "observed_on": "the URL of the page you read this on",
+                "why": "pricing page lists Free / Pro / Team only"}]}
+
+Rules, all of them binding:
+- Use ONLY the supplied page text. Never invent a feature, a price or a plan.
+- Use [] and "" when the text does not say. A missing field means UNKNOWN. Do not \
+guess, and never treat an unreadable page as absence.
+- One capability per item. No grouping, no marketing adjectives.
+- A negative is an observation about a page that ENUMERATES the whole set (a pricing \
+page listing every tier, a docs index listing every section). observed_on MUST be one \
+of the supplied page URLs, and why MUST name what that page actually listed. Never \
+write a verdict like "they have no self-host", and never derive absence from a page \
+that could not be read.
+- Partial output is valid and expected: return what the text supports."""
+
+
+def teardown_brief(pages_brief: str, page_urls: "list[str] | None" = None) -> str:
+    """The user message for the teardown call: the fetched text + the URL
+    whitelist a negative may cite. Nothing else is added — the model gets no
+    licence to look anything up."""
+    urls = ", ".join(page_urls or []) or "(none)"
+    return (
+        "Pages fetched for this teardown (you may cite these URLs and no others):\n"
+        f"{urls}\n\n"
+        "Page text:\n"
+        f"{pages_brief}"
+    )
+
+
+def llm_teardown(brief: str, max_tokens: int = 8000, timeout: float = 180.0) -> dict:
+    """The teardown call (F-06/F-07/F-08, and the negative pass of F-09).
+
+    Same client, same retry policy as llm_json; the only difference is the
+    system prompt. Raises RuntimeError like every other LLM call — the caller
+    (app/capture.py) turns that into `unknown` rather than retrying into invented
+    content.
+    """
+    return llm_json(brief, max_tokens=max_tokens, timeout=timeout, system_prompt=TEARDOWN_SYSTEM_PROMPT)
+
 
 def _parse_json(text: str) -> dict:
     text = text.strip()
@@ -42,14 +98,25 @@ def _parse_json(text: str) -> dict:
         raise
 
 
-def llm_json(user_content: str, max_tokens: int = 8000, timeout: float = 180.0) -> dict:
-    """Call the LLM with a system prompt and return parsed JSON. Raises RuntimeError."""
+def llm_json(
+    user_content: str,
+    max_tokens: int = 8000,
+    timeout: float = 180.0,
+    system_prompt: str = SYSTEM_PROMPT,
+) -> dict:
+    """Call the LLM with a system prompt and return parsed JSON. Raises RuntimeError.
+
+    `system_prompt` defaults to the identity-profile prompt, so every existing
+    caller keeps its behaviour. The teardown prompt is passed explicitly
+    (llm_teardown below) rather than by editing SYSTEM_PROMPT itself: that prompt
+    is shared with the GitHub seed path, which has no pricing page to read.
+    """
     if not config.LLM_API_KEY:
         raise RuntimeError("OPENCODE_GO_API_KEY not set in backend/.env")
     url = f"{config.LLM_BASE_URL}/chat/completions"
     headers = {"Authorization": f"Bearer {config.LLM_API_KEY}", "Content-Type": "application/json"}
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
     ]
 
