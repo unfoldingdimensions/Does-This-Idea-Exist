@@ -23,10 +23,15 @@ log = logging.getLogger("ideasexist")
 
 JOBS: dict[str, dict] = {}
 # One FIFO queue + condition per kind — the workers are the serialization points.
-QUEUES: dict[str, list[dict]] = {"seed": [], "verify": []}
+# "capture" is the just-in-time teardown capture (F-22): its own kind so a
+# founder's first request never waits behind a 500-candidate seed run and a seed
+# never waits behind a capture, while captures of one competitor still collapse
+# into a single job (see try_enqueue_exclusive's `key`).
+QUEUES: dict[str, list[dict]] = {"seed": [], "verify": [], "capture": []}
 CONDS: dict[str, threading.Condition] = {
     "seed": threading.Condition(),
     "verify": threading.Condition(),
+    "capture": threading.Condition(),
 }
 _LOCK = threading.Lock()
 
@@ -80,19 +85,31 @@ def enqueue_job(job: dict) -> None:
     log.info("job %s queued (kind=%s, source=%s)", job["id"], kind, job["source"])
 
 
-def try_enqueue_exclusive(job: dict) -> bool:
-    """Enqueue `job` only if no other job of its kind is queued/running.
+def try_enqueue_exclusive(job: dict, key: str | None = None) -> bool:
+    """Enqueue `job` only if no conflicting job is queued/running.
+
+    Scope is the job's KIND by default — one verify pass at a time, one seed at a
+    time. Pass `key` to scope it further: the JIT teardown capture (F-22) is keyed
+    per competitor, so two concurrent requests for the SAME competitor collapse
+    into one capture while captures of different competitors still queue.
 
     The active-check and the enqueue must share ONE critical section — a
     caller doing has_active_job() then enqueue_job() races a concurrent twin
     past the check and queues a double pass (the exact thing the guard
-    exists to prevent). Returns False when a job of this kind is active."""
+    exists to prevent). Returns False when a conflicting job is active."""
     kind = job["kind"]
     if kind not in QUEUES:
         raise ValueError(f"Unknown job kind: {kind!r}")
+    scope = key if key is not None else job.get("key")
     with _LOCK:
-        if any(j["kind"] == kind and j["status"] in ("queued", "running") for j in JOBS.values()):
+        if any(
+            j["kind"] == kind
+            and (scope is None or j.get("key") == scope)
+            and j["status"] in ("queued", "running")
+            for j in JOBS.values()
+        ):
             return False
+        job.setdefault("key", scope)
         JOBS[job["id"]] = job
         QUEUES[kind].append(job)
     with CONDS[kind]:
@@ -288,6 +305,11 @@ def _run(job: dict) -> None:
 
         verify.run_verify_job(job)
         return
+    if job["kind"] == "capture":
+        from . import capture  # local import — capture imports seeder at module level
+
+        capture.run_capture_job(job)
+        return
     job["status"] = "running"
     job["started_at"] = time.time()
     try:
@@ -422,7 +444,8 @@ SOURCES = {
     "design_library": _design_library,
 }
 
-# Start one worker per kind at import — seeds and verifies drain concurrently
-# from here on (each kind serial within itself).
+# Start one worker per kind at import — seeds, verifies and captures drain
+# concurrently from here on (each kind serial within itself).
 threading.Thread(target=_worker, args=("seed",), name="seed-worker", daemon=True).start()
 threading.Thread(target=_worker, args=("verify",), name="verify-worker", daemon=True).start()
+threading.Thread(target=_worker, args=("capture",), name="capture-worker", daemon=True).start()
