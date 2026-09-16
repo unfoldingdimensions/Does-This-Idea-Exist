@@ -34,6 +34,13 @@ if (!py) {
 }
 
 run("backend smoke", py, ["-m", "tests.smoke"], path.join(root, "backend"));
+// The Phase 5 consolidated gate: F-01..F-24 plus the §6 invariants, in one
+// self-contained suite (throwaway archive + founder store, the page fetcher and
+// both LLM prompts stubbed, no network). It is the continuous gate; the four
+// scripts/phaseN-verify.py stay the recorded per-phase audit evidence and are
+// deliberately NOT wired in here — they work on a copy of the LIVE archive and
+// its Phase 1 backup, which a checkout on another machine will not have.
+run("backend functional (Phase 5 gate)", py, ["-m", "tests.functional"], path.join(root, "backend"));
 // Node >=23 strips the TS types natively, so this runs the real module.
 run(
   "frontend sort check",
