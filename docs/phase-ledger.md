@@ -1209,3 +1209,62 @@ That is a *stronger* statement about the columns that matter and it is again tru
 * **Determinism over speed was not traded.** 187 checks in ~2.8 s, and four consecutive runs produced byte-identical summary lines. The only concurrency in the suite is the F-22 "two concurrent captures → one job" check, which uses explicit events rather than sleeps.
 * **One caveat recorded for the owner:** the smoke ran with `VERIFY_AUTO_STALE_DAYS=0` (see 4.4). Under the default configuration, a boot of this archive would immediately enqueue a real verification pass over all 1,282 rows. That is the product working as designed — but it means "start the app and curl it" costs 1,282 outbound requests on this archive, which is worth knowing before Phase 6's manual testing.
 * **Row status after this phase:** Phases 0–5 `PASS`; Phases 6–8 moved from `blocked` to `pending` **in the same commit as the Phase 5 row**, so the frontend unlock is part of the audited change. Phase 9 stays `pending`.
+
+---
+
+## Post-gate addition — LLM gateways in the admin panel (2026-09-16)
+
+**Not a phase.** This landed after Phase 5 was set to `PASS`, on the owner's explicit request, and the phase rows above are unchanged by it: Phases 0–5 stay `PASS`, Phases 6–8 stay `pending`. It adds no new `F-` item and changes no existing one; `F-01`–`F-24` all still pass.
+
+**Branch:** `feat/llm-gateway-settings`, cut from **`phase/05-backend-functional-gate`** rather than `main` — the same deviation Phase 2 recorded, for the same reason: Phase 5's PR (#11) is still open, so `main` does not yet contain the consolidated suite this change extends (`backend/tests/functional.py`). The PR is stacked on #11 and retargets to `main` once #11 merges.
+
+**Backend only** — no `frontend/` file touched.
+
+### What the owner asked for
+
+The LLM provider was hardcoded: one base URL, one model, one key, read from `backend/.env` at import. The request was to be able to switch between **OpenCode Go, OpenCode Zen, OpenRouter, Google Gemini and Command Code** from the admin panel settings, without editing `.env` and restarting.
+
+### What shipped
+
+| File | Change |
+|---|---|
+| `backend/app/gateways.py` | **New** (~520 lines). The provider registry (five entries: id, label, base URL, env-var names, default + suggested models, docs link, notes), the admin-managed settings store in its own SQLite file, the runtime resolver, and the connectivity probe. |
+| `backend/app/config.py` | `SETTINGS_DB_PATH` (its own file, mirroring `FOUNDER_DB_PATH`); the `LLM_*` comment now says those three values describe the **default** gateway rather than the only one. |
+| `backend/app/llm.py` | `llm_json` resolves the active gateway **per call** (`gateways.resolve()`) instead of reading `config.LLM_*` at import, so a switch needs no restart. The key rides in `Authorization` only; the retry policy, prompt handling and error contract are unchanged. |
+| `backend/app/main.py` | Six admin routes under `/api/admin/settings`, two request models, and `gateways.init_settings_db()` at boot. |
+| `backend/tests/smoke.py`, `backend/tests/functional.py` | Both pin `SETTINGS_DB_PATH` into their throwaway temp dir — the same protection `FOUNDER_DB_PATH` already had, so a test run can never read or write a real settings file (which holds API keys). |
+| `backend/tests/functional.py` | A new section covering the surface: **187 → 219 checks**. |
+| `backend/.env.example` | Documents `SETTINGS_DB_PATH` and the four optional per-gateway env fallbacks. |
+| `docs/llm-gateways.md` | **New.** The operator notes plus the full frontend contract (endpoints, JSON shapes, suggested `lib/api.ts` functions, the panel section's behaviour, and what is deliberately excluded). This is the document the frontend agent works from. |
+| `docs/codebase-comprehension.md` | §4.2 gains the six routes, §7 gains the coverage note, §8's LLM row now names `gateways.py` and the five selectable providers; a post-gate note at the top marks all three. |
+
+### The design decisions worth recording
+
+- **Resolution order is settings → environment → registry default, resolved per call.** That is what makes the change additive: with an empty settings store and today's `.env`, the resolved gateway is exactly the one `config.py` has always described, so nothing about the current install changes and no migration is needed. It is also why a switch takes effect immediately — including on the next call inside a seed that is already running.
+- **The settings live in their own file (`backend/data/settings.db`).** API keys are secrets, and the archive file is copied around, backed up and shared — the four phase verifiers copy it routinely. Keeping keys out of it is the same reasoning that put the founder's app in its own file, with a stronger motive.
+- **A stored key is write-only.** No response ever contains it; the API returns `has_key`, `key_source` and a 4-character `key_hint`. Keys shorter than 12 characters report the literal `set` instead of a hint, because 4 characters of an 8-character key is half the key.
+- **No query-parameter auth, ever — including for Gemini.** Gemini's native API takes `?key=…`, which would put the secret in a URL and therefore into logs and exception text. The gateway uses Gemini's OpenAI-compatible surface with a bearer token instead, and the module documents why there is no opt-in.
+- **A gateway cannot be made active unless it is `ready`** (has a key and a model). The refusal is a `400` naming the missing piece. A switch that silently breaks every seed and capture is worse than a refusal.
+- **The `Test` endpoint is a result, never a 500,** and it never opens a socket when there is nothing to test (a keyless gateway short-circuits). It works on a gateway that is not active, so a key is verifiable before it is switched in.
+- **One flag was removed before shipping.** An earlier draft stored an `enabled` per gateway; nothing read it, so it was deleted rather than shipped as a knob that does nothing. The functional suite asserts an unknown body field is refused (`422`), which is now the guard against exactly that kind of drift.
+
+### Verification
+
+```
+cd backend
+..\backend\.venv\Scripts\python.exe -m tests.functional
+=> RESULT: ALL PASS
+   TESTS: 219 run, 219 passed, 0 failed        (exit 0; was 187 before this change)
+
+..\backend\.venv\Scripts\python.exe -m tests.smoke
+=> RESULT: ALL PASS
+
+npm test   (five steps: smoke · functional · sort check · lint+build · e2e)
+=> RESULT: ALL PASS
+```
+
+All four `scripts/phaseN-verify.py` re-run unchanged: 31 / 74 / 47 / 59 checks, `RESULT: ALL PASS` for each — this change does not touch the archive schema, the capture path or the search path, and the verifiers confirm it.
+
+**One finding while building this, recorded because it is the kind of thing that hides:** the first draft of the request-shape check asserted `llm_json` posts to the active gateway's URL, but the suite stubs `llm.llm_json` globally for its own offline checks — so the new check was silently exercising the stub and could never have failed. The suite now keeps a handle on the real function before stubbing it, and the check restores it for that one assertion. A check that cannot fail is worse than no check.
+
+**Date and who ran it:** 2026-09-16, the AutoClaw agent for this repo (`does-this-startup-exist`) on `DESKTOP-KV8OEKP`.
