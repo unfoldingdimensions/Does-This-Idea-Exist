@@ -1294,13 +1294,15 @@ Re-verified after the change: `tests/functional.py` → `RESULT: ALL PASS` (225 
 ## Phase 6 evidence - frontend implementation (2026-09-16)
 
 **Branch:** `phase/06-frontend-implementation`, cut from `fix/startup-evidence-endpoint` (`937ce1f`).
-Three commits on the branch, in dependency order:
+Five commits on the branch, in dependency order:
 
 | Commit | What |
 |---|---|
 | `5d07056` | `feat(frontend): extend the client layer for the teardown, compare and gateway surfaces` - `lib/types.ts`, `lib/api.ts`, `lib/format.ts` |
 | `3e71372` | `feat(frontend): add the founder input, the gap table, the exports and the gateway section` - items 2, 3, 4, 9 |
 | `af67cd9` | `feat(frontend): render the teardown dossier, a stable product route and honest match reasons` - items 1, 1b, 5, 6, 7, 8 |
+| `dc7d501` | `docs(phase-6): record the frontend phase, and correct the docs it falsified` - this row, the evidence section below, and the three doc corrections |
+| `ed91a8a` | `fix(frontend): type the publish response as what it actually returns` - a type-truth fix found by the delegated review of the founder dialog. `POST /publish` answers `{submitted, submission_id, archive_status, message}`, not a draft; the caller was already reading only `archive_status` and re-reading the record, so no behaviour changed. `tsc` + `eslint` clean. |
 
 **No `backend/` file is edited on this branch.** The only backend commit in the branch's history is `937ce1f`, inherited from the fix branch; `git diff --stat main...phase/06-frontend-implementation -- backend/` names exactly those two files (`backend/app/main.py`, `backend/tests/functional.py`) and nothing else.
 
