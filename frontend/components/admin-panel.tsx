@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { HeartPulse, Loader2, Settings2, Sprout, Stamp } from "lucide-react";
+import { HeartPulse, KeyRound, Loader2, Settings2, Sprout, Stamp } from "lucide-react";
 import { toast } from "sonner";
 import { SPRING_SETTLE } from "@/lib/motion";
 import { Button } from "@/components/ui/button";
@@ -29,12 +29,14 @@ import { ACTIVE, SectionHeader } from "@/components/admin-shared";
 import { SeedSection } from "@/components/admin-seed-section";
 import { VerificationSection } from "@/components/admin-verify-section";
 import { HealthCheckSection } from "@/components/admin-health-section";
+import { LlmGatewaysSection, useLlmGatewayBadge } from "@/components/admin-llm-section";
 
-export type AdminSection = "seed" | "verify" | "health";
+export type AdminSection = "seed" | "verify" | "health" | "llm";
 
-/** Owner-only admin: vertical settings surface with three collapsible sections
+/** Owner-only admin: vertical settings surface with four collapsible sections
  * — Seeding (serial queue + seed summary), Verification (human gate: suggested
- * queue + verify summary), Website Health Check (automated pass + buckets).
+ * queue + verify summary), Website Health Check (automated pass + buckets),
+ * LLM gateways (which provider every seed and capture calls, and its key).
  * Seed and verify jobs run on separate workers, so a seed and a verification
  * can run at the same time; jobs persist to the jobs table and survive
  * backend restarts. */
@@ -55,6 +57,10 @@ export function AdminPanel({
   const [section, setSection] = React.useState<AdminSection | null>(initialSection);
   const [jobs, setJobs] = React.useState<SeedJob[]>([]);
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
+  // Badge for the LLM section: "needs a key" while the ACTIVE gateway cannot
+  // be switched to. Fetched once per open (the section would only know it
+  // after being opened), then kept current by the section itself.
+  const llmBadge = useLlmGatewayBadge(Boolean(token) && open);
 
   const toggle = React.useCallback(
     (key: string) =>
@@ -164,6 +170,7 @@ export function AdminPanel({
     { key: "seed", icon: <Sprout className="h-4 w-4" />, title: "Seeding" },
     { key: "verify", icon: <Stamp className="h-4 w-4" />, title: "Verification" },
     { key: "health", icon: <HeartPulse className="h-4 w-4" />, title: "Website Health Check" },
+    { key: "llm", icon: <KeyRound className="h-4 w-4" />, title: "LLM gateways" },
   ];
 
   return (
@@ -191,9 +198,10 @@ export function AdminPanel({
         <DialogHeader>
           <DialogTitle>Admin — settings</DialogTitle>
           <DialogDescription>
-            Seeding (one source at a time), the human verification gate, and the
-            automated website health check. Seed and verify runs work in parallel;
-            every run&apos;s history is kept across restarts.
+            Seeding (one source at a time), the human verification gate, the
+            automated website health check, and the LLM gateways every seed and
+            teardown capture calls. Seed and verify runs work in parallel; every
+            run&apos;s history is kept across restarts.
           </DialogDescription>
         </DialogHeader>
 
@@ -229,7 +237,9 @@ export function AdminPanel({
                   badge={
                     s.key === "seed" && activeJobs.some((j) => j.kind === "seed")
                       ? `${activeJobs.filter((j) => j.kind === "seed").length} active`
-                      : undefined
+                      : s.key === "llm" && llmBadge
+                        ? llmBadge
+                        : undefined
                   }
                 />
                 <AnimatePresence initial={false}>
@@ -268,6 +278,9 @@ export function AdminPanel({
                             onSeeded={refreshAndSync}
                             onLocked={handleLocked}
                           />
+                        )}
+                        {s.key === "llm" && (
+                          <LlmGatewaysSection onLocked={handleLocked} />
                         )}
                       </div>
                     </motion.div>
