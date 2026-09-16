@@ -168,3 +168,9 @@ The orchestrator records in `docs/phase-ledger.md`:
 4. Date + who ran it.
 
 Only after those four are in the ledger does Phase 6 (frontend) move from `blocked` to `running`.
+
+---
+
+**Phase 5 (2026-09-16) — satisfied.** The evidence is `backend/tests/functional.py` (187 checks, `TESTS: 187 run, 187 passed, 0 failed`), now a step in `npm test`; the traceability table (F-01–F-24 → test → PASS) and the real-backend smoke are recorded in `docs/phase-ledger.md` §Phase 5 evidence. The Phase 5 row is `PASS` and Phases 6–8 moved off `blocked` in the same commit. Run it yourself with `cd backend` then `..\backend\.venv\Scripts\python.exe -m tests.functional`.
+
+One caveat recorded with the smoke: the LLM gateway answered **401** for the configured `OPENCODE_GO_API_KEY`, so the model-drafted teardown fields (`features_json`, `pricing_json`, `positioning`) come back `unknown` on a real capture until that key is replaced. The deterministic half of the teardown is unaffected.

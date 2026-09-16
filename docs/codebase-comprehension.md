@@ -10,6 +10,8 @@
 
 > **Phase 4 note (2026-09-16):** Phase 4 (F-18) added `backend/app/search.py` + `GET /api/search` — classified results with a frozen per-result `reason`, ordered by the plan's ladder. The affected passages (§4.2 read surface, §7 harness, §9 "what is missing") are corrected inline below and marked.
 
+> **Phase 5 note (2026-09-16):** Phase 5 added no product code. It added `backend/tests/functional.py` (the consolidated gate over F-01–F-24 + the §6 invariants: self-contained, offline, ~2.8 s) and wired it into `scripts/verify.mjs`, so `npm test` now runs **five** steps rather than four. §7's runner line is corrected and marked; nothing else in this document changed.
+
 This document exists so a reader who has never opened the repo can describe, accurately, what the product is, how it is built, what it actually does today, and where the founder-facing value sits in the code.
 
 ---
@@ -235,7 +237,7 @@ Both journeys are covered by the in-process smoke suite and previously by two do
 
 ## 7. Test and verification harness
 
-- `npm test` (root `package.json`) → `scripts/verify.mjs` runs four suites: the backend smoke suite, the frontend sort regression, the frontend lint + production build, and `scripts/e2e-verify.mjs`.
+- `npm test` (root `package.json`) → `scripts/verify.mjs` runs **five** suites: the backend smoke suite, the **Phase 5 consolidated functional gate** (`tests/functional.py`), the frontend sort regression, the frontend lint + production build, and `scripts/e2e-verify.mjs`. *(Phase 5 — corrected: this line said "four suites".)*
 - `backend/tests/smoke.py` (~900 lines, 80+ assertions) spins up a throwaway SQLite DB with `TestClient` and pins: the API surface, schema bootstrap, admin gate on all six write endpoints, the startup refusal, the job lifecycle with fake sources, queue serialization, dedup upsert, tri-state verify logic, restart recovery, the human-gate invariants, LIKE escaping, the SSRF guard, rate limiting and the category whitelist. **No network, no LLM.**
 - `scripts/sort-check.ts` runs the *real* `frontend/lib/search.ts` under Node's native type-stripping to pin the dead-last ordering for all five sort keys.
 - **Phase 2:** `scripts/phase2-verify.py` is the exit-gate verifier for the teardown work. It works on a copy of the live archive (SQLite's backup API — the archive is in WAL mode) plus a throwaway founder store, stubs the fetcher and both LLM prompts, and prints `[PASS]`/`[FAIL]` per check plus `RESULT: ALL PASS` or `RESULT: n FAILED`; it exits non-zero on failure. Nothing in it touches the network or the live files.
