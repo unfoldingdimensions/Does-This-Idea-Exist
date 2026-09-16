@@ -1,6 +1,6 @@
 # LLM gateways — backend + admin panel contract
 
-**Status:** backend shipped (`feat/llm-gateway-settings`). The frontend section is **not built yet** — this document is the contract for it.
+**Status:** backend shipped (`feat/llm-gateway-settings`); the frontend section **is built** — `components/admin-llm-section.tsx` and the fourth `llm` entry in `components/admin-panel.tsx`, landed with Phase 6 (2026-09-16, ledger `PASS`). §4 below is the contract it was built to, unchanged.
 **Read with:** `docs/codebase-comprehension.md` §4.2 (HTTP surface) · `docs/backend-checklist.md` §6 (the invariants that must not regress) · `backend/app/gateways.py` (the registry and the resolver).
 
 ---

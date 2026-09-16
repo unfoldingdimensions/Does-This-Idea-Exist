@@ -19,6 +19,18 @@
 > reads `config.LLM_*` directly — it resolves the active gateway per call, so a switch needs
 > no restart. The passages below (§4.2 surface, §7 harness, §8 integrations) are updated and marked.
 
+> **Phase 6 note (2026-09-16):** the frontend gained its teardown and founder surfaces. New under
+> `frontend/components/`: `teardown-dossier.tsx` (one record rendered from `GET /api/startups/{slug}`
+> — pricing plan-by-plan, a flat feature list, positioning, the sourced "doesn't do" list, liveness
+> and the two badges), `founder-app-dialog.tsx` (the three ingest paths plus the confirm-before-diff
+> gate), `gap-table.tsx`, `gap-export-buttons.tsx` and `admin-llm-section.tsx` (the fourth admin
+> section). New route: `frontend/app/products/[slug]/page.tsx`, the stable per-product address
+> "Share Entity" now points at, which also hosts the comparison (`?you=<id>` reopens it).
+> `lib/api.ts` and `lib/types.ts` grew the Phase 1–4 shapes, and `lib/format.ts` owns the F-04 date
+> labelling that stops an RDAP date being printed as a founding year. §2's component count (34) and
+> the `app/` map are a line out of date as a result; nothing else in this document changed.
+> `GET /api/startups/{slug}` now also returns the record's `evidence` rows.
+
 
 This document exists so a reader who has never opened the repo can describe, accurately, what the product is, how it is built, what it actually does today, and where the founder-facing value sits in the code.
 
