@@ -54,6 +54,10 @@ if str(BACKEND) not in sys.path:
 _tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
 os.environ["DB_PATH"] = str(Path(_tmp.name) / "functional.db")
 os.environ["FOUNDER_DB_PATH"] = str(Path(_tmp.name) / "functional-founder.db")
+# The LLM gateway settings are a third store, and they hold API KEYS (see
+# app/gateways.py) — pinned into the throwaway dir for the same reason the
+# founder store is: a test run must never touch a real settings file.
+os.environ["SETTINGS_DB_PATH"] = str(Path(_tmp.name) / "functional-settings.db")
 TOKEN = "functional-admin-token"
 os.environ["ADMIN_TOKEN"] = TOKEN
 os.environ["MUTATION_AUTH"] = "1"
@@ -480,6 +484,10 @@ def fake_llm_json(user_content, max_tokens=8000, timeout=180.0, system_prompt=No
 
 
 DATES = {"wayback": None, "rdap": None}
+# Keep a handle on the REAL client before stubbing it suite-wide: the gateway
+# checks further down must exercise the real request-building path (that is the
+# whole point of them), and they cannot do that through a stub.
+_real_llm_json = llm.llm_json
 llm.llm_json = fake_llm_json
 netguard_mod.safe_get = fake_fetch
 ws_mod.wayback_first_snapshot = lambda domain: DATES["wayback"]
@@ -1539,6 +1547,246 @@ with TestClient(api) as client:
         config.RATE_LIMIT_ENABLED = _real_rate
         main_mod._RATE.clear()
         main_mod._FAILS.clear()
+
+# ===========================================================================
+# LLM gateways — the registry, the admin settings surface, runtime resolution
+# ===========================================================================
+print("\n--- LLM gateways: registry, admin settings, runtime resolution ---")
+from app import gateways as gw_mod  # noqa: E402
+
+_ENV_KEYS = ("OPENCODE_GO_API_KEY", "OPENCODE_ZEN_API_KEY", "OPENROUTER_API_KEY",
+             "GEMINI_API_KEY", "GOOGLE_API_KEY", "COMMAND_CODE_API_KEY")
+_saved_env = {k: os.environ.get(k) for k in (*_ENV_KEYS, "LLM_BASE_URL", "LLM_MODEL")}
+
+
+def _clear_keys() -> None:
+    for k in _ENV_KEYS:
+        os.environ.pop(k, None)
+
+
+expect_base_urls = {
+    "opencode-go": "https://opencode.ai/zen/go/v1",
+    "opencode-zen": "https://opencode.ai/zen/v1",
+    "openrouter": "https://openrouter.ai/api/v1",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/",
+    "command-code": "https://api.commandcode.ai/provider/v1",
+}
+
+try:
+    _clear_keys()
+    with TestClient(api) as client:
+        check("the gateway settings surface is admin-gated",
+              client.get("/api/admin/settings/gateways").status_code == 403,
+              "403 without a token")
+        listing = client.get("/api/admin/settings/gateways", headers=MUT).json()
+        ids = [g["id"] for g in listing["gateways"]]
+        check("all five requested gateways are registered",
+              ids == list(expect_base_urls), str(ids))
+        check("the base URLs are the ones each provider publishes",
+              {g["id"]: g["default_base_url"] for g in listing["gateways"]} == expect_base_urls,
+              str({g["id"]: g["default_base_url"] for g in listing["gateways"]}))
+        check("every gateway is OpenAI-compatible: https, an env fallback and a docs link",
+              all(g["default_base_url"].startswith("https://") and g["env_vars"]
+                  and g["docs_url"] for g in listing["gateways"]),
+              str([g["id"] for g in listing["gateways"] if not g["docs_url"]]))
+        check("a gateway the operator has not touched reports ready=false, not an error",
+              all(not g["ready"] for g in listing["gateways"]),
+              "no keys in the environment")
+
+        # --- the resolver: settings -> environment -> registry default --------
+        check("with no key anywhere the resolver falls back to the default gateway",
+              gw_mod.active_id() == "opencode-go", gw_mod.active_id())
+        os.environ["GEMINI_API_KEY"] = "env-gemini-key-000000"
+        check("a single env key steers the active gateway to that provider",
+              gw_mod.active_id() == "gemini", gw_mod.active_id())
+        check("an environment key is reported as env-sourced",
+              gw_mod.public_view("gemini")["key_source"] == "env",
+              gw_mod.public_view("gemini")["key_source"])
+
+        stored = client.put(
+            "/api/admin/settings/gateways/gemini",
+            json={"api_key": "stored-gemini-key-abcdef", "model": "gemini-2.5-pro"},
+            headers=MUT).json()
+        check("a pasted key is stored and reported as settings-sourced (beats the env)",
+              stored["has_key"] and stored["key_source"] == "settings"
+              and gw_mod.resolve("gemini")["api_key"] == "stored-gemini-key-abcdef",
+              f"source={stored['key_source']}")
+        check("the response carries a 4-character hint, never the key",
+              stored["key_hint"] == "\u2026cdef"
+              and "stored-gemini-key-abcdef" not in json.dumps(stored),
+              f"hint={stored['key_hint']!r}")
+        check("no endpoint in the whole surface leaks a stored key",
+              "stored-gemini-key-abcdef"
+              not in client.get("/api/admin/settings/gateways", headers=MUT).text,
+              "the list view is clean")
+
+        # --- switching the active gateway ------------------------------------
+        no_key = client.post("/api/admin/settings/gateways/active",
+                             json={"gateway_id": "openrouter"}, headers=MUT)
+        check("switching to a keyless gateway is refused with the reason (400)",
+              no_key.status_code == 400 and "OPENROUTER_API_KEY" in no_key.json()["detail"],
+              str(no_key.json().get("detail"))[:90])
+        client.put("/api/admin/settings/gateways/openrouter",
+                   json={"api_key": "sk-or-v1-000000000000"}, headers=MUT)
+        no_model = client.post("/api/admin/settings/gateways/active",
+                               json={"gateway_id": "openrouter"}, headers=MUT)
+        check("a gateway with a key but no model is refused too (400)",
+              no_model.status_code == 400 and "model" in no_model.json()["detail"],
+              str(no_model.json().get("detail"))[:90])
+        client.put("/api/admin/settings/gateways/openrouter",
+                   json={"model": "openai/gpt-5"}, headers=MUT)
+        switched = client.post("/api/admin/settings/gateways/active",
+                               json={"gateway_id": "openrouter"}, headers=MUT)
+        check("switching to a ready gateway takes effect immediately",
+              switched.status_code == 200 and switched.json()["active"] == "openrouter"
+              and switched.json()["effective"]["model"] == "openai/gpt-5",
+              str(switched.json()["effective"]))
+        check("switching needs no restart: resolve() reads the store per call",
+              gw_mod.resolve()["gateway_id"] == "openrouter"
+              and gw_mod.resolve()["base_url"] == "https://openrouter.ai/api/v1",
+              gw_mod.resolve()["base_url"])
+        check("an unknown gateway id is a 404, not a silent no-op",
+              client.post("/api/admin/settings/gateways/active",
+                          json={"gateway_id": "nope"}, headers=MUT).status_code == 404
+              and client.get("/api/admin/settings/gateways/nope", headers=MUT).status_code == 404,
+              "404 on both")
+
+        # --- validation, clearing, and the file boundary ----------------------
+        check("a non-http base URL is refused",
+              client.put("/api/admin/settings/gateways/openrouter",
+                         json={"base_url": "file:///etc/passwd"},
+                         headers=MUT).status_code == 400, "400")
+        check("a base URL carrying credentials is refused",
+              client.put("/api/admin/settings/gateways/openrouter",
+                         json={"base_url": "https://user:pw@host.example/v1"},
+                         headers=MUT).status_code == 400, "400")
+        check("a base URL with a query string is refused (a key could hide there)",
+              client.put("/api/admin/settings/gateways/openrouter",
+                         json={"base_url": "https://host.example/v1?key=abc"},
+                         headers=MUT).status_code == 400, "400")
+        trimmed = client.put("/api/admin/settings/gateways/openrouter",
+                             json={"base_url": "https://openrouter.ai/api/v1/"},
+                             headers=MUT).json()
+        check("a trailing slash on a stored base URL is normalised away",
+              trimmed["base_url"] == "https://openrouter.ai/api/v1",
+              trimmed["base_url"])
+        check("a request body with an invented field is refused, not ignored",
+              client.put("/api/admin/settings/gateways/openrouter",
+                         json={"api_ky": "oops"}, headers=MUT).status_code == 422, "422")
+        client.put("/api/admin/settings/gateways/openrouter",
+                   json={"api_key": ""}, headers=MUT)
+        cleared = client.put("/api/admin/settings/gateways/openrouter",
+                             json={"model": ""}, headers=MUT).json()
+        check("clearing an override falls back to the environment, then the default",
+              cleared["key_source"] == "none" and cleared["has_key"] is False
+              and cleared["model"] == "",
+              f"source={cleared['key_source']} model={cleared['model']!r}")
+        after_clear = client.post("/api/admin/settings/gateways/active",
+                                  json={"gateway_id": "openrouter"}, headers=MUT)
+        check("a gateway whose key was cleared can no longer be made active",
+              after_clear.status_code == 400, str(after_clear.status_code))
+        check("resetting returns to the environment-described default gateway",
+              (lambda: (_clear_keys(),
+                        client.post("/api/admin/settings/gateways/active/reset",
+                                    headers=MUT).json()["active"])[-1])() == "opencode-go",
+              "back to OpenCode Go")
+
+        check("the gateway settings live in their own file, not the archive or the founder store",
+              str(config.SETTINGS_DB_PATH) not in (str(config.DB_PATH), str(config.FOUNDER_DB_PATH))
+              and "gateway_settings" not in table_names(config.DB_PATH)
+              and "gateway_settings" not in table_names(config.FOUNDER_DB_PATH),
+              str(config.SETTINGS_DB_PATH.name))
+
+        # --- the LLM client actually follows the setting (offline) -----------
+        client.put("/api/admin/settings/gateways/openrouter",
+                   json={"api_key": "sk-or-v1-wire-check-0001", "model": "openai/gpt-5"},
+                   headers=MUT)
+        client.post("/api/admin/settings/gateways/active",
+                    json={"gateway_id": "openrouter"}, headers=MUT)
+        sent: list[dict] = []
+
+        class _StubResponse:
+            status_code = 200
+            text = ""
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"choices": [{"message": {"content": '{"name": "X"}'}}]}
+
+        def _capture_post(url, **kwargs):
+            sent.append({"url": url, **kwargs})
+            return _StubResponse()
+
+        _real_post = llm.httpx.post
+        llm.httpx.post = _capture_post
+        # The suite stubs llm.llm_json globally; restore the real one for this
+        # check so the request the client actually builds is what gets asserted.
+        llm.llm_json = _real_llm_json
+        try:
+            llm.llm_json("profile this")
+        finally:
+            llm.llm_json = fake_llm_json
+            llm.httpx.post = _real_post
+        _resolved = gw_mod.resolve()
+        check("llm_json calls the ACTIVE gateway's base URL, not a hardcoded one",
+              bool(sent) and sent[0]["url"]
+              == f"{_resolved['base_url']}/chat/completions",
+              str(sent[0]["url"] if sent else None))
+        check("the key travels in the Authorization header, never in the URL",
+              bool(sent) and sent[0]["headers"]["Authorization"]
+              == f"Bearer {_resolved['api_key']}"
+              and "?" not in sent[0]["url"],
+              "header-only auth")
+        check("the active gateway's model is what gets sent",
+              bool(sent) and sent[0]["json"]["model"] == _resolved["model"],
+              str(sent[0]["json"]["model"] if sent else None))
+        _clear_keys()
+        # Force the active gateway onto a keyless one through the store (set_active
+        # refuses it on purpose — that refusal is asserted above), then read the
+        # error the LLM client produces.
+        gw_mod._app_setting(gw_mod.ACTIVE_KEY, "opencode-zen")
+        _keyless_msg = ""
+        try:
+            llm._client_config()
+        except RuntimeError as exc:
+            _keyless_msg = str(exc)
+        gw_mod._app_setting(gw_mod.ACTIVE_KEY, "")
+        check("a gateway with no key fails loudly and names its env var",
+              "OpenCode Zen" in _keyless_msg and "OPENCODE_ZEN_API_KEY" in _keyless_msg,
+              _keyless_msg[:120] or "no error raised")
+
+        # --- the test button is a result, never a 500, and never a network
+        #     call when there is nothing to test -------------------------------
+        _tripwire_calls: list = []
+        _real_post2 = llm.httpx.post
+
+        def _tripwire_post(url, **kwargs):
+            _tripwire_calls.append(url)
+            raise AssertionError("test_gateway made an outbound call with no key")
+
+        llm.httpx.post = _tripwire_post
+        try:
+            keyless = client.post("/api/admin/settings/gateways/opencode-zen/test",
+                                  headers=MUT)
+        finally:
+            llm.httpx.post = _real_post2
+        check("testing a keyless gateway is a structured result, not a 500",
+              keyless.status_code == 200 and keyless.json()["ok"] is False
+              and "no API key" in keyless.json()["error"],
+              str(keyless.json().get("error"))[:60])
+        check("a keyless test never reaches the network",
+              not _tripwire_calls, f"{len(_tripwire_calls)} outbound call(s)")
+        check("testing an unknown gateway is a 404",
+              client.post("/api/admin/settings/gateways/nope/test",
+                          headers=MUT).status_code == 404, "404")
+finally:
+    for _k, _v in _saved_env.items():
+        if _v is None:
+            os.environ.pop(_k, None)
+        else:
+            os.environ[_k] = _v
 
 # ===========================================================================
 print("\n" + "=" * 78)

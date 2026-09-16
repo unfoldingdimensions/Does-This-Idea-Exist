@@ -29,6 +29,10 @@ os.environ["DB_PATH"] = str(Path(_tmp.name) / "smoke.db")
 # The founder store is its own file (F-10). Point it at the same throwaway dir
 # so a test run never touches backend/data/founder.db.
 os.environ["FOUNDER_DB_PATH"] = str(Path(_tmp.name) / "smoke-founder.db")
+# The LLM gateway settings are their own file too (app/gateways.py) and hold API
+# keys — pin it into the throwaway dir so a test run never reads or writes
+# backend/data/settings.db.
+os.environ["SETTINGS_DB_PATH"] = str(Path(_tmp.name) / "smoke-settings.db")
 os.environ["ADMIN_TOKEN"] = "smoke-admin-token"
 # Pin auto-verify OFF for the whole suite (startup enqueues would race the
 # queue tests); the dedicated auto-verify test flips it on explicitly.
