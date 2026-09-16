@@ -1,4 +1,20 @@
-import type { CategoryCount, SeedJob, Startup, Stats, SuggestedStartup, VerifyJob } from "./types";
+import type {
+  CategoryCount,
+  CompareResult,
+  FounderAppDetail,
+  FounderAppDraft,
+  LlmGateway,
+  LlmGatewayPatch,
+  LlmGatewayTestResult,
+  LlmGatewaysView,
+  SearchResult,
+  SeedJob,
+  Startup,
+  StartupRecord,
+  Stats,
+  SuggestedStartup,
+  VerifyJob,
+} from "./types";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8020";
 
@@ -210,4 +226,256 @@ export function startSeed(source: string, params: Record<string, unknown>): Prom
 
 export function fetchSeedJobs(): Promise<SeedJob[]> {
   return adminJson<SeedJob[]>(`${API_BASE}/api/admin/seed/jobs`);
+}
+
+// --- Phase 6: the verified surface the product UI consumes -------------------
+// Everything below is wired to the Phase 5-verified backend. No mocks, no
+// hardcoded rows: the non-happy answers are normal answers here, and each one
+// gets its own shape so the UI can render it honestly instead of an empty box.
+
+/**
+ * Best-effort detail from an error body we already read as text.
+ * FastAPI puts a STRING in `detail` for most refusals but a DICT for the ones
+ * the product models as states (compare's 409 `{state, message}`), so a plain
+ * `String(detail)` would print `[object Object]` at the user.
+ */
+function detailMessage(body: unknown, status: number): string {
+  const detail = (body as { detail?: unknown } | null)?.detail;
+  if (typeof detail === "string" && detail) return detail;
+  if (detail && typeof detail === "object") {
+    const message = (detail as { message?: unknown }).message;
+    if (typeof message === "string" && message) return message;
+    return JSON.stringify(detail);
+  }
+  return `HTTP ${status}`;
+}
+
+async function readBody(res: Response): Promise<unknown> {
+  try {
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return null; // non-JSON error body
+  }
+}
+
+/**
+ * `POST /api/compare` refused an UNCONFIRMED draft (409 `{state: "not_confirmed"}`).
+ * Its own class because the honest UI response is not an error toast — it is to
+ * say so and walk the founder to the confirm step, never to render a table.
+ */
+export class CompareNotConfirmed extends Error {
+  readonly state = "not_confirmed" as const;
+  constructor(message: string) {
+    super(message);
+    this.name = "CompareNotConfirmed";
+  }
+}
+
+/**
+ * The gap table (F-15). Returns the table, OR the explicit capture-pending
+ * state (`queued` / `in_progress`) the JIT capture answers with while a
+ * competitor's teardown is being read — the caller must offer a retry and must
+ * never render a partial table as if it were the answer.
+ *
+ * The two sides live in two different databases, so the request namespaces them
+ * (`{you, competitors}`) rather than passing one flat id list.
+ */
+export async function compareStartups(
+  you: string,
+  competitors: string[],
+): Promise<CompareResult> {
+  const res = await fetch(
+    `${API_BASE}/api/compare`,
+    withTimeout(
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ you, competitors }),
+      },
+      WRITE_TIMEOUT_MS,
+    ),
+  );
+  const body = await readBody(res);
+  if (res.status === 409) {
+    throw new CompareNotConfirmed(
+      detailMessage(body, res.status) ||
+        "the draft must be confirmed before the gap table can run",
+    );
+  }
+  if (!res.ok) throw new Error(detailMessage(body, res.status));
+  return body as CompareResult;
+}
+
+/**
+ * `/api/startups/{slug}` has no such product (404). Its own class because the
+ * honest response is a themed "nothing in the archive matches" page — which is
+ * a different state from the archive being unreachable, and a different state
+ * again from the read failing.
+ */
+export class RecordNotFound extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RecordNotFound";
+  }
+}
+
+/** `GET /api/startups/{slug}` — the stable per-product record (F-17). */
+export async function fetchStartupRecord(slug: string): Promise<StartupRecord> {
+  const res = await fetch(
+    `${API_BASE}/api/startups/${encodeURIComponent(slug)}`,
+    withTimeout({ cache: "no-store" }, READ_TIMEOUT_MS),
+  );
+  const body = await readBody(res);
+  if (res.status === 404) throw new RecordNotFound(detailMessage(body, res.status));
+  if (!res.ok) throw new Error(detailMessage(body, res.status));
+  return body as StartupRecord;
+}
+
+/**
+ * `GET /api/search` — classified results carrying the server's frozen per-result
+ * `reason` (F-18). An empty/blank query returns 200 with `[]` by contract, so
+ * "no query" and "no matches" are the same harmless state.
+ */
+export function searchStartups(q: string): Promise<SearchResult[]> {
+  const params = new URLSearchParams({ q });
+  return json<SearchResult[]>(`${API_BASE}/api/search?${params}`, { cache: "no-store" });
+}
+
+/** The three export formats `GET /api/export/{format}` serves. */
+export type ExportFormat = "markdown" | "json" | "csv";
+
+export interface ExportPayload {
+  text: string;
+  mediaType: string;
+  filename: string;
+}
+
+/**
+ * `GET /api/export/{format}` — the same inputs as `/api/compare`, recomputed
+ * and returned as bytes (F-16). Stateless on purpose: there is no stored "last
+ * comparison" to read back, so the same inputs always yield the same bytes.
+ * It never triggers a capture, so it can be called the moment the table renders.
+ */
+export async function exportGapTable(
+  format: ExportFormat,
+  you: string,
+  competitors: string[],
+): Promise<ExportPayload> {
+  const params = new URLSearchParams({ you });
+  competitors.forEach((c) => params.append("competitors", c));
+  const res = await fetch(
+    `${API_BASE}/api/export/${format}?${params}`,
+    withTimeout(undefined, WRITE_TIMEOUT_MS),
+  );
+  if (res.status === 409) {
+    throw new CompareNotConfirmed(
+      detailMessage(await readBody(res), res.status) ||
+        "the draft must be confirmed before it can be exported",
+    );
+  }
+  if (!res.ok) throw new Error(detailMessage(await readBody(res), res.status));
+  return {
+    text: await res.text(),
+    mediaType: res.headers.get("content-type") ?? "",
+    filename: `gap-table.${format}`,
+  };
+}
+
+// --- the founder's own store (F-10..F-13, F-20) ------------------------------
+// Deliberately NOT behind the admin token: none of these can write the archive,
+// so the token that guards archive mutations would only stand between a founder
+// and their own local draft. Every call is rate-limited server-side.
+
+function founderJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const ms = init?.method === "POST" ? WRITE_TIMEOUT_MS : READ_TIMEOUT_MS;
+  return fetch(`${API_BASE}${path}`, {
+    ...withTimeout(init, ms),
+    // Never a `publish` field on create: it is a 422 on purpose. Create →
+    // confirm → publish are three calls.
+    headers: { "Content-Type": "application/json", ...init?.headers },
+    cache: "no-store",
+  }).then(async (res) => {
+    if (!res.ok) throw new Error(detailMessage(await readBody(res), res.status));
+    return (await res.json()) as T;
+  });
+}
+
+/**
+ * Draft the founder's own app. Exactly one path per call: `agent_json` (paste),
+ * `url`, or the form fields. Nothing is auto-confirmed and nothing auto-diffs.
+ */
+export function createFounderApp(
+  body: Record<string, unknown>,
+): Promise<FounderAppDraft> {
+  return founderJson<FounderAppDraft>("/api/founder-app", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** The draft plus the derived `archive_status` and every decision on it. */
+export function getFounderApp(id: number): Promise<FounderAppDetail> {
+  return founderJson<FounderAppDetail>(`/api/founder-app/${id}`);
+}
+
+/** The confirm-before-diff gate (F-13) — the gap table's precondition. */
+export function confirmFounderApp(id: number): Promise<FounderAppDraft> {
+  return founderJson<FounderAppDraft>(`/api/founder-app/${id}/confirm`, { method: "POST" });
+}
+
+/** The consent gate on its own. Eligibility has already been checked first. */
+export function publishFounderApp(id: number): Promise<FounderAppDraft> {
+  return founderJson<FounderAppDraft>(`/api/founder-app/${id}/publish`, { method: "POST" });
+}
+
+// --- LLM gateways (docs/llm-gateways.md §4) ---------------------------------
+// Through adminJson, which attaches the owner token and turns a 403 into
+// AdminUnauthorized — that is what makes the panel lock itself when the session
+// goes stale. No response ever carries a key; the field is write-only.
+
+export function fetchLlmGateways(): Promise<LlmGatewaysView> {
+  return adminJson<LlmGatewaysView>(`${API_BASE}/api/admin/settings/gateways`, {
+    cache: "no-store",
+  });
+}
+
+/** Patch one gateway. Omitted field = left alone; `""` = clear the override. */
+export function updateLlmGateway(
+  id: string,
+  patch: LlmGatewayPatch,
+): Promise<LlmGateway> {
+  return adminJson<LlmGateway>(`${API_BASE}/api/admin/settings/gateways/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+}
+
+/** Make a `ready` gateway the one every seed and capture uses. 400 when not. */
+export function setActiveLlmGateway(id: string): Promise<LlmGatewaysView> {
+  return adminJson<LlmGatewaysView>(`${API_BASE}/api/admin/settings/gateways/active`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ gateway_id: id }),
+  });
+}
+
+/** Back to the gateway `backend/.env` describes. */
+export function resetActiveLlmGateway(): Promise<LlmGatewaysView> {
+  return adminJson<LlmGatewaysView>(`${API_BASE}/api/admin/settings/gateways/active/reset`, {
+    method: "POST",
+  });
+}
+
+/**
+ * One real, tiny completion against THAT gateway — active or not, so a key can
+ * be checked before it is switched in. Always 200 unless the id is unknown:
+ * a bad key and a blocked target are results, not faults.
+ */
+export function testLlmGateway(id: string): Promise<LlmGatewayTestResult> {
+  return adminJson<LlmGatewayTestResult>(
+    `${API_BASE}/api/admin/settings/gateways/${id}/test`,
+    { method: "POST" },
+  );
 }

@@ -75,6 +75,88 @@ function hueFromName(name: string): number {
 }
 
 /**
+ * WHERE a date came from (F-04). `founded` may hold an RDAP domain-registration
+ * date or a Wayback first-capture date rather than a founding year (Notion is
+ * filed 2000-11-01 and was founded in 2013), so the display is only allowed to
+ * call it a founding year when a human actually confirmed it.
+ */
+export type DateSource = "llm" | "wayback" | "rdap" | "human" | "unknown";
+
+/** The column arrives as TEXT, so callers hand over a plain string; anything
+ * outside the vocabulary falls through to the "unrecorded" branch below. */
+type LooseDateSource = DateSource | string | null | undefined;
+
+/**
+ * The honest label for a `founded` value — the frontend half of F-04.
+ *
+ * Returns the term to print (`Founded`, `Domain registered`, `First archived`),
+ * the raw value (null when there is none — never a fabricated year), and a note
+ * explaining the approximation when the source is not a human confirmation.
+ */
+export function foundedLabel(
+  founded: string | null | undefined,
+  dateSource: LooseDateSource,
+): { label: string; value: string | null; note: string | null } {
+  const value = (founded ?? "").trim() || null;
+  switch (dateSource) {
+    case "rdap":
+      return {
+        label: "Domain registered",
+        value,
+        note:
+          "An RDAP domain-registration date — domains are often registered years before the "
+          + "product exists, so this is not a founding year.",
+      };
+    case "wayback":
+      return {
+        label: "First archived",
+        value,
+        note: "The earliest Wayback snapshot — an approximation, not a founding year.",
+      };
+    case "llm":
+      return {
+        label: "Founded (model-drafted)",
+        value,
+        note: "Drafted by a model from the site. A human has not confirmed this date.",
+      };
+    case "human":
+      return { label: "Founded", value, note: "Confirmed by a human." };
+    default:
+      return {
+        label: "Founded (date source unrecorded)",
+        value,
+        note: "No date source was recorded for this value, so it is shown as unconfirmed.",
+      };
+  }
+}
+
+/**
+ * The card-row form of the same rule. Anything that is not a human-confirmed
+ * date is marked as an estimate (`est.`) or an approximation (`≈`) and carries
+ * a `title` saying exactly what it is. A null date yields no text at all — the
+ * old hardcoded `"2021"` fallback fabricated a vintage, and it is gone.
+ */
+export function foundedShort(
+  founded: string | null | undefined,
+  dateSource: LooseDateSource,
+): { text: string | null; title: string } {
+  const year = (founded ?? "").match(/\d{4}/)?.[0] ?? null;
+  if (!year) return { text: null, title: "no dated founding information on this record" };
+  switch (dateSource) {
+    case "human":
+      return { text: `founded ${year}`, title: `${year} — confirmed by a human` };
+    case "llm":
+      return { text: `\u2248${year}`, title: `${year} drafted by a model from the site — not human-confirmed` };
+    case "rdap":
+      return { text: `est. ${year}`, title: `${year} is an RDAP domain-registration date, not necessarily the founding year` };
+    case "wayback":
+      return { text: `est. ${year}`, title: `${year} is the earliest Wayback snapshot — an approximation` };
+    default:
+      return { text: `est. ${year}`, title: `${year} — no date source recorded, so it is shown as an estimate` };
+  }
+}
+
+/**
  * Pastel chip colors for initial avatars. One style works in BOTH themes:
  * a light pastel background with a dark same-hue letter passes contrast
  * on beige AND charcoal (dark text on ~78% lightness ≈ 7:1).
