@@ -10,7 +10,7 @@ import re
 
 import httpx
 
-from . import config
+from . import config, gateways
 
 SYSTEM_PROMPT = (
     "You are an expert startup researcher. You receive evidence about a startup "
@@ -98,23 +98,56 @@ def _parse_json(text: str) -> dict:
         raise
 
 
+def _client_config() -> dict:
+    """Resolve the active LLM gateway at CALL time, and fail loudly if it is not
+    usable.
+
+    Resolved per call rather than at import: that is what makes switching
+    gateway (or pasting a new key) in the admin panel take effect without a
+    restart. `config.LLM_*` remains the default the resolver falls back to, so
+    an install configured only through backend/.env behaves exactly as before.
+
+    The message names the env var for the gateway the environment describes, so
+    the old "set OPENCODE_GO_API_KEY" advice still applies to the old setup.
+    """
+    gateway = gateways.resolve()
+    if not gateway["api_key"]:
+        env_var = (gateway["env_vars"] or ["the API key"])[0]
+        raise RuntimeError(
+            f"{gateway['label']} has no API key — add one in Admin -> Settings -> "
+            f"LLM gateways, or set {env_var} in backend/.env"
+        )
+    if not gateway["model"]:
+        raise RuntimeError(
+            f"{gateway['label']} has no model configured — set one in Admin -> "
+            f"Settings -> LLM gateways"
+        )
+    return gateway
+
+
 def llm_json(
     user_content: str,
     max_tokens: int = 8000,
     timeout: float = 180.0,
     system_prompt: str = SYSTEM_PROMPT,
 ) -> dict:
-    """Call the LLM with a system prompt and return parsed JSON. Raises RuntimeError.
+    """Call the active gateway and return parsed JSON. Raises RuntimeError.
 
     `system_prompt` defaults to the identity-profile prompt, so every existing
     caller keeps its behaviour. The teardown prompt is passed explicitly
     (llm_teardown below) rather than by editing SYSTEM_PROMPT itself: that prompt
     is shared with the GitHub seed path, which has no pricing page to read.
     """
-    if not config.LLM_API_KEY:
-        raise RuntimeError("OPENCODE_GO_API_KEY not set in backend/.env")
-    url = f"{config.LLM_BASE_URL}/chat/completions"
-    headers = {"Authorization": f"Bearer {config.LLM_API_KEY}", "Content-Type": "application/json"}
+    gateway = _client_config()
+    # The key rides in the Authorization header only — never a query parameter,
+    # which would put a secret into a URL and therefore into logs and exception
+    # text (see app/gateways.py's note on Gemini's ?key=).
+    url = f"{gateway['base_url'].rstrip('/')}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {gateway['api_key']}",
+        "Content-Type": "application/json",
+        **gateway["extra_headers"],
+    }
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
@@ -126,7 +159,7 @@ def llm_json(
     last_error: Exception | None = None
     for with_response_format in (True, False):
         body = {
-            "model": config.LLM_MODEL,
+            "model": gateway["model"],
             "messages": messages,
             "max_tokens": max_tokens,
             "temperature": 0.4,
@@ -146,4 +179,6 @@ def llm_json(
             return _parse_json(content)
         except Exception as exc:  # noqa: BLE001 — retry once, then surface the real error
             last_error = exc
-    raise RuntimeError(f"LLM call failed after retries: {last_error}") from last_error
+    raise RuntimeError(
+        f"LLM call to {gateway['label']} failed after retries: {last_error}"
+    ) from last_error
