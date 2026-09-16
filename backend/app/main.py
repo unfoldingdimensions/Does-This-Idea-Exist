@@ -34,7 +34,7 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 
-from . import capture, compare as compare_mod, db, enrich, founder, search as search_mod, seeder, verify  # noqa: E402
+from . import capture, compare as compare_mod, db, enrich, founder, gateways, search as search_mod, seeder, verify  # noqa: E402
 
 log = logging.getLogger("ideasexist")
 
@@ -79,6 +79,10 @@ async def lifespan(app: FastAPI):
     # boot (not lazily on first write) means a broken FOUNDER_DB_PATH fails here,
     # loudly, instead of on a founder's first request.
     founder.init_founder_db()
+    # Same reasoning for the LLM gateway settings (which provider is active, and
+    # its key/model overrides): its own file, created at boot so a broken
+    # SETTINGS_DB_PATH fails here rather than on the first seed.
+    gateways.init_settings_db()
     seeder.recover_interrupted_jobs()  # restart recovery: queued/running → failed(interrupted)
     log.info(
         "starting: mutation_auth=%s rate_limit=%s admin=%s",
@@ -287,6 +291,28 @@ class RejectIn(BaseModel):
     note: str
 
 
+class GatewaySettingsIn(BaseModel):
+    """A partial patch of one gateway's stored settings.
+
+    Omitting a field leaves it alone; sending it as `null` (or `""`) CLEARS the
+    override so it falls back to the environment and then the registry default.
+    That distinction is why this model does not simply default every field to
+    None — the endpoint reads `model_dump(exclude_unset=True)`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    api_key: str | None = None
+    model: str | None = None
+    base_url: str | None = None
+
+
+class ActiveGatewayIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    gateway_id: str
+
+
 class CompareIn(BaseModel):
     """`{you: {...}, competitors: [...]}` (F-15).
 
@@ -447,6 +473,95 @@ def admin_founder_reject(submission_id: int, body: RejectIn) -> dict:
         return founder.reject_submission(submission_id, body.note, decided_by="admin")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+# --- LLM gateways: which provider the backend calls, and with which key -----
+# The registry lives in app/gateways.py; these routes are the admin panel's view
+# of it. Two invariants hold across all of them, and they are the reason the
+# routes exist in this shape:
+#
+#   * a stored key is WRITE-ONLY — responses carry `has_key`, `key_source` and a
+#     4-character `key_hint`, never the value;
+#   * the secret never travels in a URL or a log line (see gateways.py).
+@admin.get("/settings/gateways", dependencies=[Depends(rate_limited("settings_read", 60, 60))])
+def admin_gateways() -> dict:
+    """Every known gateway, what the operator has overridden, and what is in
+    effect right now. This is the panel's settings screen."""
+    return gateways.list_gateways()
+
+
+@admin.get("/settings/gateways/{gateway_id}")
+def admin_gateway(gateway_id: str) -> dict:
+    try:
+        return gateways.public_view(gateway_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@admin.put(
+    "/settings/gateways/{gateway_id}",
+    dependencies=[Depends(rate_limited("settings_write", 30, 60))],
+)
+def admin_update_gateway(gateway_id: str, body: GatewaySettingsIn) -> dict:
+    """Patch one gateway: paste a key, override the model or base URL, or clear
+    an override. Nothing here takes effect on the archive until the gateway is
+    made active — or immediately, if it already is."""
+    payload = body.model_dump(exclude_unset=True)
+    kwargs = {key: payload[key] for key in ("api_key", "model", "base_url")
+              if key in payload}
+    try:
+        return gateways.update_gateway(gateway_id, **kwargs)
+    except ValueError as exc:
+        detail = str(exc)
+        status = 404 if detail.startswith("unknown gateway") else 400
+        raise HTTPException(status_code=status, detail=detail) from exc
+
+
+@admin.post(
+    "/settings/gateways/active",
+    dependencies=[Depends(rate_limited("settings_write", 30, 60))],
+)
+def admin_set_active_gateway(body: ActiveGatewayIn) -> dict:
+    """Switch the gateway every LLM call uses (seeds AND teardown captures).
+
+    Refused with a 400 when the chosen gateway has no usable key or model:
+    making it active would silently break every seed and capture, and a loud
+    refusal before the switch is worth more than a broken product after it.
+    """
+    try:
+        return gateways.set_active(body.gateway_id)
+    except ValueError as exc:
+        detail = str(exc)
+        status = 404 if detail.startswith("unknown gateway") else 400
+        raise HTTPException(status_code=status, detail=detail) from exc
+
+
+@admin.post(
+    "/settings/gateways/active/reset",
+    dependencies=[Depends(rate_limited("settings_write", 30, 60))],
+)
+def admin_reset_active_gateway() -> dict:
+    """Go back to the gateway `backend/.env` describes."""
+    return gateways.clear_active()
+
+
+@admin.post(
+    "/settings/gateways/{gateway_id}/test",
+    dependencies=[Depends(rate_limited("gateway_test", 10, 60))],
+)
+def admin_test_gateway(gateway_id: str) -> dict:
+    """One real, tiny completion against a gateway — the panel's "Test" button.
+
+    Works on a gateway that is NOT active, so a key can be checked before it is
+    switched in. Never raises: a bad key, a wrong model or an unreachable host
+    all come back as `ok: false` with the provider's own text, because that is
+    the information the operator actually needs.
+    """
+    try:
+        gateways.public_view(gateway_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return gateways.test_gateway(gateway_id)
 
 
 # --- just-in-time capture (F-22): admin-gated, because a job payload carries
