@@ -18,7 +18,20 @@ DB_PATH = Path(os.getenv("DB_PATH", str(BASE_DIR / "data" / "ideasexist.db")))
 # (docs/teardown-spec.md §3.1) and the privacy copy is different per case.
 FOUNDER_DB_PATH = Path(os.getenv("FOUNDER_DB_PATH", str(BASE_DIR / "data" / "founder.db")))
 
-# LLM: opencode.go (deepseek-v4-flash) — verified live 2026-08-09.
+# LLM gateway settings (which provider is active, its key/model/base-URL
+# overrides) live in their OWN file too, for the same reason the founder store
+# does: they are SECRETS. The archive file gets copied, backed up and shared —
+# the per-phase verifiers copy it around routinely — so an API key must never
+# sit in it. See app/gateways.py.
+SETTINGS_DB_PATH = Path(os.getenv("SETTINGS_DB_PATH", str(BASE_DIR / "data" / "settings.db")))
+
+# LLM: the DEFAULT gateway is OpenCode Go (opencode.ai/zen/go/v1).
+# These three values describe that gateway and nothing else — the other
+# gateways (Zen, OpenRouter, Gemini, Command Code) are configured from the
+# admin panel and stored in SETTINGS_DB_PATH, and app/gateways.py resolves which
+# one is in effect at call time. With an empty settings store this is exactly
+# the configuration the app has always run on.
+#
 # The gateway URL is operator config (backend/.env), never user input; parse
 # it once here and reject anything that isn't a clean http(s) origin so a
 # malformed value fails at boot instead of mid-enrichment.
