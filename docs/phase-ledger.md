@@ -10,10 +10,10 @@
 | 2 — Enrichment & teardown fields | **PASS** | Branch `phase/02-enrichment-teardown-fields`, cut from Phase 1's branch and rebased onto `main` after #4 merged (see the note below). `backend\.venv\Scripts\python.exe scripts\phase2-verify.py` → **RESULT: ALL PASS** (70 checks, exit 0) on a copy of the live archive + a throwaway founder store, fetcher and both LLM prompts **stubbed**: a capture yields `features_json` with 6 items, 3 well-formed pricing plans (2 malformed rows dropped) with `pricing_captured_at` + `pricing_source_url`, a non-empty `positioning`, **one evidence row per feature / plan / free tier / positioning line / negative / review**, provenance `machine_drafted` until a human confirms. Negatives: every one traces to an **enumerating** page; a 404 on a guessed `/api` produces nothing; an unreadable page is `unknown` at confidence 0.1; a verdict-shaped LLM claim is rephrased and a duplicate of the deterministic probe is dropped. Founder app: all three paths draft (URL / form / agent-JSON), a form without 5–10 features → 400, malformed JSON → 400, unknown keys → 400, **nothing reaches the archive DB or `/api/startups` `/api/stats` `/api/categories`** (`1285 → 1285`), the compare guard refuses an unconfirmed app, link-less → `local_only` with **no opt-in offered**, link + opt-in → `pending` → approve → `archive_startup_id` set with the founder record still in its own file, and a rejection carries a readable note (a resubmission is a new row). JIT: two concurrent captures of one competitor → **exactly one job**, in-flight → explicit `capture in progress — retry`, inside 7 days → `cached`, outside → re-queued. Reviews: a 403 provider is a **skip**, every ask links to its review, no score of ours stored. Suites: `..\backend\.venv\Scripts\python.exe -m tests.smoke` → **RESULT: ALL PASS**; `npm test` with Node 24 first on PATH → **RESULT: ALL PASS** (35 e2e passed / 0 failed). No `frontend/` file touched (asserted in the verifier). Full output in §Phase 2 evidence below.
 | 3 — Comparison, gap table & export | **PASS** | Branch `phase/03-comparison-gap-export`, cut from `main` at `d41fdd0`. `backend\.venv\Scripts\python.exe scripts\phase3-verify.py` → **RESULT: ALL PASS** (45 checks at the gate; **47** after the §5 follow-up, still ALL PASS) on a copy of the live archive + a throwaway founder store, fetcher and both LLM prompts **stubbed**: the five bands are correct for a fixture (you-only → `you_have_they_dont`, they-only → `they_have_you_dont`, both → `both_have`, no data on either side → `unknown`); every non-`unknown` "they" cell carries a source; an unsourced "doesn't do" cell renders `unknown` (never "no") and only observations that trace to an enumerating page enter the negative list; dimension 7 sends an ask your features cover to `you_have_they_dont` and an uncovered one to `asked_for`, each linked to its review; compare refuses an unconfirmed founder app with an explicit `409 not_confirmed` state (F-13); the JIT wiring queues a capture on the first founder request (F-22), serves the table once it is cached, and two concurrent calls still collapse into **one** job; all three exports parse and re-run **byte-identical** (stateless + deterministic), and CSV carries `asked_for` as a band value; a known slug resolves, an unknown slug 404s, and the real `cal-com` duplicate group resolves deterministically (human-verified first, then lowest id); a stale `last_checked` reads `machine_verified=false` while `admin_verified` stays true, and no badge appears in a claim cell; the founder store never reaches `/api/startups` / `/api/stats` / `/api/categories`. Suites: `..\backend\.venv\Scripts\python.exe -m tests.smoke` (from `backend/`) → **RESULT: ALL PASS** (85 PASS / 0 FAIL); `npm test` with Node 24 first on PATH → **RESULT: ALL PASS** (backend smoke exit 0 · frontend sort check exit 0 · frontend lint+build exit 0 · e2e 35 passed / 0 failed). No `frontend/` file touched (asserted in the verifier). Full output in §Phase 3 evidence below. | 2026-09-15 |
 | 4 — Search classification & match reasons | **PASS** | Branch `phase/04-search-classification`, cut from `main` at `e92b1a8`. `backend\.venv\Scripts\python.exe scripts\phase4-verify.py` → **RESULT: ALL PASS** (58 checks, exit 0) on a copy of the live archive + a throwaway founder store, with **no fetcher and no LLM at all** (a search reads stored data only): a real product name returns as result **#1** with `reason == "Exact name match"` (Obsidian, exactly one exact-name hit); a query matching at every rung returns non-decreasing rungs `[0, 2, 3, 4, 4, 5, 6]` and the fixtures come back exact → name → tagline → description → category → fuzzy; every one of the **eight frozen reason strings** is emitted (including the latent "Same audience, different approach", which no column writes today); dead **and** pivoted rows sort last under an otherwise equal match and are still returned; a **0-star exact-name match beats a 99999-star fuzzy one**; a two-term query returns **only** rows matching both and scores by the **worst** term (0.143, not the 0.071 average); the empty-query contract (no `q`, `q=`, `q=<blank>`) is **200 + `[]`**; `q=%` and `q=_` return **0 rows**, and `/api/startups?q=%` is still literal (40 of 1,282 — every hit really contains a `%`); a search writes no evidence row and queues no capture job, and a tripwire proves it never calls `capture.start_capture` (the F-22 contrast with `/api/compare`); no founder-store record appears in a search result; the keyword rung matches a fixture with `features_json` populated and **skips** the row where it is NULL (data-awareness); and the reachable-rung census is recorded below. Suites: `..\backend\.venv\Scripts\python.exe -m tests.smoke` (from `backend/`) → **RESULT: ALL PASS** (85 PASS / 0 FAIL); `npm test` with Node 24 first on PATH → **RESULT: ALL PASS** (backend smoke exit 0 · frontend sort check exit 0 · frontend lint+build exit 0 · e2e 35 passed / 0 failed). No `frontend/` file touched (asserted in the verifier). Full output in §Phase 4 evidence below. | 2026-09-16 |
-| 5 — Backend functional test gate | pending | | |
-| 6 — Frontend implementation (blocked) | blocked | | |
-| 7 — Frontend tests (blocked) | blocked | | |
-| 8 — Full end-to-end test (blocked) | blocked | | |
+| 5 — Backend functional test gate | **PASS** | Branch `phase/05-backend-functional-gate`, cut from `main` at `850c6e9`. Backend only — no `frontend/` file touched. New: `backend/tests/functional.py`, one self-contained suite over **F-01–F-24 + the §6 invariants** (187 checks) with its own throwaway archive + founder store and the fetcher, both LLM prompts and both date sources stubbed: `cd backend` then `..\backend\.venv\Scripts\python.exe -m tests.functional` → **`RESULT: ALL PASS`** — `TESTS: 187 run, 187 passed, 0 failed` (exit 0, ~2.8 s; identical across four consecutive runs). Wired into `scripts\verify.mjs` directly after the smoke suite, so `npm test` now runs **five** steps → **`RESULT: ALL PASS`** (backend smoke exit 0 · backend functional exit 0 · frontend sort check exit 0 · frontend lint+build exit 0 · e2e 35 passed / 0 failed). **Traceability table F-01–F-24 → test → PASS below.** Real-backend smoke against the **real** archive: WAL-safe backup to `ideasexist.db.bak-phase5` first, then the first boot since Phase 1 → **18 → 40 columns and the `evidence` table appearing, 1,282 rows before and after**; `GET /api/health`, `/api/stats`, `/api/categories`, `/api/search?q=obsidian`, `/api/startups/obsidian` all answered with real data; a real founder app (`Phase 5 Smoke App`, confirmed) plus a real JIT capture of **Obsidian** (6.0 s, page plan fetched) → 3 sourced negative evidence rows written, with `features_json`/`pricing_json`/`positioning` left **unknown** because the LLM gateway answered **401** for the configured `OPENCODE_GO_API_KEY` — recorded honestly, not hidden (see §Phase 5 evidence 4). All four `scripts/phaseN-verify.py` re-run on this branch → **`RESULT: ALL PASS`** (31 / 74 / 47 / 59 checks); `phase4-verify.py` needed its rung-census assertion repaired against the now-real captured state (recorded below). Full output in §Phase 5 evidence below. | 2026-09-16 |
+| 6 — Frontend implementation | pending | Unblocked by the Phase 5 `PASS` above (this row moved `blocked` → `pending` in the same commit as the Phase 5 row). | |
+| 7 — Frontend tests | pending | Unblocked by the Phase 5 `PASS` above. | |
+| 8 — Full end-to-end test | pending | Unblocked by the Phase 5 `PASS` above. | |
 | 9 — Handoff & close-out | pending | | |
 
 **Baseline (recorded in Phase 0, 2026-09-15):** see the full evidence block below.
@@ -725,4 +725,487 @@ The smoke suite's pinned LIKE test still reads `q=% returned 0 of 12; literal re
 - **Performance is the honest linear scan, and the marker is kept.** 28–96 ms per full-archive query at 1,282–1,300 rows (measured, printed by the gate) — the same knee as the client path (`LIST_LIMIT_DEFAULT = 3000`). The `ponytail:` note in both `search.py` and the route names FTS5 + bm25 as the next step, not a bigger scan.
 - **Doc drift caused by this phase — corrected in this branch.** `docs/codebase-comprehension.md` §9 (and §11's premise "Search relevance needs classification, not just ranking") described a gap whose *backend* half this phase closes: §9 now carries the Phase 4 correction and names what is still missing (the frontend that renders the reasons). §4.2 gains the route, §7 gains the Phase 4 verifier, and `docs/backend-checklist.md` F-18 records the two decisions it had left open. No other product doc was falsified.
 
-- **Row status after this phase:** Phases 0–4 `PASS`; Phase 5 `pending`; Phases 6–8 stay `blocked` — the frontend remains blocked until Phase 5 is `PASS`.
+- **Row status after Phase 4:** Phases 0–4 `PASS`; Phase 5 `pending`; Phases 6–8 stay `blocked` — the frontend remains blocked until Phase 5 is `PASS`. (Superseded by the Phase 5 section below.)
+
+---
+
+## Phase 5 evidence — backend functional test gate (2026-09-16)
+
+**Branch:** `phase/05-backend-functional-gate`, cut from `main` at `850c6e9`. **Backend only** — no `frontend/` file was touched (`git diff --name-only main..HEAD -- frontend` is empty, and each of the four phase verifiers re-asserts it). This phase adds **no product feature**; it adds one suite, one runner step, one repaired verifier assertion and this entry.
+
+**Who ran it:** the AutoClaw agent for this repo (`does-this-startup-exist`, session `agent:does-this-startup-exist:893c5a2e`) on `DESKTOP-KV8OEKP`; venv Python 3.11.15, Node 24.19.0 first on `PATH`. **Date: 2026-09-16.**
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `backend/tests/functional.py` | **New.** The consolidated suite: F-01–F-24 + the §6 invariants, 187 checks, self-contained (own throwaway archive + founder store inside one temp dir; fetcher, both LLM prompts, Wayback and RDAP all stubbed; no network, never the live file). Mirrors `tests/smoke.py`'s discipline; prints `[PASS]`/`[FAIL]`, a `RESULT:` line and `TESTS: n run, n passed, n failed`; exits non-zero on any failure. |
+| `scripts/verify.mjs` | One new step, `backend functional (Phase 5 gate)`, placed directly after the backend smoke suite. A comment records why the four `phaseN-verify.py` scripts are **not** wired in instead: they need the live archive and its Phase 1 backup, which a checkout on another machine will not have. |
+| `scripts/phase4-verify.py` | The rung-census assertion repaired against the now-real captured state (see §Phase 5 evidence 7). |
+| `docs/codebase-comprehension.md` | §7's runner line corrected: `npm test` runs **five** suites, not four. A Phase 5 note added at the top; the correction marked inline. |
+| `docs/backend-checklist.md` | §7 gains the Phase 5 completion marker and the command that produces the evidence. |
+| `docs/phase-ledger.md` | This entry, the Phase 5 row set to `PASS`, and Phases 6–8 moved `blocked` → `pending` **in the same commit**. |
+
+No table, column, endpoint or product behaviour changed.
+
+### 1. The consolidated suite — the real output
+
+Command (from `backend/`):
+
+```
+..\backend\.venv\Scripts\python.exe -m tests.functional
+```
+
+```
+==============================================================================
+IdeaExists backend functional suite — Phase 5 gate
+==============================================================================
+[PASS] a legacy-shaped archive starts at the recorded 18 base columns (F-01) — 18 columns
+[PASS] the migration knows exactly 22 new teardown columns (F-01) — 22
+[PASS] the migration takes the archive 18 -> 40 columns (F-01) — 18 -> 40
+[PASS] no column is dropped or renamed by the migration (F-01) — missing: []
+[PASS] `founded` keeps its name (F-04 — the rename is rejected) — founded=True founded_at=False
+[PASS] `date_source` sits beside `founded` (F-04)
+[PASS] the two store-link columns are added (F-19)
+[PASS] the first migration run really adds all 22 columns (F-01) — added 22
+[PASS] the migration executes only ADD COLUMN — no DROP, no RENAME (F-01) — 23 statement(s): 1 PRAGMA table_info + 22 ALTER, nothing destructive
+[PASS] re-running the migration is a no-op (idempotent) (F-01) — []
+[PASS] existing rows survive the migration (F-01) — 2 rows
+[PASS] a legacy `founded` value is untouched by the migration (F-01/F-04) — 2020-05-08
+[PASS] existing rows default date_source to 'unknown' (F-04) — unknown
+[PASS] the `evidence` table exists after the migration (F-02) — ['evidence', 'jobs', 'sqlite_sequence', 'startups', 'verify_log']
+[PASS] evidence has exactly the specified columns (F-02) — ['id', 'startup_id', 'evidence_type', 'source_url', 'captured_at', 'claim', 'value', 'provenance', 'confidence', 'reviewed_at']
+[PASS] evidence.source_url is NOT NULL (F-02) — notnull=1
+[PASS] evidence.captured_at is NOT NULL (F-02) — notnull=1
+[PASS] a source-less evidence row is refused by the writer (F-02) — SourceRequiredError
+[PASS] a source-less evidence row is refused by the DB too (F-02) — NOT NULL constraint
+[PASS] evidence.captured_at is auto-filled (F-02) — 2026-09-16 09:12:21
+[PASS] every new column is in enrich.UPDATABLE (F-01 — the silent-drop trap) — []
+[PASS] every UPDATABLE name is a real archive column (F-01) — []
+[PASS] app_store_url / play_store_url are writable through the normal writer (F-19)
+[PASS] an LLM-stated date is recorded as date_source='llm' (F-04) — ('2015-06-01', 'llm')
+[PASS] a Wayback-derived date is recorded as date_source='wayback' (F-04) — ('2019-03-04', 'wayback')
+[PASS] an RDAP-derived date is recorded as date_source='rdap' (F-04) — ('1997-10-06', 'rdap')
+[PASS] with no source the date stays NULL and date_source='unknown' (F-04) — (None, 'unknown')
+[PASS] date_source is one of the frozen values (F-04) — unknown
+[PASS] a fresh seed is stamped provenance='machine_drafted' (F-05) — machine_drafted
+[PASS] the seeded row carries date_source='unknown' when nothing stated a date (F-04/F-05) — unknown
+[PASS] a human confirm flips provenance to human_confirmed (F-05) — human_confirmed
+[PASS] a reuse_profile refresh does not downgrade human_confirmed (F-05) — human_confirmed
+[PASS] mark_human_confirmed refuses a table outside its whitelist (F-05) — jobs refused
+[PASS] a capture reports state=captured (F-06) — captured
+[PASS] features_json holds 5-10 items (F-06) — 6: ['local files', 'markdown notes', 'backlinks', 'graph view', 'sync (paid)', 'publish']
+[PASS] fewer than 5 supported features become unknown, never padded (F-06) — []
+[PASS] more than 10 features are capped, not stored raw (F-06) — 10
+[PASS] one evidence row per feature, each with a source_url (F-06) — 6 rows for 6 features
+[PASS] pricing rows each carry a price and a period (F-07) — [{'name': 'Pro', 'price': '$8', 'period': 'monthly'}, {'name': 'Team', 'price': '$12', 'period': 'monthly'}, {'name': 'Enterprise', 'price': 'custom', 'period': 'annual'}]
+[PASS] malformed plan rows are dropped, not stored half-formed (F-07) — ['Pro', 'Team', 'Enterprise']
+[PASS] pricing_captured_at is stamped (F-07) — 2026-09-16 09:12:21
+[PASS] pricing_source_url is stamped (F-07) — https://acme.example/pricing
+[PASS] the free tier is captured as its own claim (F-07) — Free up to 3 docs
+[PASS] one evidence row per pricing plan + the free tier (F-07) — 4 rows for 3 plans + free tier
+[PASS] positioning is non-empty (F-08) — A private, local-first note app that links your thinking.
+[PASS] the positioning line carries its source (F-08)
+[PASS] provenance is machine_drafted until a human confirms (F-05/F-08) — machine_drafted
+[PASS] every teardown evidence row is machine_drafted (F-05) — ['machine_drafted']
+[PASS] teardown evidence is unknown rather than invented when a page is unreadable (F-06) — every evidence row carries a confidence
+[PASS] a sourced negative traces to an enumerating page (F-09) — ['no self-host', 'no API', 'no mobile app', 'no real-time collaboration'] from ['https://acme.example', 'https://acme.example/docs', 'https://acme.example/pricing']
+[PASS] no negative is derived from a guessed URL (F-09)
+[PASS] the LLM's negatives survive only when they trace to a page we read (F-09)
+[PASS] a deterministic probe wins over the LLM's duplicate of the same fact (F-09)
+[PASS] a verdict-shaped claim is rephrased into an observation (F-09)
+[PASS] a 404 on a guessed URL produces nothing at all (F-09) — guessed-record probe returned None
+[PASS] the page plan never fetches a guessed capability path (F-09) — (('pricing', '/pricing'), ('docs', '/docs'))
+[PASS] a negative with no enumerating source is refused, not stored (F-09) — empty source and non-enumerating source both refused
+[PASS] a retrieval failure is unknown with low confidence, never a negative (F-09) — 3 unknown row(s), conf=[0.1, 0.1, 0.1]
+[PASS] an unreadable page still gets a source_url (the page we tried) (F-09) — ['https://walled.example', 'https://walled.example/docs', 'https://walled.example/pricing']
+[PASS] no pricing is stored when the pricing page could not be read (F-07) — pricing_json=None
+[PASS] one evidence row per review, source_url = the review permalink (F-23) — 3 permalinks
+[PASS] a walled provider (403) is a skip, not a failure (F-23) — skipped=1 rows=3
+[PASS] positive and negative are both classified (F-23) — ['negative', 'negative', 'positive']
+[PASS] no score, aggregate or NPS of our own is stored (F-23) — [['asks', 'classification'], ['asks', 'classification'], ['asks', 'classification']]
+[PASS] every extracted ask links to the review it came from (F-23)
+[PASS] every review evidence row is machine_drafted (F-05/F-23) — ['machine_drafted']
+[PASS] URL path drafts the founder's app (F-10) — Acme Notes
+[PASS] the URL path does not invent the founder's feature list (F-10) — []
+[PASS] form path drafts a full teardown record (F-11) — ['local files', 'markdown notes', 'public API', 'real-time collaboration', 'export']
+[PASS] a form without 5-10 features is a clear 400 (F-11) — 400/400
+[PASS] agent-JSON path drafts the founder's app (F-12) — 200
+[PASS] malformed agent JSON is a 400 (F-12) — malformed agent JSON: Expecting property name enclosed in double quote
+[PASS] unknown agent keys are a 400, never silently dropped (F-12) — unknown key(s) in agent payload: ['invented_field']
+[PASS] nothing the founder path wrote reached the archive (F-20) — 7 -> 7
+[PASS] no founder record appears in /api/startups (F-20) — []
+[PASS] no founder record is counted by /api/stats (F-20) — 7 vs 7
+[PASS] no founder record appears in /api/categories and the facets still answer (F-20)
+[PASS] the verify walk never sees the founder store (F-20) — list_suggested is archive-only
+[PASS] the two stores are two files, each with its own schema (F-10/F-20)
+[PASS] a link-less submission is comparison-only (F-20) — {'has_link': False, 'link': '', 'link_field': None}
+[PASS] no consent question is asked when there is no link (F-20)
+[PASS] a store-only link satisfies eligibility (F-19/F-20) — link_field=play_store_url
+[PASS] the compare path refuses an unconfirmed founder app (F-13) — assert_comparable raised
+[PASS] the endpoint refuses an unconfirmed app with an explicit 409 not_confirmed (F-13) — 409: {'state': 'not_confirmed', 'message': 'founder app 6 is not confirmed — confirm the draft before the gap table runs (confirm-before-diff)'}
+[PASS] confirm flips the record to human_confirmed (F-05/F-13) — human_confirmed at=2026-09-16 09:12:22
+[PASS] nothing is auto-confirmed by a draft (F-13) — all three drafts start unconfirmed
+[PASS] a `publish` key on the create endpoint is refused, not ignored (F-13) — HTTP 422
+[PASS] the refusal names the call that does publish (F-13)
+[PASS] the refused request wrote no draft (F-13 — no partial write to retry) — 6 -> 6
+[PASS] an unknown top-level key is refused too (F-12's rule, one level up) — HTTP 422
+[PASS] ticking the opt-in creates a pending submission (F-13/F-24) — {'submitted': True, 'submission_id': 1, 'archive_status': 'pending'}
+[PASS] the admin queue unions founder submissions with the archive's rows (F-24) — 1 founder row(s) among 7 queue rows
+[PASS] approval creates the archive row and links it (F-13/F-24) — archive_startup_id=8 name=Loom-note
+[PASS] the founder record keeps its own row — the archive got a twin (F-10) — archive 7 -> 8
+[PASS] archive_status is derived from the newest submission (F-24) — approved
+[PASS] a rejection carries a note the founder can read (F-24) — The site is behind a login, so nothing could be read.
+[PASS] a rejection with no note is refused (F-24) — 400
+[PASS] resubmitting after a rejection creates a NEW row, never an edit (F-24) — [(2, 'rejected'), (3, 'pending')]
+[PASS] archive_status follows the newest submission (F-24) — pending
+[PASS] the founder draft is readable back from its own endpoint (F-10) — GET /api/founder-app/{id}
+[PASS] a re-seed does not duplicate the row (F-14) — id 5 -> 5
+[PASS] a re-seed keeps the teardown fields (F-14 carve-out) — features=True pricing=True
+[PASS] a re-seed never downgrades human_confirmed (F-14 carve-out) — human_confirmed
+[PASS] a unique-index collision is still a clear ValueError -> 400 (F-14) — duplicate website_url refused
+[PASS] compare refuses a `you` it cannot resolve (F-13/F-15) — unresolvable 'you'
+[PASS] compare returns the table for a confirmed founder app (F-15/F-22) — 200
+[PASS] a capability only 'you' have lands in you_have_they_dont (F-15) — public API vs 'no — no API (Acme Notes)' src=https://acme.example/docs
+[PASS] that edge traces to the competitor's enumerating page (F-09/F-15) — https://acme.example/docs
+[PASS] a capability only 'they' have lands in they_have_you_dont (F-15)
+[PASS] a capability both have lands in both_have (F-15)
+[PASS] every band is present in the payload (F-15) — ['you_have_they_dont', 'they_have_you_dont', 'both_have', 'unknown', 'asked_for']
+[PASS] missing data is shown as unknown, never scored (F-15) — None
+[PASS] the activity row is unknown — the 'you' side has no liveness signal (dim 6) — ['unknown']
+[PASS] every non-unknown 'they' cell carries a source (cell rule 1) — []
+[PASS] every row is exactly {dimension, band, you, them, source, captured_at}
+[PASS] no verdict line is emitted (cell rule 5)
+[PASS] a negative is only rendered from an enumerating page (F-09/F-15)
+[PASS] a negative whose capability you cover is an edge (dim 5) — 'yes — declared: public API' vs 'no API (Acme Notes)'
+[PASS] an unsourced doesn't-do cell renders unknown, never 'no' (cell rule 2)
+[PASS] a reviewer ask neither side covers lands in asked_for (dim 7)
+[PASS] the same ask, when your declared features cover it, lands in you_have_they_dont (dim 7)
+[PASS] every ask links to the review it came from (F-23 -> dim 7)
+[PASS] all three exports answer 200 (F-16) — 200/200/200
+[PASS] Markdown has the four groups incl. the demand group (F-16) — []
+[PASS] JSON is re-processable: {you, them, rows} with the right row keys (F-16) — ['rows', 'them', 'you']
+[PASS] JSON 'you' is the ONE founder record the caller named (F-16 / no leak) — Loom-note
+[PASS] CSV has the exact columns band, dimension, you, them, source_url, captured_at (F-16)
+[PASS] CSV carries asked_for as a band value (F-16) — ['asked_for', 'both_have', 'they_have_you_dont', 'unknown', 'you_have_they_dont']
+[PASS] re-running an export with the same inputs gives the same bytes (F-16)
+[PASS] an unknown export format is refused (F-16) — 404
+[PASS] an export never triggers a capture (F-16 — stateless, pure read)
+[PASS] a known product resolves by slug (F-17) — 200 Acme Notes
+[PASS] an unknown slug is a clean 404 (F-17) — 404
+[PASS] a duplicate-name group resolves deterministically: verified first (F-17) — got=10 expected=10
+[PASS] with no verified row the lowest id wins (F-17) — 12
+[PASS] a stale last_checked reads machine_verified=false while admin_verified stays true (F-21) — machine=False admin=True
+[PASS] a fresh check reads machine_verified=true (F-21) — True
+[PASS] the badges are explicit fields, never inferred from a raw timestamp (F-21)
+[PASS] no badge is emitted inside a claim/row cell (F-21 / §8.1)
+[PASS] a never-captured competitor returns the queued/retry state (F-22) — 200: queued / capture queued
+[PASS] once captured, the same call returns the table (F-15/F-22) — 200
+[PASS] the search endpoint answers 200 (F-18) — 200
+[PASS] a product name returns that product as result #1 (F-18) — #1=['Obsidian']
+[PASS] …with reason == 'Exact name match' (F-18) — 'Exact name match'
+[PASS] the classified rungs are non-decreasing (ladder order holds) (F-18) — rungs=[0, 2, 3, 4, 5, 6]
+[PASS] the endpoint returns the classifier's order verbatim (F-18)
+[PASS] the fixtures come back in ladder order (exact -> name -> tagline -> desc -> category) — ['Zorblat', 'Zorblat Notes', 'Tagline Zorb Co', 'Desc Zorb Co', 'Cat Zorb Co']
+[PASS] a row only the fuzzy rung can reach lands on the fuzzy rung (F-18) — Zorblit -> fuzzy
+[PASS] every reason is one of the frozen vocabulary strings (F-18) — []
+[PASS] no reason is empty, a number, a code or an internal rung name (F-18)
+[PASS] the vocabulary is frozen at the eight plan strings (F-18)
+[PASS] dead AND pivoted rows sort last under an otherwise equal match (F-18) — ['Zorblat Dead', 'Zorblat Pivoted']
+[PASS] the tombstones are still returned, never hidden or deleted (F-18)
+[PASS] stars are a tie-break only — a 0-star exact-name hit beats a 99999-star fuzzy one — #1=Zorblat
+[PASS] no q at all -> 200 with an empty list (documented contract) — 200 []
+[PASS] q= (empty) -> 200 with an empty list — []
+[PASS] q=<whitespace> -> 200 with an empty list — []
+[PASS] q='%' returns nothing rather than everything (F-18) — 200 0 rows
+[PASS] q='_' returns nothing rather than everything (F-18) — 200 0 rows
+[PASS] q='%%' returns nothing rather than everything (F-18) — 200 0 rows
+[PASS] q='__' returns nothing rather than everything (F-18) — 200 0 rows
+[PASS] a search writes no evidence row (F-18) — 0 -> 0
+[PASS] a search queues no capture job for a never-captured competitor (F-22 contrast) — capture jobs for the competitor: 0
+[PASS] a search never calls capture.start_capture (unlike /api/compare) (F-18) — 200, no capture attempted
+[PASS] the keyword rung matches the populated row and skips the NULL one (data-aware) — 1 hit(s): ['Keyword Pop Co']
+[PASS] a term that appears nowhere returns no rows at all (F-18) — []
+[PASS] two concurrent captures of one competitor produce exactly one job (F-22) — jobs=1 first=queued second=in_progress
+[PASS] an in-flight capture returns the explicit retry state, not a partial teardown (F-22) — message='capture in progress — retry'
+[PASS] the capture job completes and records its result (F-22) — done
+[PASS] a request inside the 7-day window is served from cache (F-22)
+[PASS] a request outside the window re-captures (F-22) — queued
+[PASS] the freshness window is 7 days, the same rhythm as VERIFY_AUTO_STALE_DAYS (F-22) — CAPTURE_STALE_DAYS=7
+[PASS] a capture for an unknown competitor is an explicit not_found (F-22) — not_found
+[PASS] there is no public capture-job endpoint (F-22 — job payloads are admin-gated)
+[PASS] MUTATION_AUTH refuses every write endpoint without a token (403, not 404/200)
+[PASS] the gate opens with the token (403 comes from auth, not a dead route) — 404
+[PASS] netguard blocks loopback/private/link-local/metadata/non-http targets (SSRF guard) — all 9 blocked
+[PASS] BlockedAddressError is a ValueError (existing 400/502 paths still catch it)
+[PASS] q=% is a literal, not a match-everything wildcard (LIKE-escape) — q=% -> 0 rows, literal -> 1 row
+[PASS] q=_ is also literal (LIKE-escape) — 0 rows
+[PASS] a 403 website check SKIPS — it never strikes (tri-state liveness) — cf=0
+[PASS] a 404 website check strikes — only 404/410 count (tri-state liveness) — cf=1
+[PASS] a verified row is never auto-flipped or struck (human gate outranks automation)
+[PASS] a >90-day-old verify_log row survives a real pass (F-03 — no retention sweep) — aged before=1 after=1 surviving row=1
+[PASS] an automated pass never stamps verified=1 (the human gate is the only writer)
+[PASS] the per-IP sliding window returns 429 past the bucket limit (60/min) — 404s=60 429s=5
+[PASS] rate-limiter keys are evicted once their window expires — 1 key(s) during window, 0 after eviction
+
+==============================================================================
+RESULT: ALL PASS
+TESTS: 187 run, 187 passed, 0 failed
+```
+
+187 checks, 0 failed, exit 0, **~2.8 s**. Four consecutive runs produced the identical summary (no ordering, thread-timing or wall-clock dependence).
+
+### 2. The traceability table — F-01–F-24 → the check that proves it → PASS
+
+Every row below is proven by `backend/tests/functional.py` unless the row says otherwise.
+
+| Item | The check that proves it | Result |
+|---|---|---|
+| **F-01** Additive migration | A legacy 18-column archive is built and migrated: 18 → 40 columns, no column dropped or renamed, existing rows and their `founded` value untouched, the second `migrate()` returns `[]`; a SQL **trace** of the run shows 22 `ALTER TABLE … ADD COLUMN` statements and nothing destructive; every `db.NEW_STARTUP_COLUMNS` entry is in `enrich.UPDATABLE` (the silent-drop trap) and every `UPDATABLE` name is a real column | PASS |
+| **F-02** Evidence table | `evidence` exists with exactly the 10 specified columns; `source_url` / `captured_at` NOT NULL; `write_evidence` refuses a source-less claim (`SourceRequiredError`) and a raw INSERT is refused by the constraint; `captured_at` auto-fills | PASS |
+| **F-03** Permanent `verify_log` | A `verify_log` row stamped `-200 days` survives a full verification pass, while the pass still writes a new row per startup | PASS |
+| **F-04** `founded` provenance | The column keeps its name (`founded_at` absent); `date_source` is recorded for each branch (`llm` / `wayback` / `rdap` / `unknown`); a legacy value is untouched; existing rows default to `unknown` | PASS |
+| **F-05** Provenance flags | A fresh seed is `machine_drafted`; a human confirm flips it to `human_confirmed`; a `reuse_profile` refresh never downgrades it; `mark_human_confirmed` refuses a table outside its whitelist; every teardown evidence row is `machine_drafted` | PASS |
+| **F-06** Feature extraction | A capture yields 6 features (5–10 bound); `<5` → `[]`, never padded; `>10` capped; one sourced evidence row per feature | PASS |
+| **F-07** Pricing ingestion | Plan rows each carry a price + a period; malformed rows dropped; `pricing_captured_at` and `pricing_source_url` stamped; the free tier is its own claim; nothing is stored when the pricing page could not be read | PASS |
+| **F-08** Positioning line | A non-empty one-liner, with its own sourced evidence row | PASS |
+| **F-09** Negative claims | Every negative traces to an **enumerating** page; a 404 on a guessed `/api` produces nothing; the page plan never fetches a guessed path; a verdict-shaped claim is rephrased; a deterministic probe beats the LLM's duplicate; an unreadable page is `unknown` @0.1 with a source; `validate()` refuses a sourceless / non-enumerating observation | PASS |
+| **F-10** Founder URL path | Drafts from the page with `features` left `[]` (never invented), stored in the founder store, not auto-confirmed, readable back by id | PASS |
+| **F-11** Founder form path | Drafts a full record; a form without 5–10 features is a clear 400; a link-less submission is accepted as comparison-only | PASS |
+| **F-12** Founder agent-JSON path | A valid payload drafts with both store links; malformed JSON → 400; an unknown agent key → 400; an unknown **top-level** key on create → 422 | PASS |
+| **F-13** Confirm & publish gate | `assert_comparable` and `POST /api/compare` both refuse an unconfirmed app (`409 {"state": "not_confirmed"}`); nothing is auto-confirmed; consent creates a `pending` submission; a `publish` key on create is refused (422) **and writes no draft** (no partial write a retry could duplicate) | PASS |
+| **F-14** Idempotency & dedup | A re-seed keeps the row id, keeps the teardown fields, never downgrades `human_confirmed`; a unique-index collision is still a clear `ValueError` → 400 | PASS |
+| **F-15** Comparison | The five bands are correct for the fixture; every non-`unknown` "they" cell carries a source; an unsourced "doesn't do" cell renders `unknown`, never "no"; a negative is only rendered from an enumerating page; dimension 7's two destinations; no verdict line | PASS |
+| **F-16** Exports | Markdown carries the four groups incl. the demand group; JSON is re-processable and names only the caller's `you`; CSV has the exact columns and an `asked_for` band value; re-running is **byte-identical**; an unknown format 404s; an export never triggers a capture | PASS |
+| **F-17** Stable slug | A known slug resolves; an unknown slug 404s; a duplicate-name group resolves deterministically (verified first, then lowest id) | PASS |
+| **F-18** Search with reasons | Exact name first; the ladder is non-decreasing; the reason vocabulary is the frozen eight; dead **and** pivoted sink last; stars are a tie-break only; multi-term AND; the empty-query contract; `%` / `_` literal; and the pure-read posture (no evidence row, no queued capture, armed tripwire) | PASS |
+| **F-19** Store-link columns | Both columns are added and writable through the normal writer (`_upsert`); a **store-only** link satisfies the eligibility gate | PASS |
+| **F-20** Link eligibility & containment | Link-less → `local_only` with no consent question; `/api/startups`, `/api/stats`, `/api/categories` and `verify.list_suggested` never see the founder store; the two stores are two files with two schemas | PASS |
+| **F-21** Trust badges | Both badges are explicit fields (never inferred from a timestamp); a stale `last_checked` reads `machine_verified=false` while `admin_verified` stays true; a fresh check reads true; no badge ever appears in a claim/row cell | PASS |
+| **F-22** Just-in-time capture | Two concurrent captures of one competitor → **exactly one** job; in-flight → the explicit retry state; inside 7 days → `cached`; outside → re-queued; an unknown id → `not_found`; no public job endpoint; `/api/compare` wiring returns queued then the table | PASS |
+| **F-23** Reviews | One evidence row per review with the permalink as `source_url`; a walled provider (403) is a **skip**, never a failure or a strike; positive and negative both classified; no score/aggregate/NPS of ours stored; every extracted ask links to its review | PASS |
+| **F-24** `founder_submissions` lifecycle | `pending` → approve sets `archive_startup_id`; a rejection needs a note; resubmitting is a **new row**; `archive_status` is derived from the newest row; the admin queue unions founder submissions with the archive's rows | PASS |
+| **§6** invariants | MUTATION_AUTH 403s every write endpoint (and 404 with the token, so the 403 is auth and not a dead route); the SSRF guard blocks 9 non-public targets; LIKE-escape keeps `%`/`_` literal; the rate limiter 429s past 60/min and evicts expired keys; tri-state liveness (403 skips, 404 strikes); a verified row is never auto-flipped or struck; an automated pass never stamps `verified=1` | PASS |
+
+The remaining §6 guarantees are pinned by `tests/smoke.py` and deliberately **not** copied here, per the phase brief — the six-write-endpoint matrix (it does assert all six), the failed-auth lockout (10/min then 429), the startup refusal when `MUTATION_AUTH` is on with an empty `ADMIN_TOKEN`, the three-strike dead flip and the "verified rows are protected" cases, the queue serialization / restart recovery, the pagination ceilings and the truncation contract, the category whitelist, `_http_url`'s scheme filter, and the numeric-coercion bug. `npm test` runs both suites, so nothing is lost by not duplicating them.
+
+### 3. `npm test` — all five steps green
+
+```
+$env:PATH = "C:\Program Files\nodejs;" + $env:PATH
+npm test
+
+[PASS] backend smoke (exit 0)                       RESULT: ALL PASS
+[PASS] backend functional (Phase 5 gate) (exit 0)   RESULT: ALL PASS
+[PASS] frontend sort check (exit 0)                 RESULT: ALL PASS
+[PASS] frontend lint + build (exit 0)               ✓ Compiled successfully in 3.5s
+[PASS] frontend e2e verification (exit 0)           TEST RESULTS: 35 PASSED, 0 FAILED
+
+RESULT: ALL PASS
+```
+
+Zero `[FAIL]` lines; the backend suite's own tail reads `TESTS: 187 run, 187 passed, 0 failed`.
+
+### 4. The real-backend smoke — against the real archive
+
+Checklist §7 item 3. Run deliberately, in the prompt's order. The script is a one-off (not part of `npm test`) and lives outside the repo's tracked tree.
+
+**4.1 Backup first — SQLite's own backup API, never a file copy**
+
+```
+backend\.venv\Scripts\python.exe -c "import sqlite3; s=sqlite3.connect('backend/data/ideasexist.db'); d=sqlite3.connect('backend/data/ideasexist.db.bak-phase5'); s.backup(d); d.close(); s.close()"
+```
+
+`[1] backup written: ideasexist.db.bak-phase5 (1,650,688 bytes)` — same size as the live file; both are under `backend/data/`, which is git-ignored, so neither is committed.
+
+**4.2 Boot against the real file, and the schema before/after**
+
+`TestClient` with `DB_PATH` left at its default (`backend/data/ideasexist.db`) — the real file, not a copy. This is the **first boot since Phase 1**, so `init_db()` → `migrate()` ran against the real archive for the first time:
+
+```
+[2] [BEFORE] startups columns=18 rows=1282 tables=['jobs', 'sqlite_sequence', 'startups', 'verify_log']
+[3] DB_PATH in use: E:\New-Personal-Projects\Does this Startup Exist\backend\data\ideasexist.db
+[3] FOUNDER_DB_PATH in use: E:\New-Personal-Projects\Does this Startup Exist\backend\data\founder.db
+2026-09-16 19:14:05,411 INFO     ideasexist: starting: mutation_auth=True rate_limit=True admin=True
+[4] [AFTER BOOT] startups columns=40 rows=1282 tables=['evidence', 'jobs', 'sqlite_sequence', 'startups', 'verify_log']
+...
+[7] [AFTER] startups columns=40 rows=1282 tables=['evidence', 'jobs', 'sqlite_sequence', 'startups', 'verify_log']
+[8] founder store tables: ['founder_apps', 'founder_submissions', 'sqlite_sequence']
+```
+
+**18 → 40 columns, the `evidence` table appearing, and the row count unchanged at 1,282** — exactly the migration Phase 1 predicted, now proven on the live file. The founder store (`backend/data/founder.db`) was created at this boot because it did not exist before; that is also a recorded state change.
+
+**Recorded state change:** the live archive is now migrated. `backend/data/ideasexist.db.bak-phase5` is the pre-migration snapshot if that ever needs revisiting.
+
+**4.3 The endpoints, answering with real data**
+
+```
+[5] === GET /api/health ===
+{ "ok": true, "llm_model": "deepseek-v4-flash", "db": "ideasexist.db" }
+
+[5] === GET /api/stats ===
+{ "total": 1282, "verified": 1278, "dead": 0, "last_checked": "2026-09-04 15:04:08" }
+
+[5] === GET /api/categories (top 5) ===
+[ { "category": "other", "count": 302 }, { "category": "ai", "count": 222 },
+  { "category": "finance", "count": 173 }, { "category": "health", "count": 165 },
+  { "category": "devtools", "count": 140 } ]   ... (11 categories)
+
+[5] === GET /api/search?q=obsidian (top 3) ===
+[ { "id": 1, "name": "Obsidian", "category": "productivity", "reason": "Exact name match" },
+  { "id": 566, "name": "BlueStone.com", "category": "ecommerce", "reason": "Similar to your search" },
+  { "id": 503, "name": "BYJU'S", "category": "education", "reason": "Similar to your search" } ]
+... (16 hits)
+
+[5] === GET /api/startups/obsidian (badges, trimmed) ===
+{ "slug": "obsidian", "resolved_id": 1, "resolved_name": "Obsidian",
+  "website_url": "https://obsidian.md", "category": "productivity",
+  "verified": 1, "verified_at": "2026-08-10 08:54:46",
+  "last_checked": "2026-09-04 14:29:12", "status": "active",
+  "admin_verified": true, "admin_verified_at": "2026-08-10 08:54:46",
+  "machine_verified": false, "machine_verified_at": "2026-09-04 14:29:12",
+  "duplicate_group": [ { "id": 1, "name": "Obsidian", "verified": true } ] }
+```
+
+The slug endpoint on the real archive shows F-21 exactly as specified: `admin_verified` is `true` and never decays, while `machine_verified` is `false` because the last check (2026-09-04) is 12 days old — past the 7-day window. `/api/search?q=obsidian` returns the real Obsidian row at #1 with the frozen reason string.
+
+**4.4 The founder app, and the real JIT capture — the decision, and its cost**
+
+**Decision: run the capture for real, on one competitor.** The competitor is **`Obsidian` (archive id 1, `https://obsidian.md`)** — a real row that had never been captured. A real founder app was drafted first (`POST /api/founder-app`, form path, `feature`-id 1, `website_url: https://phase5-smoke.example`), then confirmed, then `POST /api/compare` was called with `{"you": {"id": 1}, "competitors": [{"id": 1}]}`.
+
+```
+[6] === POST /api/founder-app (form path, real founder store) ===
+{ "founder_app_id": 1, "confirmed": false, "publish_offered": true, "archive_status": "local_only" }
+confirm -> True
+
+[6] === POST /api/compare (real competitor — triggers the real JIT capture) ===
+{ "state": "queued", "message": "capture queued", "startup_id": 1 }
+2026-09-16 19:14:06,114 INFO httpx: HTTP Request: GET https://obsidian.md "HTTP/1.1 200 OK"
+2026-09-16 19:14:06,611 INFO httpx: HTTP Request: GET https://obsidian.md/pricing "HTTP/1.1 200 OK"
+2026-09-16 19:14:07,249 INFO httpx: HTTP Request: GET https://obsidian.md/docs "HTTP/1.1 404 Not Found"
+2026-09-16 19:14:08,203 INFO httpx: HTTP Request: POST https://opencode.ai/zen/go/v1/chat/completions "HTTP/1.1 401 Unauthorized"
+2026-09-16 19:14:09,094 INFO httpx: HTTP Request: POST https://opencode.ai/zen/go/v1/chat/completions "HTTP/1.1 401 Unauthorized"
+2026-09-16 19:14:09,094 WARNING ideasexist: capture 1: teardown LLM failed (LLM call failed after retries:
+    Client error '401 Unauthorized' for url 'https://opencode.ai/zen/go/v1/chat/completions') — fields stay unknown
+2026-09-16 19:14:09,411 INFO httpx: HTTP Request: GET https://www.reddit.com/search.json?q=obsidian.md&sort=relevance&limit=25 "HTTP/1.1 403 Blocked"
+2026-09-16 19:14:10,469 INFO httpx: HTTP Request: GET https://www.reddit.com/search.rss?q=obsidian.md&sort=relevance&limit=25 "HTTP/1.1 200 OK"
+
+[6] capture job 108d2350fc5b: status=done ok=1 skipped=0 failed=0 errors=[]  (6.0s)
+[6] job result:
+{ "state": "captured", "features": 0, "plans": 0, "positioning": false, "negatives": 3,
+  "evidence_rows": 3, "reviews": 0, "reviews_skipped": 1, "asks": 0,
+  "unknown": ["features", "pricing", "positioning"],
+  "pages": { "homepage": { "url": "https://obsidian.md", "state": "readable", "reason": "" },
+             "pricing":  { "url": "https://obsidian.md/pricing", "state": "readable", "reason": "" },
+             "docs":     { "url": "https://obsidian.md/docs", "state": "unreadable", "reason": "HTTP 404" } } }
+
+[6] === POST /api/compare, second call (should now serve the table) ===
+{ "you": "Phase 5 Smoke App", "competitors": ["Obsidian"],
+  "bands": { "you_have_they_dont": 6, "they_have_you_dont": 0, "both_have": 2, "unknown": 4, "asked_for": 0 } }
+    [you_have_they_dont] Features | you='local files' | them='not in their feature list (Obsidian)' | src=https://obsidian.md
+    [you_have_they_dont] Features | you='markdown notes' | them='not in their feature list (Obsidian)' | src=https://obsidian.md
+    [both_have] What it doesn't do | them='no self-host (Obsidian)' | src=https://obsidian.md/pricing
+    [both_have] What it doesn't do | them='no mobile app (Obsidian)' | src=https://obsidian.md
+    [unknown] Pricing | you='Pro $8/monthly' | them='unknown' | src=
+    [unknown] Free tier | you='Free up to 3 docs' | them='unknown (Obsidian)' | src=
+```
+
+**Cost:** one page-plan fetch (3 URLs) plus up to two LLM attempts, **6.0 s** wall clock, the whole capture job. No verify pass was triggered: `VERIFY_AUTO_STALE_DAYS` was pinned to `0` for the smoke, because the archive's last check is 2026-09-04 and the default (7) would have enqueued a **real liveness walk over all 1,282 rows — 1,282 outbound requests**. That walk is not what this gate proves; the choice is recorded here rather than left implicit.
+
+**The teardown written to the real archive for `Obsidian` (id 1):**
+
+```
+{ "name": "Obsidian", "features_json": "[]", "pricing_json": null,
+  "pricing_captured_at": null, "pricing_source_url": null, "positioning": null,
+  "provenance": "machine_drafted", "date_source": "unknown" }
+
+evidence rows: [{"evidence_type": "negative", "c": 3}]
+    [negative  ] no self-host                conf=0.8 src=https://obsidian.md/pricing
+    [negative  ] API: unknown                conf=0.1 src=https://obsidian.md/docs
+    [negative  ] no mobile app               conf=0.8 src=https://obsidian.md
+```
+
+**State the archive is left in, stated plainly.** The capture **succeeded as a job and wrote real evidence**, but it is **partial by cause of a credential failure, not a code failure**: the LLM gateway (`opencode.ai/zen/go`) answered **401 Unauthorized** to both attempts, so the model-drafted fields — `features_json`, `pricing_json`, `positioning` — are empty/`[]` and the job reports them as `unknown`. The **deterministic** half ran perfectly against the real pages: three sourced negative observations (the pricing page lists no self-host tier; the home page's own links list no App Store / Google Play link; the docs URL 404s so the API question is `unknown` at confidence 0.1, which is the honest answer rather than "no"). Reddit's `.json` endpoint returned 403 (a skip), the RSS feed returned 200 with no matching items, so no review rows were written. Provenance is `machine_drafted`; `date_source` stays `unknown`.
+
+That is a **coherent, honest** end state, not a corrupt one: the row now renders `unknown` cells rather than inventing anything, and the three negative rows are genuine citations a reader can open. The archive was **not** left half-written in the dangerous sense — there is no partially-populated teardown claiming to be complete. Two consequences worth recording for the owner:
+
+1. **`OPENCODE_GO_API_KEY` in `backend/.env` is rejected by the gateway (401).** Every LLM-drafted path — the teardown capture *and* the seed profiling — is therefore dead until that key is replaced. It does not fail the Phase 5 gate (this gate's evidence is the offline suite plus the endpoints answering), but it must be fixed before Phase 6 can demo a real teardown, and it means a real product capture today yields `unknown` for features/pricing/positioning.
+2. Because a capture that wrote evidence counts as a cache entry (F-22), `Obsidian` will read `cached` for 7 days. Re-capturing it with a working key means waiting out the window or re-triggering after the evidence ages — the designed behaviour, recorded here so it is not mistaken for a bug.
+
+**4.5 The markdown export, on the real pair**
+
+```
+[6] === GET /api/export/markdown (real pair, head) ===
+HTTP 200, 1601 bytes
+    # Gap table — Phase 5 Smoke App vs Obsidian
+
+    _You: Phase 5 Smoke App. Competitor(s): Obsidian._
+
+    ## You have — they don't
+
+    | Dimension | You | Competitor | Source |
+    |---|---|---|---|
+    | Features | local files | not in their feature list (Obsidian) | https://obsidian.md |
+    | Features | markdown notes | not in their feature list (Obsidian) | https://obsidian.md |
+```
+
+**Final live-archive state (read back afterwards):**
+
+```
+cols: 40 rows: 1282
+tables: ['evidence', 'jobs', 'sqlite_sequence', 'startups', 'verify_log']
+evidence rows total: 3
+rows with features_json populated: 1        (Obsidian, "[]")
+rows with provenance set: 1                 (Obsidian, machine_drafted)
+rows with date_source <> 'unknown': 0
+capture jobs: {'id': '108d2350fc5b', 'status': 'done', 'ok': 1, 'failed': 0}
+founder_apps: Phase 5 Smoke App (form, human_confirmed, confirmed_at 2026-09-16 09:14:50)
+founder_submissions: 0
+```
+
+Nothing else in the archive changed: still 1,282 rows, still 1,278 verified, still 0 dead.
+
+### 5. The four per-phase verifiers — still green on this branch
+
+```
+backend\.venv\Scripts\python.exe scripts\phase1-verify.py   -> RESULT: ALL PASS   (31 checks)
+backend\.venv\Scripts\python.exe scripts\phase2-verify.py   -> RESULT: ALL PASS   (74 checks)
+backend\.venv\Scripts\python.exe scripts\phase3-verify.py   -> RESULT: ALL PASS   (47 checks)
+backend\.venv\Scripts\python.exe scripts\phase4-verify.py   -> RESULT: ALL PASS   (59 checks)
+```
+
+They still need the live archive (and `ideasexist.db.bak-phase1`) to exist — expected, and documented in `scripts/verify.mjs` and in §7 of `docs/codebase-comprehension.md`. They remain the audit evidence for Phases 1–4; the new suite is the continuous gate.
+
+### 6. Findings raised by the gate itself
+
+Two checks went red while this phase was being built. Both were investigated rather than worked around, and neither was made green by weakening a check.
+
+**Finding 1 — my own check was wrong, and was fixed as a check, not as a code change.** The first draft asserted "the migration source contains no DROP and no RENAME" by grepping `db.migrate`'s source text — which trips over the function's own docstring ("Never DROP, never RENAME"). Replaced with a real check: a SQLite trace callback records every statement `migrate()` actually executes against a fresh legacy DB, and the assertion is that all 23 statements are exactly 1 `PRAGMA table_info` + 22 `ALTER TABLE … ADD COLUMN`, with no `DROP` and no `RENAME` anywhere. Strictly stronger than what it replaced.
+
+**Finding 2 — my fixture was wrong, and the app was right.** Two seeded reviews were both classified `negative`, so the F-23 check "positive and negative are both classified" failed. That was the classifier behaving correctly (`reviews.classify` treats an ask as an unmet need, and both fixtures contained "wish"). The fixture gained a third review ("Works well for our team") so the check exercises both labels, as §9 of the teardown spec intends. No product code changed.
+
+### 7. Audit-trail maintenance — `phase4-verify.py` was repaired, not weakened
+
+`phase4-verify.py` asserts a reachable-rung census and, in its original form, that `problem_statement`, `target_users`, `features_json` and `positioning` are **all 0 rows** — an assertion that was true of the archive as it stood in Phase 4, and stopped being true the moment **this phase's own real-instance proof ran a real JIT capture** on the live archive (F-22 legitimately populates `features_json` / `positioning` for a competitor a founder actually requested — `search.py`'s docstring says exactly that).
+
+Rather than let the audit trail rot, the assertion was stated precisely:
+
+* `problem_statement` / `target_users` are written by **no code path at all** — still asserted at 0 rows, unchanged;
+* `features_json` / `positioning` are asserted to be populated on **no row that the JIT capture did not actually run on** (no populated row without teardown evidence) — measured on the pristine copy, before the verifier's own fixtures are inserted.
+
+That is a *stronger* statement about the columns that matter and it is again true of the real archive (1 populated row, and it has evidence behind it). Check count went 58 → 59. This is the same posture as Phase 3's union fix: a gate that passes because a check was softened is worse than a red gate.
+
+### 8. Doc corrections made in this branch
+
+* `docs/codebase-comprehension.md` §7 said `npm test` "runs four suites". It now runs **five** — `tests/functional.py` was added to the runner. Corrected inline and marked, with a Phase 5 note at the top of the document.
+* `docs/backend-checklist.md` §7 gains the Phase 5 completion marker and the command that produces the evidence.
+* No other product doc was falsified by this phase. (`docs/handoff.md` and the planning documents are local-only and untracked by decision.)
+
+### 9. Phase 5 notes
+
+* **What this phase did and did not do.** It added no product feature, no table, no column and no endpoint. It consolidates F-01–F-24 into one suite that runs on every `npm test`, in the same commit that flips the phase row — so from here on, "the backend is done" is re-checked by the runner rather than asserted.
+* **Why the suite is self-contained rather than a thin wrapper over the four verifiers.** Those verifiers are the *recorded evidence* for Phases 1–4 and they work on a copy of the live archive plus `ideasexist.db.bak-phase1`. Neither exists on a fresh checkout, so wiring them into `npm test` would make the runner fail for environmental reasons on any other machine. `functional.py` builds its own legacy archive from scratch (so the F-01 migration is exercised against a real 18-column DB without the live file) and stubs the fetcher, both LLM prompts and both date sources.
+* **The suite is offline by construction, and that is enforced by stubbing, not by hope.** `netguard.safe_get` is replaced by a lookup table; anything not in the table 404s. `llm.llm_json` is replaced by one stub serving both prompts. Wayback and RDAP return `None`. There is no code path from this suite to the network.
+* **Determinism over speed was not traded.** 187 checks in ~2.8 s, and four consecutive runs produced byte-identical summary lines. The only concurrency in the suite is the F-22 "two concurrent captures → one job" check, which uses explicit events rather than sleeps.
+* **One caveat recorded for the owner:** the smoke ran with `VERIFY_AUTO_STALE_DAYS=0` (see 4.4). Under the default configuration, a boot of this archive would immediately enqueue a real verification pass over all 1,282 rows. That is the product working as designed — but it means "start the app and curl it" costs 1,282 outbound requests on this archive, which is worth knowing before Phase 6's manual testing.
+* **Row status after this phase:** Phases 0–5 `PASS`; Phases 6–8 moved from `blocked` to `pending` **in the same commit as the Phase 5 row**, so the frontend unlock is part of the audited change. Phase 9 stays `pending`.
