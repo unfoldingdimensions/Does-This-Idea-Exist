@@ -19,8 +19,7 @@ import { HueAvatar } from "@/components/hue-avatar";
 import { HolographicCard } from "@/components/holographic-card";
 import { StampChoreography } from "@/components/stamp-choreography";
 import type { Startup } from "@/lib/types";
-import { foundedYear } from "@/lib/search";
-import { formatDate, shortDate, titleCase } from "@/lib/format";
+import { formatDate, foundedShort, shortDate, titleCase } from "@/lib/format";
 import { useAdminToken } from "@/lib/use-admin-token";
 import { cn } from "@/lib/utils";
 
@@ -293,6 +292,7 @@ export function StartupCard({
   onSearchName,
   filings = 1,
   density = "gallery",
+  reason,
 }: {
   startup: Startup;
   onStatusChange?: (s: Startup, choice: StatusChoice) => void;
@@ -303,9 +303,19 @@ export function StartupCard({
   filings?: number;
   /** Visual exhibition density: 3D Gallery card vs. compact tabular Ledger row */
   density?: "gallery" | "ledger";
+  /**
+   * WHY this row matched, in the server's own words (`GET /api/search`,
+   * F-18). Rendered verbatim — the filtering still runs client-side over the
+   * cached archive (`lib/search.ts`), and this is the classification that goes
+   * with it. Absent when nothing is being searched.
+   */
+  reason?: string;
 }) {
   const dead = startup.status === "dead" || startup.status === "pivoted";
-  const year = foundedYear(startup.founded);
+  // F-04 (frontend half): `founded` may be an RDAP domain registration or a
+  // Wayback snapshot, so the label comes from `date_source` — and a null date
+  // renders nothing rather than a year invented to fill the space.
+  const founded = foundedShort(startup.founded, startup.date_source);
   const [expanded, setExpanded] = React.useState(false);
   const [stampChoreo, setStampChoreo] = React.useState<"verified" | "dead" | null>(null);
   const description = startup.description ?? "";
@@ -358,6 +368,11 @@ export function StartupCard({
             <p className="truncate font-mono text-[10px] text-muted-foreground">
               {startup.tagline || (startup.category ? titleCase(startup.category) : "Uncategorized")}
             </p>
+            {reason && (
+              <p className="truncate font-mono text-[10px] text-primary/80" title={reason}>
+                match: {reason}
+              </p>
+            )}
           </div>
         </div>
 
@@ -367,9 +382,12 @@ export function StartupCard({
               {titleCase(startup.category)}
             </Badge>
           )}
-          {year && (
-            <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
-              est. {year}
+          {founded.text && (
+            <span
+              title={founded.title}
+              className="font-mono text-[10px] tabular-nums text-muted-foreground"
+            >
+              {founded.text}
             </span>
           )}
         </div>
@@ -426,8 +444,8 @@ export function StartupCard({
               {startup.name}
             </button>
             <p className="truncate font-mono text-[11px] tabular-nums text-muted-foreground">
-              {year && <>founded {year}</>}
-              {year && startup.last_checked && <span className="text-border"> · </span>}
+              {founded.text && <span title={founded.title}>{founded.text}</span>}
+              {founded.text && startup.last_checked && <span className="text-border"> · </span>}
               {startup.last_checked && <>checked {shortDate(startup.last_checked)}</>}
             </p>
           </div>
@@ -437,6 +455,12 @@ export function StartupCard({
         {startup.tagline && (
           <p className="line-clamp-2 min-h-9 text-[13px] font-medium leading-snug">
             {startup.tagline}
+          </p>
+        )}
+
+        {reason && (
+          <p className="truncate font-mono text-[10px] text-primary/80" title={reason}>
+            match: {reason}
           </p>
         )}
 
@@ -528,7 +552,12 @@ export function StartupCard({
               transition={{ type: "spring", stiffness: 500, damping: 26 }}
             >
               <Button asChild variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
-                <a href={startup.website_url} target="_blank" rel="noreferrer">
+                <a
+                  href={startup.website_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`Visit ${startup.name} website (opens in a new tab)`}
+                >
                   <ExternalLink className="h-3 w-3" /> Website
                 </a>
               </Button>
@@ -541,7 +570,12 @@ export function StartupCard({
               transition={{ type: "spring", stiffness: 500, damping: 26 }}
             >
               <Button asChild variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
-                <a href={startup.github_url} target="_blank" rel="noreferrer">
+                <a
+                  href={startup.github_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`View ${startup.name} source code (opens in a new tab)`}
+                >
                   <FolderGit2 className="h-3 w-3" /> Code
                 </a>
               </Button>

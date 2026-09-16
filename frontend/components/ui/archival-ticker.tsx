@@ -4,32 +4,47 @@ import * as React from "react";
 import { sound } from "@/lib/sound-engine";
 import { cn } from "@/lib/utils";
 
-interface TickerItem {
+/**
+ * One filing on the marquee.
+ *
+ * `vintage` and `category` are OPTIONAL on purpose: the old default list
+ * fabricated both (`"2021"` for a null founding date, `"FinTech"` for a null
+ * category) and the ticker stamps a VERIFIED pill on every item regardless of
+ * the record. Nothing here is invented now — a field the record does not have
+ * is simply not rendered, and the pill comes from the row's real status.
+ */
+export interface TickerItem {
   name: string;
-  category: string;
-  vintage: string;
-  status: "verified" | "alive" | "checked";
+  category?: string;
+  /** The year to print, already labelled by `foundedShort` where the source is
+   * not a human confirmation. Absent when the record has no dated founding. */
+  vintage?: string;
+  /** `verified` = a human stamped it · `unverified` = filed, awaiting a human ·
+   * `filed` = checked and gone (dead/pivoted). */
+  status: "verified" | "unverified" | "filed";
 }
 
-const DEFAULT_TICKER_ITEMS: TickerItem[] = [
-  { name: "Brex", category: "Finance", vintage: "2017", status: "verified" },
-  { name: "Aalto", category: "Real Estate", vintage: "2021", status: "verified" },
-  { name: "Airwallex", category: "FinTech", vintage: "2015", status: "verified" },
-  { name: "Adyen", category: "Payments", vintage: "2006", status: "verified" },
-  { name: "Chainalysis", category: "Blockchain", vintage: "2014", status: "verified" },
-  { name: "Alpha Vantage", category: "Market Data", vintage: "2017", status: "verified" },
-  { name: "Bitwise", category: "Asset Management", vintage: "2017", status: "verified" },
-  { name: "Brightside", category: "FinTech", vintage: "2018", status: "verified" },
-  { name: "Carta", category: "Equity Management", vintage: "2012", status: "verified" },
-  { name: "Ajaib", category: "Investing", vintage: "2018", status: "verified" },
-];
+const STATUS_META: Record<TickerItem["status"], { label: string; className: string }> = {
+  verified: {
+    label: "VERIFIED",
+    className: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+  },
+  unverified: {
+    label: "UNVERIFIED",
+    className: "bg-muted text-muted-foreground border-border/60",
+  },
+  filed: {
+    label: "FILED",
+    className: "bg-destructive/10 text-destructive border-destructive/20",
+  },
+};
 
 export function ArchivalTicker({
-  items = DEFAULT_TICKER_ITEMS,
+  items,
   className,
   onSelectItem,
 }: {
-  items?: TickerItem[];
+  items: TickerItem[];
   className?: string;
   onSelectItem?: (name: string) => void;
 }) {
@@ -69,14 +84,27 @@ export function ArchivalTicker({
               <span className="font-semibold text-foreground/90 group-hover:text-primary transition-colors">
                 {item.name}
               </span>
-              <span className="text-[10px] text-muted-foreground/60">/</span>
-              <span className="text-muted-foreground/80">{item.category}</span>
-              <span className="text-[10px] text-muted-foreground/60">·</span>
-              <span className="text-[10px] tracking-wider text-muted-foreground/60">
-                EST. {item.vintage}
-              </span>
-              <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-1.5 py-0.2 text-[9px] font-medium text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                VERIFIED
+              {item.category && (
+                <>
+                  <span className="text-[10px] text-muted-foreground/60">/</span>
+                  <span className="text-muted-foreground/80">{item.category}</span>
+                </>
+              )}
+              {item.vintage && (
+                <>
+                  <span className="text-[10px] text-muted-foreground/60">·</span>
+                  <span className="text-[10px] tracking-wider text-muted-foreground/60">
+                    EST. {item.vintage}
+                  </span>
+                </>
+              )}
+              <span
+                className={cn(
+                  "inline-flex items-center rounded-full border px-1.5 py-0.2 text-[9px] font-medium",
+                  STATUS_META[item.status].className,
+                )}
+              >
+                {STATUS_META[item.status].label}
               </span>
             </button>
           ))}
