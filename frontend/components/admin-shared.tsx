@@ -136,7 +136,8 @@ export function BucketItem({
         <a
           href={url}
           target="_blank"
-          rel="noreferrer"
+          rel="noopener noreferrer"
+          aria-label={`Open ${name || "the filing"} in a new tab`}
           className="shrink-0 text-[10px] font-medium text-primary underline-offset-2 hover:underline"
         >
           open

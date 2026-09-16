@@ -1,25 +1,37 @@
 "use client";
 
 import * as React from "react";
-import { ExternalLink, FolderGit2, ShieldCheck, X, Share2 } from "lucide-react";
+import Link from "next/link";
+import { ArrowUpRight, ExternalLink, FolderGit2, ShieldCheck, X, Share2 } from "lucide-react";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { toast } from "sonner";
 import { sound } from "@/lib/sound-engine";
 import { Button } from "@/components/ui/button";
 import { HueAvatar } from "@/components/hue-avatar";
 import { StatusPill, type StatusChoice } from "@/components/startup-card";
-import { formatDate, titleCase } from "@/lib/format";
+import { TeardownDossier, productSlug } from "@/components/teardown-dossier";
+import { titleCase } from "@/lib/format";
 import type { Startup } from "@/lib/types";
 
 import { EASE } from "@/lib/motion";
 
 /**
- * Detail modal — the card's shared-layout expansion into a frosted dossier
+ * Detail modal — the card's shared-layout expansion into the teardown dossier
  * (Watermelon expandable-profile-card pattern, adapted). Card click → the card
  * itself grows into the panel; clicking a "More like this" row morphs it into
  * the next startup's dossier. Escape / overlay-click close; focus is trapped
  * to the panel and returned to the trigger on close; reduced-motion falls
  * back to a plain fade.
+ *
+ * The teardown itself (`pricing plan-by-plan + capture date`, `flat features`,
+ * `positioning`, the sourced "doesn't do" list, liveness, both badges) comes
+ * from `TeardownDossier`, which reads `GET /api/startups/{slug}` — NOT from the
+ * flat list row this component is handed. The row is passed along as the
+ * `initial` render so the panel is never empty while that read is in flight.
+ *
+ * The modal resolves the record by **id**, not by name slug: two filings can
+ * share a name (the archive admits the overlap), and a reader who clicked one
+ * of them must not be shown the other.
  */
 export function StartupDetail({
   startup,
@@ -186,7 +198,7 @@ export function StartupDetail({
             animate={reduce ? { opacity: 1, scale: 1 } : { opacity: 1 }}
             exit={{ opacity: 0, scale: 0.97, transition: { duration: 0.18 } }}
             transition={{ type: "tween", ease: EASE, duration: 0.35 }}
-            className="glass-strong relative z-10 flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-3xl outline-none"
+            className="glass-strong relative z-10 flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl outline-none"
           >
             {/* Header */}
             <div className="flex items-start gap-3 border-b border-border/60 p-5 pr-12">
@@ -222,68 +234,29 @@ export function StartupDetail({
                 </p>
               )}
 
-              <dl className="divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60 text-xs">
-                {startup.founded && (
-                  <div className="flex items-center justify-between px-3 py-2">
-                    <dt className="text-muted-foreground">Founded</dt>
-                    <dd className="font-mono tabular-nums">{formatDate(startup.founded)}</dd>
-                  </div>
-                )}
-                {typeof startup.stars === "number" && startup.stars > 0 && (
-                  <div className="flex items-center justify-between px-3 py-2">
-                    <dt className="text-muted-foreground">Stars</dt>
-                    <dd className="font-mono tabular-nums">{startup.stars.toLocaleString()}</dd>
-                  </div>
-                )}
-                {startup.language && (
-                  <div className="flex items-center justify-between px-3 py-2">
-                    <dt className="text-muted-foreground">Language</dt>
-                    <dd className="font-mono">{titleCase(startup.language)}</dd>
-                  </div>
-                )}
-                {startup.category && (
-                  <div className="flex items-center justify-between px-3 py-2">
-                    <dt className="text-muted-foreground">Category</dt>
-                    <dd className="font-medium">{titleCase(startup.category)}</dd>
-                  </div>
-                )}
-                {startup.source && (
-                  <div className="flex items-center justify-between px-3 py-2">
-                    <dt className="text-muted-foreground">Source</dt>
-                    <dd className="font-medium">{titleCase(startup.source)}</dd>
-                  </div>
-                )}
-                {startup.verified_at && (
-                  <div className="flex items-center justify-between px-3 py-2">
-                    <dt className="text-muted-foreground">Verified</dt>
-                    <dd className="font-mono tabular-nums">{formatDate(startup.verified_at)}</dd>
-                  </div>
-                )}
-                {startup.last_checked && (
-                  <div className="flex items-center justify-between px-3 py-2">
-                    <dt className="text-muted-foreground">Last checked</dt>
-                    <dd className="font-mono tabular-nums">{formatDate(startup.last_checked)}</dd>
-                  </div>
-                )}
-                {startup.check_failures > 0 && (
-                  <div className="flex items-center justify-between px-3 py-2">
-                    <dt className="text-muted-foreground">Failed checks</dt>
-                    <dd className="font-mono tabular-nums text-destructive">{startup.check_failures} / 3</dd>
-                  </div>
-                )}
-              </dl>
-
+              {/* The quick external actions keep their own rel/aria-label (item
+                  8): a screen reader has to be told these open a new tab. */}
               <div className="flex flex-wrap items-center gap-2">
                 {startup.website_url && (
                   <Button asChild variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
-                    <a href={startup.website_url} target="_blank" rel="noreferrer">
+                    <a
+                      href={startup.website_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`Visit ${startup.name} website (opens in a new tab)`}
+                    >
                       <ExternalLink className="h-3 w-3" /> Website
                     </a>
                   </Button>
                 )}
                 {startup.github_url && (
                   <Button asChild variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
-                    <a href={startup.github_url} target="_blank" rel="noreferrer">
+                    <a
+                      href={startup.github_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`View ${startup.name} source code (opens in a new tab)`}
+                    >
                       <FolderGit2 className="h-3 w-3" /> Code
                     </a>
                   </Button>
@@ -293,18 +266,33 @@ export function StartupDetail({
                   size="sm"
                   className="h-8 gap-1.5 text-xs cursor-pointer"
                   onClick={() => {
-                    const url = typeof window !== "undefined" ? `${window.location.origin}/?q=${encodeURIComponent(startup.name)}` : "";
+                    const slug = productSlug(startup.name);
+                    const url =
+                      typeof window !== "undefined"
+                        ? `${window.location.origin}/products/${slug}`
+                        : "";
                     if (url) {
                       void navigator.clipboard.writeText(url);
                       sound.playChime();
                       toast.success("Archival link copied", {
-                        description: `${startup.name} coordinate URL saved to clipboard.`,
+                        description: `${startup.name} now has a stable /products/${slug} coordinate.`,
                       });
                     }
                   }}
                 >
                   <Share2 className="h-3 w-3" /> Share Entity
                 </Button>
+                <Button asChild variant="ghost" size="sm" className="h-8 gap-1.5 text-xs">
+                  <Link href={`/products/${productSlug(startup.name)}`}>
+                    <ArrowUpRight className="h-3 w-3" /> Open full record
+                  </Link>
+                </Button>
+              </div>
+
+              {/* The teardown proper — read from the record endpoint, with the
+                  list row as the initial render. */}
+              <div className="border-t border-border/60 pt-4">
+                <TeardownDossier reference={String(startup.id)} initial={startup} />
               </div>
 
               {similar.length > 0 && (

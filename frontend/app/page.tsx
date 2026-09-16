@@ -37,7 +37,15 @@ import { HomeSections } from "@/components/home-sections";
 import { MorphingDiscoveryBar, type DiscoveryCategory } from "@/components/ui/morphing-discovery-bar";
 import { SplitButton } from "@/components/ui/split-button";
 import { ContinuousPagination } from "@/components/ui/continuous-pagination";
-import { fetchStartups, fetchCategories, fetchStats, markVerified, markUnverified, markDead } from "@/lib/api";
+import {
+  fetchStartups,
+  fetchCategories,
+  fetchStats,
+  markVerified,
+  markUnverified,
+  markDead,
+  searchStartups,
+} from "@/lib/api";
 import { KineticMasthead } from "@/components/kinetic-masthead";
 import { LiveTelemetryBar } from "@/components/live-telemetry-bar";
 import { AudioToggle } from "@/components/audio-toggle";
@@ -50,7 +58,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { sound } from "@/lib/sound-engine";
 import { filterStartups, sortStartups, foundedYear } from "@/lib/search";
 import type { SortKey } from "@/lib/search";
-import { formatDate, titleCase } from "@/lib/format";
+import { formatDate, foundedShort, titleCase } from "@/lib/format";
 import { useAdminToken } from "@/lib/use-admin-token";
 import type { CategoryCount, Startup, Stats } from "@/lib/types";
 
@@ -128,6 +136,8 @@ export default function HomePage() {
   const [addTab, setAddTab] = React.useState<"github" | "website">("github");
   const [density, setDensity] = React.useState<DensityMode>("gallery");
   const [cmdOpen, setCmdOpen] = React.useState(false);
+  // Id → the server's frozen match reason for the current query (F-18).
+  const [reasons, setReasons] = React.useState<Map<number, string>>(new Map());
   const unlocked = useAdminToken() !== null;
   const reduce = useReducedMotion();
 
@@ -211,6 +221,31 @@ export default function HomePage() {
   React.useEffect(() => {
     void loadAll();
   }, [loadAll]);
+
+  // Search reasons (item 6). The FILTERING stays on the client: `lib/search.ts`
+  // (Fuse, exact-name first, dead last, stars as a tie-break) is pleasant to
+  // ~3,000 rows at ~22ms/term, while /api/search measures ~83-123ms per query
+  // over the 1,300-row archive. So this endpoint is used for what it is better
+  // at — the server's own per-result `reason` — and is debounced harder than
+  // the input itself (300ms vs 150ms), because it must never gate a keystroke.
+  // A failure here is additive-only: the grid keeps its client-side matches and
+  // simply loses the reason line, rather than emptying the archive.
+  React.useEffect(() => {
+    const q = query.trim();
+    if (!q) {
+      // Not called synchronously in the effect body (react-hooks v7).
+      void Promise.resolve().then(() =>
+        setReasons((prev) => (prev.size === 0 ? prev : new Map())),
+      );
+      return undefined;
+    }
+    const t = window.setTimeout(() => {
+      searchStartups(q)
+        .then((rows) => setReasons(new Map(rows.map((r) => [r.id, r.reason]))))
+        .catch(() => setReasons(new Map()));
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [query]);
 
   // Stable identity for AdminPanel's onSeeded — an inline lambda here changed
   // on every render and cascaded new callback identities into the admin
@@ -555,13 +590,21 @@ export default function HomePage() {
             />
           </div>
 
-          {/* Magic UI Monospace Archival Ticker */}
+          {/* Magic UI Monospace Archival Ticker. Everything on it comes from
+              the record: the old feed fabricated a `"2021"` vintage for a null
+              date, a `"FinTech"` category for a null category, and stamped
+              VERIFIED on every row including the dead ones. */}
           <ArchivalTicker
             items={startups.slice(0, 12).map((s) => ({
               name: s.name,
-              category: s.category ? titleCase(s.category) : "FinTech",
-              vintage: s.founded ? s.founded.substring(0, 4) : "2021",
-              status: "verified" as const,
+              category: s.category ? titleCase(s.category) : undefined,
+              vintage: foundedShort(s.founded, s.date_source).text?.match(/\d{4}/)?.[0],
+              status:
+                s.status === "dead" || s.status === "pivoted"
+                  ? ("filed" as const)
+                  : s.verified === 1
+                    ? ("verified" as const)
+                    : ("unverified" as const),
             }))}
             onSelectItem={(name) => {
               changeQuery(name);
@@ -720,6 +763,7 @@ export default function HomePage() {
                     onSearchName={changeQuery}
                     filings={nameCounts.get(s.name) ?? 1}
                     density={density}
+                    reason={query.trim() ? reasons.get(s.id) : undefined}
                   />
                 </div>
               ))}
@@ -788,6 +832,12 @@ export default function HomePage() {
           </span>
           <span className="hidden lg:inline">
             No accounts. No tracking. Searches stay on this machine.
+          </span>
+          {/* Discoverability for the founder half of the product: the comparison
+              lives on a filing's own record page, so say where to find it
+              rather than inventing a compare button with nothing to compare. */}
+          <span className="hidden xl:inline">
+            Founders: every filing has a record page — compare your app against it there.
           </span>
           <div className="ml-auto flex items-center gap-1.5">
             <AdminPanel onSeeded={handleSeeded} />
