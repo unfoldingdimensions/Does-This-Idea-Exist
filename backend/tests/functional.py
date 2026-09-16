@@ -1171,6 +1171,40 @@ with TestClient(api) as client:
           and "admin verified" not in _md.text.lower(),
           "badges live on the record payload only")
 
+    # --- F-02 / F-17: the dossier's evidence rows -------------------------
+    # A sourced "doesn't do" list is only renderable if the record payload
+    # carries the rows behind it, so the slug endpoint exposes them. Evidence
+    # without a source is not evidence (F-02), so the check below asserts the
+    # two fields the cell rule needs survive the trip to the client.
+    _ev_co = insert_startup("Evidence Co", "https://evidence-co.example")
+    _conn = db.connect()
+    try:
+        ev.write_evidence(_conn, _ev_co, "negative",
+                          "https://evidence-co.example/pricing",
+                          claim="no self-host",
+                          value="observed: pricing page lists Free / Pro — no self-host tier",
+                          provenance="machine_drafted", confidence=0.8)
+        ev.write_evidence(_conn, _ev_co, "negative",
+                          "https://evidence-co.example/docs",
+                          claim="API: unknown", value="unknown",
+                          provenance="machine_drafted", confidence=0.1)
+    finally:
+        _conn.close()
+    _ev_payload = client.get("/api/startups/evidence-co").json()
+    check("the slug payload carries the record's evidence rows (F-02 / F-17)",
+          len(_ev_payload.get("evidence") or []) == 2,
+          str(len(_ev_payload.get("evidence") or [])))
+    check("every exposed evidence row keeps its source and capture date (F-02)",
+          bool(_ev_payload.get("evidence"))
+          and all({"source_url", "captured_at", "evidence_type", "claim", "value"} <= set(r)
+                  for r in _ev_payload["evidence"])
+          and all(r["source_url"] for r in _ev_payload["evidence"]),
+          str(sorted(_ev_payload["evidence"][0])) if _ev_payload.get("evidence") else "no rows")
+    check("an uncaptured record reports evidence as an empty list, never a missing key (F-17)",
+          client.get("/api/startups/duo-unverified").json().get("evidence") == [], "[]")
+    check("evidence stays on the record payload — never inside a gap-table row (F-21)",
+          all("evidence" not in r for r in table["rows"]), "rows carry no evidence blob")
+
     # --- F-22 wiring: a never-captured competitor gets queued, not a table --
     _jit_id = insert_startup("Jit Wiring Co", SITE_JIT)
     _queued = client.post("/api/compare",

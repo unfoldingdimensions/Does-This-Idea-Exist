@@ -34,7 +34,7 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 
-from . import capture, compare as compare_mod, db, enrich, founder, gateways, search as search_mod, seeder, verify  # noqa: E402
+from . import capture, compare as compare_mod, db, enrich, evidence as evidence_mod, founder, gateways, search as search_mod, seeder, verify  # noqa: E402
 
 log = logging.getLogger("ideasexist")
 
@@ -1059,13 +1059,26 @@ def get_startup_by_slug(slug: str) -> dict:
     """The stable per-product endpoint (F-17) the frontend's `/products/<slug>`
     route calls.  A same-name collision resolves deterministically (human-verified
     first, then the lowest id) and the payload names the row it got; the two trust
-    badges are explicit fields (F-21), never inferred from a timestamp."""
+    badges are explicit fields (F-21), never inferred from a timestamp.
+
+    The payload also carries this row's `evidence` rows.  A negative claim is an
+    observation about a page (F-09, spec §8.2), so the dossier can only render a
+    sourced "doesn't do" list if it can read the source URL and capture date
+    behind each one.  They are attached here rather than denormalised into a
+    column: `evidence` is append-only and the single writer is
+    `evidence.write_evidence`, so a column would be a second copy that drifts.
+    Every row carries `source_url` + `captured_at` by construction (F-02), which
+    is exactly what the cell rule requires.  `evidence` is always a list — an
+    uncaptured record gets `[]`, never a missing key.
+    """
     conn = db.connect()
     try:
         row, candidates = compare_mod.resolve_startup_slug(conn, slug)
         if not row:
             raise HTTPException(status_code=404, detail=f"no product with slug {slug!r}")
-        return compare_mod.startup_payload(row, candidates)
+        payload = compare_mod.startup_payload(row, candidates)
+        payload["evidence"] = evidence_mod.for_startup(conn, int(row["id"]))
+        return payload
     finally:
         conn.close()
 
