@@ -1268,3 +1268,23 @@ All four `scripts/phaseN-verify.py` re-run unchanged: 31 / 74 / 47 / 59 checks, 
 **One finding while building this, recorded because it is the kind of thing that hides:** the first draft of the request-shape check asserted `llm_json` posts to the active gateway's URL, but the suite stubs `llm.llm_json` globally for its own offline checks — so the new check was silently exercising the stub and could never have failed. The suite now keeps a handle on the real function before stubbing it, and the check restores it for that one assertion. A check that cannot fail is worse than no check.
 
 **Date and who ran it:** 2026-09-16, the AutoClaw agent for this repo (`does-this-startup-exist`) on `DESKTOP-KV8OEKP`.
+
+---
+
+### Follow-up — the SSRF guard on the LLM path (2026-09-16)
+
+Found by an independent review of this branch, before either PR was merged.
+
+**What was wrong.** `llm.py` and `gateways.test_gateway()` both posted straight to the resolved base URL with `httpx.post` — no guard. That was **not** a regression: the old `llm.py` did the same, and the base URL lived only in `.env`, which `config.py` documents as "operator config, never user input". What changed is the reachable state — the base URL is now settable through an admin endpoint, so without a guard a stored key could be POSTed to a loopback, private or cloud-metadata target.
+
+**The fix.** One rule, one place: `gateways.guard_outbound(url)` runs `netguard.check_target` — the same guard every page fetch already gets — and both `llm_json` and the Test button call it. `llm_json` guards **before** its retry loop, because a blocked target is not transient and the bounded retry would only repeat the refusal (and repeat the DNS work). The Test button reports it as an ordinary `ok: false` result, so the panel renders it like any other connection error rather than as a server fault.
+
+**Why not a blanket block.** `ALLOW_PRIVATE_LLM_BASE=1` (off by default; in `.env`, `.env.example` and the docs) steps the guard aside for a deliberately local model server — Ollama, LM Studio, vLLM on `127.0.0.1`. A blanket block would break a legitimate local-first setup, and this product *is* local-first; the flag keeps the default deny and makes the exception explicit.
+
+**The limitation, written down rather than implied.** The guard closes SSRF *into the network*. It does **not** stop a stolen admin token from pointing a gateway at a public host an attacker controls — the token already governs the archive, so it is equivalent to control of the keys. That is stated in `guard_outbound`'s docstring and in `docs/llm-gateways.md` §2, now "the four rules".
+
+**Gate checks added.** `tests/functional.py` 219 → **225 checks**: the guard refuses a loopback base URL by default; the opt-in steps aside only when set; the Test button answers `ok: false` with the reason and **opens no socket** (a tripwire patched over `httpx.post`); `llm_json` refuses the same target with a clear `RuntimeError` and also opens no socket; and the override clears back to the default. The existing URL-shape checks now step the guard aside explicitly, because the suite stays offline and the real provider URL would otherwise trigger DNS.
+
+Re-verified after the change: `tests/functional.py` → `RESULT: ALL PASS` (225 checks, 0 failed); backend smoke green.
+
+**Date and who ran it:** 2026-09-16, the AutoClaw agent for this repo on `DESKTOP-KV8OEKP`.

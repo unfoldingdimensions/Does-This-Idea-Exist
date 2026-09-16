@@ -48,7 +48,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from . import config, db
+from . import config, db, netguard
 
 log = logging.getLogger("ideasexist")
 
@@ -298,6 +298,30 @@ def resolve(gateway_id: str | None = None) -> dict:
     }
 
 
+def guard_outbound(url: str) -> None:
+    """The SSRF guard for the one outbound call the LLM path makes.
+
+    `netguard.check_target` refuses loopback, private, link-local, CGNAT and
+    cloud-metadata targets without opening a socket — the same rule every page
+    fetch already gets. It is applied here because a gateway's base URL is no
+    longer only an `.env` value: it is settable through an admin endpoint, so
+    without this a stored API key could be POSTed to a service inside the
+    network, or to a metadata endpoint.
+
+    `ALLOW_PRIVATE_LLM_BASE=1` steps aside for a deliberately local model server
+    (Ollama, LM Studio, vLLM on 127.0.0.1). It is opt-in and documented, because
+    it re-opens exactly the target class this closes.
+
+    Honest limitation, written down rather than implied: this does NOT stop a
+    stolen admin token from pointing a gateway at a PUBLIC host the attacker
+    controls. The token already governs the archive; treat it as equivalent to
+    control of the keys.
+    """
+    if config.ALLOW_PRIVATE_LLM_BASE:
+        return
+    netguard.check_target(url)
+
+
 def _extra_headers(gateway_id: str) -> dict:
     """Attribution headers, where the provider documents them. Nothing secret."""
     if gateway_id == "openrouter":
@@ -498,6 +522,12 @@ def test_gateway(gateway_id: str, *, timeout: float = 30.0) -> dict:
         "max_tokens": 16,
         "temperature": 0,
     }
+    try:
+        # Guard first: the base URL is admin-settable, so the request that
+        # carries the key must not reach a loopback/private/metadata target.
+        guard_outbound(url)
+    except netguard.BlockedAddressError as exc:
+        return done(False, error=f"blocked by the SSRF guard: {exc}"[:300])
     try:
         r = httpx.post(url, headers=headers, json=body, timeout=timeout)
     except Exception as exc:  # noqa: BLE001 — a failed test is a result, not a 500

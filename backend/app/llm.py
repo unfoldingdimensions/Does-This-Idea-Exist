@@ -10,7 +10,7 @@ import re
 
 import httpx
 
-from . import config, gateways
+from . import config, gateways, netguard
 
 SYSTEM_PROMPT = (
     "You are an expert startup researcher. You receive evidence about a startup "
@@ -152,6 +152,18 @@ def llm_json(
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
     ]
+
+    # Guard the target BEFORE the retry loop. A gateway's base URL is settable
+    # through the admin API now (see app/gateways.py), so the request carrying the
+    # key gets the same SSRF rule every page fetch gets. Failing here rather than
+    # inside the loop matters: a blocked target is not a transient error, and the
+    # bounded retry below would only repeat the refusal — and repeat the DNS work.
+    try:
+        gateways.guard_outbound(url)
+    except netguard.BlockedAddressError as exc:
+        raise RuntimeError(
+            f"LLM gateway base URL refused by the SSRF guard: {exc}"
+        ) from exc
 
     # Bounded 2 attempts: retry once on ANY failure (gateway intermittently returns
     # empty/invalid completions; a second attempt usually succeeds). Attempt 2 drops
