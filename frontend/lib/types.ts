@@ -305,6 +305,23 @@ export interface FounderAppDetail extends FounderAppDraft {
   submissions: FounderSubmission[];
 }
 
+/**
+ * `POST /api/founder-app/{id}/publish` — and it is deliberately NOT a draft.
+ *
+ * The route answers with an acknowledgement of the submission it just queued, not
+ * with the record: `{submitted, submission_id, archive_status, message}`. Typing it
+ * as `FounderAppDraft` would promise a `profile` the response does not carry, so the
+ * caller re-reads `GET /api/founder-app/{id}` for the authoritative state and uses
+ * this only for the immediate nudge. (The dialog was written defensively against
+ * the narrower payload already; this makes the type tell the truth about it.)
+ */
+export interface FounderPublishResult {
+  submitted: boolean;
+  submission_id: number;
+  archive_status: ArchiveStatus;
+  message: string;
+}
+
 /** The form path's payload — features are REQUIRED, 5–10. */
 export interface FounderFormInput {
   name: string;

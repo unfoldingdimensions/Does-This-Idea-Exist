@@ -3,6 +3,7 @@ import type {
   CompareResult,
   FounderAppDetail,
   FounderAppDraft,
+  FounderPublishResult,
   LlmGateway,
   LlmGatewayPatch,
   LlmGatewayTestResult,
@@ -424,9 +425,16 @@ export function confirmFounderApp(id: number): Promise<FounderAppDraft> {
   return founderJson<FounderAppDraft>(`/api/founder-app/${id}/confirm`, { method: "POST" });
 }
 
-/** The consent gate on its own. Eligibility has already been checked first. */
-export function publishFounderApp(id: number): Promise<FounderAppDraft> {
-  return founderJson<FounderAppDraft>(`/api/founder-app/${id}/publish`, { method: "POST" });
+/**
+ * The consent gate on its own. Eligibility has already been checked first.
+ *
+ * Returns the SUBMISSION acknowledgement, not the draft — the route answers
+ * `{submitted, submission_id, archive_status, message}`. Call `getFounderApp`
+ * afterwards for the authoritative record: trusting this payload as a draft would
+ * put a `profile` on screen that the response never carried.
+ */
+export function publishFounderApp(id: number): Promise<FounderPublishResult> {
+  return founderJson<FounderPublishResult>(`/api/founder-app/${id}/publish`, { method: "POST" });
 }
 
 // --- LLM gateways (docs/llm-gateways.md §4) ---------------------------------
