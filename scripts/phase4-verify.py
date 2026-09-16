@@ -184,6 +184,20 @@ with TestClient(api) as client:
             ("  ↳ keyword half", "positioning", _populated("positioning")),
             ("fuzzy", "the AND gate over the same fields", total),
         ]
+
+        # Measured on the same pristine copy: of the two columns the JIT capture
+        # writes, how many populated rows have NO teardown evidence behind them?
+        # (Phase 5 note — see the assertion below.)
+        def _populated_without_teardown(col: str) -> int:
+            return _conn.execute(
+                f"SELECT COUNT(*) AS c FROM startups s WHERE {col} IS NOT NULL "
+                f"AND TRIM({col}) <> '' AND NOT EXISTS (SELECT 1 FROM evidence e "
+                "WHERE e.startup_id = s.id AND e.evidence_type IN "
+                "('feature','pricing','positioning','negative','review'))"
+            ).fetchone()["c"]
+
+        CAPTURED_ONLY = {c: _populated_without_teardown(c)
+                         for c in ("features_json", "positioning")}
     finally:
         _conn.close()
 
@@ -484,10 +498,23 @@ with TestClient(api) as client:
     live_rungs = [(r, n) for r, _c, n in CENSUS if not r.startswith("  ↳")]
     check("every live rung of the ladder can match rows today (none is a promise the UI cannot keep)",
           all(n > 0 for _r, n in live_rungs), str(live_rungs))
+
+    # The "no rung is built on a column nothing writes" census. Phase 5 revised
+    # this assertion (recorded in docs/phase-ledger.md): it used to demand that
+    # features_json / positioning be 0 rows forever, which stopped being true the
+    # moment Phase 5's real-instance proof ran a real JIT capture on this archive
+    # (F-22 writes those two columns for a competitor a founder actually
+    # requested — search.py's own docstring says so). The invariant that matters
+    # is unchanged and is now stated precisely: the two columns with NO writer in
+    # the codebase stay at 0, and the two the capture writes are populated on no
+    # row that the capture did not actually run on.
     unwritten = {c: n for _r, c, n in CENSUS if _r.startswith("  ↳")}
-    check("problem_statement / target_users / features_json / positioning are all 0 today — "
-          "no rung is built on a column nothing writes",
-          all(n == 0 for n in unwritten.values()), str(unwritten))
+    check("problem_statement / target_users are written by no code path at all (0 rows)",
+          unwritten.get("problem_statement") == 0 and unwritten.get("target_users") == 0,
+          str(unwritten))
+    check("features_json / positioning are written only by the JIT capture "
+          "(no populated row without teardown evidence)",
+          all(n == 0 for n in CAPTURED_ONLY.values()), str(CAPTURED_ONLY))
 
     # =====================================================================
     # 14. Timing evidence (the honest ceiling marker)
