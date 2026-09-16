@@ -12,6 +12,14 @@
 
 > **Phase 5 note (2026-09-16):** Phase 5 added no product code. It added `backend/tests/functional.py` (the consolidated gate over F-01–F-24 + the §6 invariants: self-contained, offline, ~2.8 s) and wired it into `scripts/verify.mjs`, so `npm test` now runs **five** steps rather than four. §7's runner line is corrected and marked; nothing else in this document changed.
 
+> **Post-gate addition (2026-09-16):** after Phase 5 passed, the owner asked for the LLM
+> gateway to be configurable from the admin panel (OpenCode Go, OpenCode Zen, OpenRouter,
+> Google Gemini, Command Code). The backend is `backend/app/gateways.py` plus
+> `/api/admin/settings/*`; the frontend contract is `docs/llm-gateways.md`. `llm.py` no longer
+> reads `config.LLM_*` directly — it resolves the active gateway per call, so a switch needs
+> no restart. The passages below (§4.2 surface, §7 harness, §8 integrations) are updated and marked.
+
+
 This document exists so a reader who has never opened the repo can describe, accurately, what the product is, how it is built, what it actually does today, and where the founder-facing value sits in the code.
 
 ---
@@ -148,6 +156,7 @@ Importing `seeder` starts two daemon threads (`seeder.py:427-428`): the **seed w
 
 **Owner-gated reads (`X-Admin-Token`):**
 - `GET /api/admin/check`, `/api/admin/seed/jobs`, `/api/admin/seed/status/{id}`, `/api/admin/verify/suggested`, `/api/admin/verify/status/{id}`, `/api/admin/verify/current`
+- **Post-gate:** `GET /api/admin/settings/gateways` (and `/{id}`) — the LLM gateway registry, what the operator has overridden, and what is in effect. A stored API key is **write-only**: the payload carries `has_key`, `key_source` (`settings` / `env` / `none`) and a 4-character `key_hint`, never the value. `PUT /api/admin/settings/gateways/{id}` patches the key / model / base-URL overrides (omitted = unchanged, `null` or `""` = clear), `POST …/active` switches the gateway every seed and capture then uses (refused with a `400` when the choice is not `ready`), `POST …/active/reset` returns to the `.env`-described default, and `POST …/{id}/test` runs one real tiny completion so a key can be verified before it is switched in.
 - **Phase 2:** `GET /api/admin/founder/submissions` (pending publish requests) and `GET /api/admin/capture/status/{job_id}`. `verify/suggested` now **unions** the archive's suggested rows with the founder store's pending submissions (F-24) — a submission in another file would not appear there otherwise. There is deliberately **no public capture-job endpoint**: a job payload carries error strings and fetched URLs.
 
 **Mutations (token required because `MUTATION_AUTH` defaults on):**
@@ -244,6 +253,7 @@ Both journeys are covered by the in-process smoke suite and previously by two do
 - **Phase 3:** `scripts/phase3-verify.py` is the exit-gate verifier for comparison, the gap table and the exports. Same discipline as Phase 2 (a copy of the live archive via SQLite's backup API, a throwaway founder store, the fetcher and both LLM prompts stubbed, `[PASS]`/`[FAIL]` + `RESULT:` and a non-zero exit on failure) and it pins: the five bands for a fixture, sourced-or-unknown cells, the enumerating-page negative rule, dimension 7's two destinations, the F-13 compare guard, the F-22 JIT wiring, the three exports (parsing + byte-determinism), the slug collision rule, the two trust badges, and that the founder store never leaks into the archive surface.
 - **Phase 4:** `scripts/phase4-verify.py` is the exit-gate verifier for search classification and match reasons. Same discipline as Phases 2/3 (a copy of the live archive via SQLite's backup API, a throwaway founder store, `[PASS]`/`[FAIL]` + `RESULT:` and a non-zero exit on failure) and it needs no fetcher or LLM at all, because search reads stored data only. It pins: the ladder's order and the exact-name-first rule on a real product, every frozen reason string (including the latent "Same audience, different approach"), dead **and** pivoted sinking under an otherwise equal match, stars as a tie-break only, multi-term AND with a worst-term score, the empty-query contract, literal LIKE metacharacters, the pure-read tripwire (a search never calls `capture.start_capture`), the founder-store containment, the data-awareness rule (an empty column never matches everything), and the reachable-rung census on a pristine copy of the real archive.
 - Known limitation, documented in `README.md`: the runner is Windows-only (it shells out to `backend/.venv/Scripts/python.exe` and `npm` through a shell) and there is **no CI**.
+- **Post-gate:** the LLM gateway surface is covered by `backend/tests/functional.py` (32 checks, offline): the five registry ids and their published base URLs, the admin gate, the settings → environment → default precedence, hint-not-key in every response, the switch guard for a keyless and a modelless gateway, base-URL validation, and a request-shape check proving `llm_json` posts to the **active** gateway with the key in the `Authorization` header (never in the URL). `backend/tests/smoke.py` and `functional.py` both pin `SETTINGS_DB_PATH` into their throwaway temp dir, so no test run touches a real settings file.
 
 ---
 
@@ -252,7 +262,7 @@ Both journeys are covered by the in-process smoke suite and previously by two do
 | Integration | Where | Why | Auth |
 |---|---|---|---|
 | GitHub REST API | `github.py`, `seeder._gh_search` | repo metadata, search | optional `GITHUB_TOKEN` (60 → 5,000 req/h) |
-| LLM gateway (OpenAI-compatible) | `llm.py` | draft the profile JSON | `OPENCODE_GO_API_KEY` |
+| LLM gateway (OpenAI-compatible) | `llm.py` + `gateways.py` | draft the profile JSON, twice (identity profile + teardown) | `OPENCODE_GO_API_KEY` by default; **five gateways selectable from the admin panel** (OpenCode Go / Zen, OpenRouter, Gemini, Command Code), each with its own env fallback and an optional stored key in `SETTINGS_DB_PATH` |
 | Target websites | `website.fetch_homepage` via `netguard.safe_get` | homepage text, title, meta | none |
 | Wayback CDX API | `website.wayback_first_snapshot` | first archived snapshot → `founded` fallback | none |
 | RDAP (`rdap.org`) | `website.rdap_registration_date` | domain registration → `founded` fallback | none |
