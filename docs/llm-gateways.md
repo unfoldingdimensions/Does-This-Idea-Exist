@@ -33,13 +33,16 @@ All five are OpenAI-compatible and authenticate with a bearer token. Every base 
 
 ---
 
-## 2. The three rules the API obeys
+## 2. The four rules the API obeys
 
 These are enforced in the backend and the UI must not fight them:
 
 1. **A stored key is write-only.** No response ever contains it. The API reports `has_key`, `key_source` (`settings` | `env` | `none`) and `key_hint` (last 4 characters, e.g. `…cdef`; short keys report the literal string `set` instead, because 4 characters of an 8-character key is half the key). The UI must never render a key it did not receive — show the hint and an empty password field.
 2. **The key never travels in a URL.** Gemini's *native* API takes `?key=…`; a query-param secret ends up in URLs, logs and exception text, so the backend deliberately uses Gemini's OpenAI-compatible surface with a bearer token instead. There is no query-param auth mode to opt into.
 3. **Switching is guarded.** Making a gateway active is refused (`400`) when that gateway has no key or no model, because the switch would silently break every seed and capture. A refusal with a reason beats a broken product.
+4. **The outbound call is SSRF-guarded.** The base URL is admin-settable now, so the request that carries the key gets the same `netguard` rule every page fetch already gets: loopback, private, link-local, CGNAT and cloud-metadata targets are refused **before a socket opens**. Both `llm_json` and the Test button go through the one guard (`gateways.guard_outbound`). The Test button reports a blocked target as an ordinary failure result (`ok: false` plus the reason), so the panel should render it like any other connection error rather than as a server fault.
+   - `ALLOW_PRIVATE_LLM_BASE=1` in `backend/.env` steps the guard aside for a deliberately local model server (Ollama, LM Studio, vLLM on `127.0.0.1`). It is opt-in and documented because it re-opens exactly the target class the guard closes.
+   - **Honest limitation, stated rather than implied:** this does not stop a stolen admin token from pointing a gateway at a *public* host the attacker controls and harvesting the key on the next call. The token already governs the archive — treat it as equivalent to control of the keys.
 
 ---
 

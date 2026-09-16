@@ -114,6 +114,15 @@ MUTATION_AUTH = os.getenv("MUTATION_AUTH", "1").strip().lower() in ("1", "true",
 # Per-IP sliding-window rate limiting on mutating + admin endpoints (default on).
 RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "1").strip().lower() in ("1", "true", "yes", "on")
 
+# SSRF guard for the LLM gateway's outbound call — OFF by default.
+# A gateway's base URL is settable through an admin endpoint now (app/gateways.py),
+# not just an `.env` value, so the call that carries the API key gets the same
+# netguard rule every page fetch gets: loopback, private, link-local, CGNAT and
+# cloud-metadata targets are refused before a socket opens.
+# Set this to 1 ONLY to reach a model server on your own machine (Ollama, LM Studio,
+# vLLM on 127.0.0.1). It re-opens exactly the target class the guard closes.
+ALLOW_PRIVATE_LLM_BASE = os.getenv("ALLOW_PRIVATE_LLM_BASE", "0").strip().lower() in ("1", "true", "yes", "on")
+
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:3023")
 
 # Reverse-proxy trust for client-IP resolution. Handed to uvicorn as

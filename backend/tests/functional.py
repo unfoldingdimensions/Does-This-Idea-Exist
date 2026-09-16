@@ -1721,6 +1721,11 @@ try:
 
         _real_post = llm.httpx.post
         llm.httpx.post = _capture_post
+        # The SSRF guard resolves the base URL's host, and the real URL here is a
+        # public provider — this suite stays offline, so step the guard aside for
+        # the URL-shape checks and exercise it for real a few checks below.
+        _real_guard = gw_mod.guard_outbound
+        gw_mod.guard_outbound = lambda url: None
         # The suite stubs llm.llm_json globally; restore the real one for this
         # check so the request the client actually builds is what gets asserted.
         llm.llm_json = _real_llm_json
@@ -1729,6 +1734,7 @@ try:
         finally:
             llm.llm_json = fake_llm_json
             llm.httpx.post = _real_post
+            gw_mod.guard_outbound = _real_guard
         _resolved = gw_mod.resolve()
         check("llm_json calls the ACTIVE gateway's base URL, not a hardcoded one",
               bool(sent) and sent[0]["url"]
@@ -1781,6 +1787,71 @@ try:
         check("testing an unknown gateway is a 404",
               client.post("/api/admin/settings/gateways/nope/test",
                           headers=MUT).status_code == 404, "404")
+
+        # --- the SSRF guard on the outbound call ----------------------------
+        # A gateway's base URL is admin-settable, so the request that carries a
+        # stored key must not be able to reach a loopback / private / metadata
+        # target. Both the Test button and llm_json go through one guard.
+        _refused_without_flag = False
+        try:
+            gw_mod.guard_outbound("http://127.0.0.1:9/v1")
+        except netguard_mod.BlockedAddressError:
+            _refused_without_flag = True
+        check("the guard refuses a loopback base URL by default",
+              _refused_without_flag, "default posture is deny")
+
+        _real_flag = config.ALLOW_PRIVATE_LLM_BASE
+        _optin_ok = False
+        config.ALLOW_PRIVATE_LLM_BASE = True
+        try:
+            gw_mod.guard_outbound("http://127.0.0.1:9/v1")   # must not raise
+            _optin_ok = True
+        except Exception:  # noqa: BLE001 — any raise means the opt-in did not work
+            _optin_ok = False
+        finally:
+            config.ALLOW_PRIVATE_LLM_BASE = _real_flag
+        check("ALLOW_PRIVATE_LLM_BASE=1 steps aside for a deliberately local model server",
+              _optin_ok, "opt-in honoured, and only when set")
+
+        _sockets: list = []
+        _real_post3 = llm.httpx.post
+
+        def _socket_tripwire(url, **kwargs):
+            _sockets.append(url)
+            raise AssertionError(f"the LLM path opened a socket to {url!r}")
+
+        llm.httpx.post = _socket_tripwire
+        try:
+            client.put("/api/admin/settings/gateways/openrouter",
+                       json={"api_key": "***", "base_url": "http://localhost:9/v1"},
+                       headers=MUT)
+            _blocked_test = client.post("/api/admin/settings/gateways/openrouter/test", headers=MUT)
+            llm.llm_json = _real_llm_json
+            gw_mod._app_setting(gw_mod.ACTIVE_KEY, "openrouter")
+            _blocked_msg = ""
+            try:
+                llm.llm_json("profile this")
+            except RuntimeError as exc:
+                _blocked_msg = str(exc)
+            finally:
+                llm.llm_json = fake_llm_json
+                gw_mod._app_setting(gw_mod.ACTIVE_KEY, "")
+        finally:
+            llm.httpx.post = _real_post3
+        check("the Test button reports a blocked base URL as a result, not a 500",
+              _blocked_test.status_code == 200 and _blocked_test.json()["ok"] is False
+              and "SSRF guard" in _blocked_test.json()["error"],
+              str(_blocked_test.json().get("error"))[:90])
+        check("llm_json refuses the same target with a clear RuntimeError",
+              "SSRF guard" in _blocked_msg, _blocked_msg[:90] or "no error raised")
+        check("neither path opens a socket to the blocked target",
+              not _sockets, f"{len(_sockets)} socket(s)")
+
+        cleared = client.put("/api/admin/settings/gateways/openrouter",
+                             json={"base_url": "", "api_key": ""}, headers=MUT).json()
+        check("the override clears again and the gateway falls back to its default",
+              cleared["base_url"] == cleared["default_base_url"],
+              str(cleared["base_url"]))
 finally:
     for _k, _v in _saved_env.items():
         if _v is None:
