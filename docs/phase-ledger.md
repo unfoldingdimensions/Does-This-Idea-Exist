@@ -11,8 +11,8 @@
 | 3 — Comparison, gap table & export | **PASS** | Branch `phase/03-comparison-gap-export`, cut from `main` at `d41fdd0`. `backend\.venv\Scripts\python.exe scripts\phase3-verify.py` → **RESULT: ALL PASS** (45 checks at the gate; **47** after the §5 follow-up, still ALL PASS) on a copy of the live archive + a throwaway founder store, fetcher and both LLM prompts **stubbed**: the five bands are correct for a fixture (you-only → `you_have_they_dont`, they-only → `they_have_you_dont`, both → `both_have`, no data on either side → `unknown`); every non-`unknown` "they" cell carries a source; an unsourced "doesn't do" cell renders `unknown` (never "no") and only observations that trace to an enumerating page enter the negative list; dimension 7 sends an ask your features cover to `you_have_they_dont` and an uncovered one to `asked_for`, each linked to its review; compare refuses an unconfirmed founder app with an explicit `409 not_confirmed` state (F-13); the JIT wiring queues a capture on the first founder request (F-22), serves the table once it is cached, and two concurrent calls still collapse into **one** job; all three exports parse and re-run **byte-identical** (stateless + deterministic), and CSV carries `asked_for` as a band value; a known slug resolves, an unknown slug 404s, and the real `cal-com` duplicate group resolves deterministically (human-verified first, then lowest id); a stale `last_checked` reads `machine_verified=false` while `admin_verified` stays true, and no badge appears in a claim cell; the founder store never reaches `/api/startups` / `/api/stats` / `/api/categories`. Suites: `..\backend\.venv\Scripts\python.exe -m tests.smoke` (from `backend/`) → **RESULT: ALL PASS** (85 PASS / 0 FAIL); `npm test` with Node 24 first on PATH → **RESULT: ALL PASS** (backend smoke exit 0 · frontend sort check exit 0 · frontend lint+build exit 0 · e2e 35 passed / 0 failed). No `frontend/` file touched (asserted in the verifier). Full output in §Phase 3 evidence below. | 2026-09-15 |
 | 4 — Search classification & match reasons | **PASS** | Branch `phase/04-search-classification`, cut from `main` at `e92b1a8`. `backend\.venv\Scripts\python.exe scripts\phase4-verify.py` → **RESULT: ALL PASS** (58 checks, exit 0) on a copy of the live archive + a throwaway founder store, with **no fetcher and no LLM at all** (a search reads stored data only): a real product name returns as result **#1** with `reason == "Exact name match"` (Obsidian, exactly one exact-name hit); a query matching at every rung returns non-decreasing rungs `[0, 2, 3, 4, 4, 5, 6]` and the fixtures come back exact → name → tagline → description → category → fuzzy; every one of the **eight frozen reason strings** is emitted (including the latent "Same audience, different approach", which no column writes today); dead **and** pivoted rows sort last under an otherwise equal match and are still returned; a **0-star exact-name match beats a 99999-star fuzzy one**; a two-term query returns **only** rows matching both and scores by the **worst** term (0.143, not the 0.071 average); the empty-query contract (no `q`, `q=`, `q=<blank>`) is **200 + `[]`**; `q=%` and `q=_` return **0 rows**, and `/api/startups?q=%` is still literal (40 of 1,282 — every hit really contains a `%`); a search writes no evidence row and queues no capture job, and a tripwire proves it never calls `capture.start_capture` (the F-22 contrast with `/api/compare`); no founder-store record appears in a search result; the keyword rung matches a fixture with `features_json` populated and **skips** the row where it is NULL (data-awareness); and the reachable-rung census is recorded below. Suites: `..\backend\.venv\Scripts\python.exe -m tests.smoke` (from `backend/`) → **RESULT: ALL PASS** (85 PASS / 0 FAIL); `npm test` with Node 24 first on PATH → **RESULT: ALL PASS** (backend smoke exit 0 · frontend sort check exit 0 · frontend lint+build exit 0 · e2e 35 passed / 0 failed). No `frontend/` file touched (asserted in the verifier). Full output in §Phase 4 evidence below. | 2026-09-16 |
 | 5 — Backend functional test gate | **PASS** | Branch `phase/05-backend-functional-gate`, cut from `main` at `850c6e9`. Backend only — no `frontend/` file touched. New: `backend/tests/functional.py`, one self-contained suite over **F-01–F-24 + the §6 invariants** (187 checks) with its own throwaway archive + founder store and the fetcher, both LLM prompts and both date sources stubbed: `cd backend` then `..\backend\.venv\Scripts\python.exe -m tests.functional` → **`RESULT: ALL PASS`** — `TESTS: 187 run, 187 passed, 0 failed` (exit 0, ~2.8 s; identical across four consecutive runs). Wired into `scripts\verify.mjs` directly after the smoke suite, so `npm test` now runs **five** steps → **`RESULT: ALL PASS`** (backend smoke exit 0 · backend functional exit 0 · frontend sort check exit 0 · frontend lint+build exit 0 · e2e 35 passed / 0 failed). **Traceability table F-01–F-24 → test → PASS below.** Real-backend smoke against the **real** archive: WAL-safe backup to `ideasexist.db.bak-phase5` first, then the first boot since Phase 1 → **18 → 40 columns and the `evidence` table appearing, 1,282 rows before and after**; `GET /api/health`, `/api/stats`, `/api/categories`, `/api/search?q=obsidian`, `/api/startups/obsidian` all answered with real data; a real founder app (`Phase 5 Smoke App`, confirmed) plus a real JIT capture of **Obsidian** (6.0 s, page plan fetched) → 3 sourced negative evidence rows written, with `features_json`/`pricing_json`/`positioning` left **unknown** because the LLM gateway answered **401** for the configured `OPENCODE_GO_API_KEY` — recorded honestly, not hidden (see §Phase 5 evidence 4). All four `scripts/phaseN-verify.py` re-run on this branch → **`RESULT: ALL PASS`** (31 / 74 / 47 / 59 checks); `phase4-verify.py` needed its rung-census assertion repaired against the now-real captured state (recorded below). Full output in §Phase 5 evidence below. | 2026-09-16 |
-| 6 — Frontend implementation | pending | Unblocked by the Phase 5 `PASS` above (this row moved `blocked` → `pending` in the same commit as the Phase 5 row). | |
-| 7 — Frontend tests | pending | Unblocked by the Phase 5 `PASS` above. | |
+| 6 — Frontend implementation | **PASS** | Branch `phase/06-frontend-implementation`, cut from `fix/startup-evidence-endpoint` (see the finding in §Phase 6 evidence 1 — the dossier's sourced negative list needed a backend read that did not exist, so it went to its own branch/PR **#14** and this branch consumes it; **no `backend/` file was edited here**). All **nine** items run against the real stack — backend on `:8020` over the **real** archive plus a real founder store, frontend on `:3023`. `npm test` → **`RESULT: ALL PASS`**, five steps: backend smoke exit 0 · backend functional exit 0 (**229/229**) · frontend sort check exit 0 · frontend lint+build exit 0 (the new `ƒ /products/[slug]` route in the build output) · e2e **35 passed / 0 failed**. Every non-happy state in the phase brief was exercised and is recorded with the response behind it: compare on an unconfirmed draft → **409** `{"state":"not_confirmed"}` rendered in the UI as "The draft must be confirmed first" + a **Confirm the draft** action and **no table**; a never-captured competitor → **200** `{"state":"queued","message":"capture queued"}` with a Retry, and the table only after the capture landed; an unknown competitor → **404** naming the ref; every empty cell → the word `unknown` (never blank, never "no"); founder `archive_status` shown (`local_only` → `pending`, with the rejection note path wired); gateway switch on a not-ready gateway → **400** with the API's own reason, and the control disabled with that same reason; a **key_hint** and never a key. Real payloads pasted in §Phase 6 evidence 2–5. Falsified docs corrected in this branch: `docs/frontend-plan.md` (status + the §2.1 evidence read), `docs/llm-gateways.md` (status), `docs/codebase-comprehension.md` (a Phase 6 note). | 2026-09-16 |
+| 7 — Frontend tests | pending | Unblocked by the Phase 6 `PASS` above. The Phase 7 test plan is `docs/frontend-plan.md` §3 (12 areas). | |
 | 8 — Full end-to-end test | pending | Unblocked by the Phase 5 `PASS` above. | |
 | 9 — Handoff & close-out | pending | | |
 
@@ -1288,3 +1288,124 @@ Found by an independent review of this branch, before either PR was merged.
 Re-verified after the change: `tests/functional.py` → `RESULT: ALL PASS` (225 checks, 0 failed); backend smoke green.
 
 **Date and who ran it:** 2026-09-16, the AutoClaw agent for this repo on `DESKTOP-KV8OEKP`.
+
+---
+
+## Phase 6 evidence - frontend implementation (2026-09-16)
+
+**Branch:** `phase/06-frontend-implementation`, cut from `fix/startup-evidence-endpoint` (`937ce1f`).
+Three commits on the branch, in dependency order:
+
+| Commit | What |
+|---|---|
+| `5d07056` | `feat(frontend): extend the client layer for the teardown, compare and gateway surfaces` - `lib/types.ts`, `lib/api.ts`, `lib/format.ts` |
+| `3e71372` | `feat(frontend): add the founder input, the gap table, the exports and the gateway section` - items 2, 3, 4, 9 |
+| `af67cd9` | `feat(frontend): render the teardown dossier, a stable product route and honest match reasons` - items 1, 1b, 5, 6, 7, 8 |
+
+**No `backend/` file is edited on this branch.** The only backend commit in the branch's history is `937ce1f`, inherited from the fix branch; `git diff --stat main...phase/06-frontend-implementation -- backend/` names exactly those two files (`backend/app/main.py`, `backend/tests/functional.py`) and nothing else.
+
+**The stack under test** (both processes left running for the next reader):
+
+```
+# terminal 1 - the real backend, the real archive, the real founder store
+cd backend
+..\backend\.venv\Scripts\python.exe -m uvicorn app.main:app --port 8020 --workers 1
+
+# terminal 2 - the frontend
+cd frontend
+npm run dev            # next dev --webpack --port 3023 -H 127.0.0.1
+```
+
+`GET /api/health` -> `{"ok":true,"llm_model":"deepseek-v4-flash","db":"ideasexist.db"}`, `GET /api/stats` -> `{"total":1282,"verified":1278,"dead":0}`.
+
+### 1. The one finding this phase could not implement in place
+
+Item 1 is "the sourced **doesn't do** list (each entry an observation naming its page)". Those entries are `evidence` rows of type `negative`, and **no endpoint exposed the `evidence` table**: the only reader in the product was the compare path's `them_side()`. The slug endpoint returned the row's columns, so a per-product page could render pricing, features, positioning and liveness - and would then have had to print `unknown` for the one dimension the teardown exists to produce.
+
+The phase rule is explicit: do not edit `backend/` in this branch; record it as a finding and open a separate fix branch (Phase 3's union fix and #13 are the precedent). That is what happened: **`fix/startup-evidence-endpoint` -> PR #14**, one additive commit (`fix(api): expose a record's evidence rows on the slug endpoint`) plus four new checks in `backend/tests/functional.py` (225 -> 229, none changed or weakened). This branch is cut from it, so the item is verifiable end to end rather than half-built. `docs/frontend-plan.md` sec.1/2.1 did not record that the evidence rows were unreadable - corrected in this branch (sec.6 below).
+
+### 2. The nine items, against the real backend
+
+| # | Item | What was run / seen |
+|---|---|---|
+| 1 | Teardown dossier | `GET /api/startups/obsidian` -> 200, `evidence` = **3 rows** (`no self-host` / `API: unknown` / `no mobile app`, each with its `source_url` and `captured_at`). Rendered at `/products/obsidian`: both badges as two distinct signals (Admin Verified Aug 10 / Machine Verified last checked Sep 16), pricing and features and positioning as `unknown` **with the reason**, liveness "alive, last checked Sep 16, 2026", and the three observations each linking `obsidian.md` with "(captured Sep 16)" - the `API: unknown` row rendered as `unknown`, not as "no". |
+| 1b | `founded` honesty (F-04) | The card reads `est. 2020` with the tooltip "2020 - no date source recorded, so it is shown as an estimate"; the dossier row reads "Founded (date source unrecorded)". The hardcoded `"2021"` fallback in `page.tsx` is gone, and so are the ticker's two siblings (a fabricated `"FinTech"` category and a VERIFIED pill stamped on every row including dead ones - the feed now carries real categories and per-row status). |
+| 2 | Founder-app input | The dialog opens with the three tabs; the form shows name / description / target user / category / **features with a live "3 so far - needs 5-10" counter** / positioning / pricing (free tier + plans) / four links, and the note "A link is what makes your app eligible for the archive. With none, it can be compared but never published." `POST /api/founder-app` with a `publish` field -> **422** ("publish is not accepted here - create the draft, confirm it, then POST /api/founder-app/{id}/publish"). A form draft returns `confirmed: false`. |
+| 3 | Gap table | `POST /api/compare` -> 200, 11 rows across all five bands; rendered as five `<table>`s with DIMENSION/YOU/COMPETITOR/SOURCE headers, sourced cells linking `obsidian.md`, `(none)` for the empty band, and `unknown` in every cell with no data. **No verdict, no score, no badge in a cell.** |
+| 4 | Exports | `GET /api/export/{markdown,json,csv}` -> 200, `text/markdown; charset=utf-8` / `application/json` / `text/csv`, **1537 / 3459 / 1194 bytes**; the three buttons download them. Head of each recorded in sec.4. |
+| 5 | Stable routes | `GET /api/startups/obsidian` -> `slug: obsidian`, `resolved_id: 1`; `GET /api/startups/obsidian` for an unknown slug -> **404** `no product with slug 'no-such-product-zzz'`. `/products/obsidian` renders the record; `/products/not-a-real-product` renders the themed "Not filed" panel naming the slug, with a way back; "Share Entity" now copies `/products/<slug>`. |
+| 6 | Search with reasons | `GET /api/search?q=obsidian` -> 16 hits, first is `Obsidian` with `reason: "Exact name match"`; empty query -> 200 `[]`. On the archive the Obsidian card renders **`match: Exact name match`**. The client Fuse path still does the filtering (see the note in sec.5). |
+| 7 | Identity preserved | Footer copy unchanged ("No accounts. No tracking. Searches stay on this machine."), status-pill semantics untouched, theme tokens only in the new components, `prefers-reduced-motion` respected in the new ones, focus trap/restore unchanged in the modal. |
+| 8 | Carry-over from the two closed scans | `rel="noopener noreferrer"` + `aria-label` naming what opens in a new tab on **all five** anchors: `admin-shared.tsx` (BucketItem), `startup-card.tsx` x2 (Website / Code), `startup-detail.tsx` x2. Visible in the accessibility tree: "Visit Obsidian website (opens in a new tab)". The scans' `.jules/` note files were **not** resurrected. |
+| 9 | LLM gateways section | `GET /api/admin/settings/gateways` -> 5 gateways, `active: opencode-go`, `opencode-go` and `gemini` `ready` (both `key_source: env`), three not ready; every response carries `key_hint` and **no `api_key` field** (asserted in the probe). Making a not-ready gateway active -> **400** with the API's own reason. Testing a keyless gateway -> **200** `ok: false`, `"error": "no API key configured for this gateway"`, `latency_ms: 0`, no socket. |
+
+### 3. The non-happy states, as they actually answered
+
+| State | Response | What the UI does |
+|---|---|---|
+| compare, unconfirmed draft | **409** `{"detail":{"state":"not_confirmed","message":"founder app 3 is not confirmed - confirm the draft before the gap table runs (confirm-before-diff)"}}` | Renders "The draft must be confirmed first" + the server's sentence + a **Confirm the draft** action. **No table is rendered, not even an empty one.** Seen live at `/products/obsidian?you=3`. |
+| compare, capture in flight | **200** `{"state":"queued","message":"capture queued","startup_id":566,"you":{...},"competitors":[{"id":566,"name":"BlueStone.com"}]}` | Renders "the teardown is being captured" (the server's message) + a **Retry**. Six seconds later the same call returned the finished table, and the retry rendered it. **A partial table is never shown as the answer.** |
+| compare, unknown competitor | **404** `{"detail":"competitor not found: 'this-does-not-exist-zzz'"}` | Renders the server's sentence verbatim - it names the one that could not be resolved - plus a Retry. |
+| any empty teardown cell | server sends the literal `unknown` | Renders `unknown` **and why**. Never blank, never "no", never scored. |
+| founder status | `local_only` -> `pending` (after `publish`) | Both shown next to the app ("your app: Phase 6 Evidence App - status pending"); the rejection path shows the newest submission's `note`, and the read also returns the full `submissions` history. |
+| gateway switch, not ready | **400** `{"detail":"OpenCode Zen has no API key - paste one first (or set OPENCODE_ZEN_API_KEY in backend/.env), then make it active"}` | "Make active" is **disabled with that same reason** ("needs a key" / "needs a model"), so the control is never offered and then refused. |
+| gateway key field | responses carry `key_hint` (`...4IlM`, `...M44Q`) and never the key | A `type="password"` field that always starts empty, hint in the placeholder; Save key / Clear key are the only two actions. |
+
+### 4. Real bytes behind the renders
+
+`POST /api/compare {"you": 2, "competitors": ["obsidian"]}` (confirmed draft, cached teardown):
+
+```
+bands: you_have_they_dont 5 | they_have_you_dont 0 | both_have 2 | unknown 4 | asked_for 0
+  you_have_they_dont | Features | you: local files | them: not in their feature list (Obsidian) | src: https://obsidian.md
+  you_have_they_dont | Features | you: backlinks   | them: not in their feature list (Obsidian) | src: https://obsidian.md
+  both_have          | What it doesn't do | you: n/a - not in your declared features | them: no self-host (Obsidian) | src: https://obsidian.md/pricing
+  unknown            | Pricing           | you: Pro $8/monthly       | them: unknown            | src: (none)
+  unknown            | Free tier         | you: Free up to 3 vaults  | them: unknown (Obsidian) | src: (none)
+  unknown            | What it doesn't do | you: yes - declared: public API | them: unknown - could not read the page (Obsidian) | src: https://obsidian.md/docs
+```
+
+`GET /api/export/csv?you=2&competitors=obsidian` (first lines):
+
+```
+band,dimension,you,them,source_url,captured_at
+unknown,Pricing,Pro $8/monthly,unknown,,
+unknown,Free tier,Free up to 3 vaults,unknown (Obsidian),,
+you_have_they_dont,Features,local files,not in their feature list (Obsidian),https://obsidian.md,
+you_have_they_dont,Features,public API,not in their feature list (Obsidian),https://obsidian.md,
+you_have_they_dont,Positioning / target user,"Private, local-first notes that never leave the machine.",not captured,https://obsidian.md,
+```
+
+`GET /api/export/markdown` begins `# Gap table - Phase 6 Evidence App vs Obsidian` and then the five band headings in order. `POST /api/compare` with `["obsidian","1"]` -> 14 rows, both refs resolving to Obsidian (the duplicate group the archive admits).
+
+### 5. Accessibility, motion, and what could not be verified
+
+* **Keyboard and focus.** The dossier, the dialog and the gap table appear in the accessibility tree as real roles with focusable controls (`tab` / `tabpanel` / `textbox` / `button` / `link` / `dialog` / `table` / `columnheader` / `rowheader` / `cell`), and the dialog traps focus (Radix) and restores it on close. The gap table is five real `<table>`s with `<th scope="col">`, not a div grid.
+* **Motion.** Every animation in the new components is behind `useReducedMotion` and the loading/spinner states carry `motion-reduce:animate-none`, matching the contract in `lib/motion.ts`.
+* **Colour.** The new components use the existing theme tokens only (`text-muted-foreground`, `border-border/60`, `bg-background/60`, `text-success`, `text-destructive`); the one literal accent (the negative-observation icon) carries an explicit `dark:` variant. No new palette, so the AA pairs audited in Phase 0 are the ones in play.
+* **Search path, deliberately not swapped.** `lib/search.ts` still filters (`~22ms/term` over 1,292 rows) and `/api/search` measures `~83-123ms` per query, so the server path is used for the per-result `reason` only, debounced at 300ms against the input's 150ms, and a failure there cannot empty the grid.
+* **NOT verified, and why.** (a) The **admin panel's rendering of item 9** was not screenshotted: the panel is behind the owner token, which this agent must not read out of `backend/.env`, so item 9 is verified at the API level (every payload above) plus `tsc`/`eslint`/`next build` over the wiring. (b) The **mobile viewport** could not be exercised - the embedded browser window is fixed at 906x1086 and exposes no resize. (c) The **dark theme** was not screenshotted for the same reason (the toggle exists and is reachable - "Switch to dark mode" is in the tree - but the archive grid snapshot is very large and the theme is a token swap over unchanged components). All three are noted rather than claimed.
+
+### 6. The gate
+
+```
+$env:PATH = "C:\Program Files\nodejs;" + $env:PATH
+npm test
+```
+
+`RESULT: ALL PASS` - five steps:
+
+```
+[PASS] backend smoke (exit 0)
+[PASS] backend functional (Phase 5 gate) (exit 0)      -> TESTS: 229 run, 229 passed, 0 failed
+[PASS] frontend sort check (exit 0)                    -> RESULT: ALL PASS
+[PASS] frontend lint + build (exit 0)                  -> Route (app): (o) /  (o) /_not-found  (f) /products/[slug]  (o) /robots.txt  (o) /sitemap.xml
+[PASS] frontend e2e verification (exit 0)              -> TEST RESULTS: 35 PASSED, 0 FAILED
+RESULT: ALL PASS
+```
+
+`eslint` is clean (no error, no warning) after fixing three `react-hooks/set-state-in-effect` errors and one unused import in the new files; `next build` compiles the new dynamic route.
+
+**Docs falsified by this phase, corrected in this branch:** `docs/frontend-plan.md` (its status line still said "blocked until Phase 5", and sec.2.1 implied the evidence rows were already readable), `docs/llm-gateways.md` (its status line still said the frontend section "is not built yet"), and `docs/codebase-comprehension.md` (a Phase 6 note for the new files, matching the Phase 1/2/4/5 note convention).
+
+**Date and who ran it:** 2026-09-16, the AutoClaw agent for this repo (`does-this-startup-exist`) on `DESKTOP-KV8OEKP`.
