@@ -80,6 +80,7 @@ function SourceToken({ token }: { token: string }) {
       href={href}
       target="_blank"
       rel="noopener noreferrer"
+      aria-label={`Open the source page behind this row — ${host} (opens in a new tab)`}
       className="font-medium text-primary underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
     >
       {host}
