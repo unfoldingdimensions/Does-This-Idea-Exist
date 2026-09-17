@@ -4,6 +4,118 @@ All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] — 2026-09-18
+
+The competitor-teardown release: Phases 1–8 of the backend-first plan, built,
+gated and recorded in [docs/phase-ledger.md](docs/phase-ledger.md) — every
+capability below names the phase whose ledger row proved it. **Nothing is
+deployed.** This is the release of record inside the repository, not a shipped
+service: there is no release tag, no host and no domain. The date is the date the
+Phase 9 close-out recorded it, nothing more.
+
+The pre-existing `[Unreleased]` block below records the UX, scale, data-merge and
+deployment changes that shipped alongside this work; they are not versioned by
+this entry.
+
+### Added
+
+- **A sourced teardown, per product.** Pricing plan by plan with its capture date
+  and source page, a flat 5–10 feature list, a one-line positioning, and a
+  3–5 item "doesn't do" list where every entry names the page it was read from.
+  A page that could not be read is `unknown`, never "no". *(Phase 2 — ledger row 2)*
+- **Just-in-time capture.** The teardown is captured on the first founder request
+  (`POST /api/compare`) or by hand in the admin panel — never on seed, never on
+  approval — cached with a 7-day freshness window, and serialised so concurrent
+  requests collapse into one job. *(Phase 2 F-22 — row 2)*
+- **The gap table.** You-vs-them across five bands: `you_have_they_dont`,
+  `they_have_you_dont`, `both_have`, `unknown`, and a fourth demand band
+  `asked_for` ("their users ask for it") fed by reviews. Every cell is sourced or
+  `unknown`; there is no verdict and no score. *(Phase 3 — row 3)*
+- **Three exports.** Markdown / JSON / CSV of a comparison, deterministic and
+  byte-identical on re-run. *(Phase 3 F-16 — row 3)*
+- **Stable product pages.** `GET /api/startups/{slug}` and the `/products/<slug>`
+  route, with `admin_verified` / `machine_verified` exposed as explicit fields
+  rather than inferred from a raw timestamp. *(Phase 3 F-17/F-21 — row 3)*
+- **Search with reasons.** `GET /api/search` classifies each hit on the frozen
+  eight-reason ladder (exact name → exact domain → name → tagline → problem
+  description → same audience → category → fuzzy) and returns the reason with
+  the row. *(Phase 4 — row 4)*
+- **The founder's own app, in its own store.** Three input paths (URL / form /
+  agent-JSON) that always confirm before the diff, a link-eligibility + consent
+  gate, and a publish flow that reaches the same human approval queue as any
+  competitor. *(Phase 2 — row 2)*
+- **Reviewed-and-reported reviews.** Positive and negative reviews are fetched and
+  shown; a walled provider is a skip, never a strike; no score of ours is ever
+  stored. *(Phase 2 F-23 — row 2)*
+- **The LLM gateway registry.** Five OpenAI-compatible gateways, switchable from
+  the admin panel with a key test and no restart. *(post-Phase-5 addition —
+  ledger §Post-gate addition)*
+- **Evidence rows.** One per feature, pricing plan, free tier, positioning line,
+  negative and review — each carrying a `source_url` and `captured_at`, with
+  `source_url` `NOT NULL`. *(Phase 1 F-02 — row 1)*
+
+### Changed
+
+- **The archive schema grew 18 → 40 columns, in place and additively** —
+  `pricing_json`, `features_json`, `positioning`, `app_store_url`,
+  `play_store_url`, `date_source`, `provenance` and the rest. The migration runs
+  `ALTER TABLE ADD COLUMN` only: no drop, no rename, and `founded` keeps its
+  name. *(Phase 1 F-01/F-04 — row 1)*
+- **`verify_log` is permanent** — the 90-day retention sweep is gone.
+  *(Phase 1 F-03 — row 1)*
+- **New LLM-drafted text is stamped `provenance: machine_drafted`** until a human
+  confirms it. *(Phase 1 F-05 — row 1)*
+- **The frontend renders the teardown** — dossier with plan-by-plan pricing, the
+  founder dialog, the gap table, the export buttons, `/products/<slug>` and
+  search-with-reasons — and an RDAP or Wayback date is no longer presented as a
+  founding year. *(Phase 6 — row 6)*
+
+### Fixed
+
+- **The `publish` flag could never work.** The flag on draft creation was dead;
+  publishing is now its own confirmed step. *(Phase 2 §6)*
+- **The dossier's sourced "doesn't do" list had no reader.** No endpoint exposed
+  the `evidence` table, so the one dimension the teardown exists to produce could
+  not be rendered. `GET /api/startups/{slug}` now carries the record's evidence
+  rows. *(Phase 6 §1, PR #14)*
+- **Three new-tab links were unnamed.** The comparison source link and the founder
+  dialog's Website / GitHub links now carry an `aria-label` saying what opens in a
+  new tab, like every other external link. *(Phase 7 §4)*
+
+### Security
+
+An independent review of the Phase 6 work (recorded in full in the ledger,
+*Security review — post-Phase-6*), plus the gateway hardening that followed it:
+
+- **Founder drafts are no longer enumerable.** Ids are sequential and the
+  endpoints were open, so anyone could read another founder's draft and its
+  rejection notes, or run a compare/export that triggers a paid capture on their
+  behalf. A 256-bit per-draft secret is now minted once, stored only as a sha256
+  hex, and required as `X-Founder-Token` on every read / confirm / publish /
+  compare / export.
+- **Outbound calls on attacker-influenceable input are guarded.** The GitHub
+  client quotes its path segments and checks the target; the RDAP and Wayback
+  lookups moved onto the `netguard` SSRF guard behind a host allowlist, with the
+  CDX query encoded.
+- **CORS narrowed** from `*` / `*` to an explicit method and header list.
+- **Rate limits added** on the public reads (120/min per IP) and on founder-draft
+  creation — the one public POST that fetches a page and calls the LLM (10/min).
+- **Length caps** on every request body and query string, so oversized input is a
+  422 rather than a fetch target or a DB write.
+- **Upstream error text is no longer echoed** in 502 bodies; the detail is logged
+  server-side and a generic message returned.
+- **Rendered links are validated** with an `isHttpUrl()` guard on the card, the
+  dossier and the teardown view, and `Strict-Transport-Security` is set on the
+  frontend host in production as well as the API host.
+- **The LLM path is SSRF-guarded by default** — a loopback / private / link-local
+  / cloud-metadata base URL is refused before a socket opens, with
+  `ALLOW_PRIVATE_LLM_BASE=1` as the deliberate opt-in for a local model server.
+- **Carried from the pre-release hardening** already listed under `[Unreleased]`
+  below: `MUTATION_AUTH` defaults on (and the app refuses to start with an empty
+  `ADMIN_TOKEN`), the LLM category whitelist is applied, GitHub `homepage` values
+  are validated before they become `website_url`, and `?q=` escapes LIKE
+  metacharacters.
+
 ## [Unreleased]
 
 ### UX — correctness & accessibility

@@ -121,23 +121,36 @@ local and hosted behavior are identical.
 
 ## API
 
-| Endpoint | Purpose |
-|---|---|
 Public reads — no token:
 
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/health` | liveness + model/db echo |
-| `GET /api/startups` | list (`?q=` `?category=` `?limit=` `?offset=`; `limit` defaults to 2000, max 5000) |
+| `GET /api/startups` | list (`?q=` `?category=` `?limit=` `?offset=`; `limit` defaults to 3000, max 5000) |
+| `GET /api/startups/{slug}` | one product by slug — its teardown fields, its `evidence` rows, and the two trust signals as explicit `admin_verified` / `machine_verified` (`+ _at`) fields. A **pure read**: it never triggers a capture |
+| `GET /api/search` | search with a per-result `reason` from the eight-reason ladder; an empty query is `200 []` |
 | `GET /api/categories` | category counts |
 | `GET /api/stats` | counts + freshness |
+| `POST /api/compare` | the gap table: `{you, competitors[]}` → the five bands, every cell sourced or `unknown` |
+| `GET /api/export/{markdown\|json\|csv}` | a comparison as a file (`?you=` `&competitors=`) |
+
+Founder endpoints — a draft is owned by the one-time `founder_token` it is created
+with, sent as `X-Founder-Token`; a read, confirm, publish, compare or export
+without it is refused:
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/founder-app` | draft your own app from a URL, a form, or the agent-JSON shape → the draft plus its one-time token |
+| `GET /api/founder-app/{id}` | read the draft (token required) |
+| `POST /api/founder-app/{id}/confirm` | confirm the draft — the gap table will not run before this |
+| `POST /api/founder-app/{id}/publish` | submit it to the archive queue (a link is required; consent is the second gate) |
 
 Writes — require `X-Admin-Token` (`MUTATION_AUTH` defaults on) and are rate-limited:
 
 | Endpoint | Purpose |
 |---|---|
 | `POST /api/seed/github` `{github_url}` | fetch repo + LLM profile → upsert |
-| `POST /api/seed/website` `{website_url, name?}` | fetch homepage + Wayback date + LLM profile → upsert |
+| `POST /api/seed/website` `{website_url, name?}` | fetch homepage + a date source + LLM profile → upsert |
 | `POST /api/verify/run` | enqueue a verification pass → `{job_id}` |
 | `POST /api/startups/{id}/verify` | human: mark verified (also revives + resets strikes) |
 | `POST /api/startups/{id}/unverify` | human: revoke the stamp |
@@ -147,14 +160,24 @@ Admin routes are prefixed `/api/admin` and require the `X-Admin-Token` header:
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /admin/check` | token check (200 / 403) |
-| `POST /admin/seed` `{source, params}` | start a seed job → `{job_id}` |
-| `GET /admin/seed/status/{job_id}` | job progress |
-| `GET /admin/seed/jobs` | all jobs (live + persisted history) |
-| `GET /admin/verify/status/{job_id}` | pass progress + bucket results |
-| `GET /admin/verify/current` | the active pass, or `null` |
-| `GET /admin/verify/suggested` | human-approval queue |
-| `POST /admin/verify/approve` | stamp verified: `{ids}` · `{approve_all: true}` · `{created_after, created_before}` (per-batch) |
+| `GET /api/admin/check` | token check (200 / 403) |
+| `POST /api/admin/seed` `{source, params}` | start a seed job → `{job_id}` |
+| `GET /api/admin/seed/status/{job_id}` | job progress |
+| `GET /api/admin/seed/jobs` | all jobs (live + persisted history) |
+| `GET /api/admin/verify/status/{job_id}` | pass progress + bucket results |
+| `GET /api/admin/verify/current` | the active pass, or `null` |
+| `GET /api/admin/verify/suggested` | human-approval queue |
+| `POST /api/admin/verify/approve` | stamp verified: `{ids}` · `{approve_all: true}` · `{created_after, created_before}` (per-batch) |
+| `POST /api/admin/capture/{startup_id}` | capture a teardown by hand (the panel's button) |
+| `GET /api/admin/capture/status/{job_id}` | capture progress |
+| `GET /api/admin/founder/submissions` | the publish queue (founder submissions and archive rows) |
+| `POST /api/admin/founder/submissions/{id}/approve` | approve a publish request → the archive row, linked |
+| `POST /api/admin/founder/submissions/{id}/reject` | reject it with a note the founder can read |
+| `GET /api/admin/settings/gateways` | the LLM gateway registry (active, ready, `key_hint` — never the key) |
+| `PUT /api/admin/settings/gateways/{id}` | set a gateway's key / model / base URL |
+| `POST /api/admin/settings/gateways/active` | switch the active gateway |
+| `POST /api/admin/settings/gateways/active/reset` | back to the environment default |
+| `POST /api/admin/settings/gateways/{id}/test` | test a gateway's key |
 
 ## Verification & the human gate
 
@@ -175,6 +198,16 @@ The admin panel's **Verification** tab lists the suggested queue (alive,
 unverified, zero strikes). Approve one at a time, an entire seed-batch (grouped
 by creation day), or everything. Every approval is behind a confirm dialog and
 reversible from the status pill.
+
+### The two badges
+
+- **Admin Verified** — a person stamped the record. This is the entry gate.
+- **Machine Verified** — the automated pass last found it alive. It **decays**: a
+  stale check reads "lapsed" while the record stays Admin Verified.
+
+Both attach to the **record**, never to a claim. Every competitor claim carries
+its own "per their pricing page, captured <date>" source line, and neither badge
+says anything about whether a competitor's statement is true.
 
 ## Admin seeder (owner-only)
 
@@ -206,15 +239,37 @@ stays the trust layer.
 npm test
 ```
 
-Runs the backend smoke suite (in-process, throwaway SQLite DB — no live server
-or network needed), a sort regression check against the real frontend module,
-and the frontend lint + production build. It pins the API surface, admin gate,
-queue serialization, dedup upsert, the tri-state verify logic, restart recovery,
-the human-gate invariants, and the security layer (auth gating, the SSRF guard,
-rate limiting, LLM-output bounds, LIKE-wildcard escaping).
+Five steps, in order:
 
-Note: the runner is Windows-only — it invokes `backend/.venv/Scripts/python.exe`
-and shells through `cmd.exe`. There is no CI.
+1. **backend smoke** (`backend/tests/smoke.py`) — in-process against a throwaway
+   SQLite DB: no live server, no network.
+2. **backend functional** (`backend/tests/functional.py` — the gate) —
+   `F-01`–`F-24` plus the trust and store-separation invariants, with the fetcher,
+   both LLM prompts and both date sources stubbed: **234 checks**.
+3. **frontend sort check** (`scripts/sort-check.ts`) — runs the real frontend
+   module for all five sort keys.
+4. **frontend lint + production build**.
+5. **frontend e2e** (`scripts/e2e-verify.mjs`) — the real components rendered
+   against stubbed HTTP: **239 checks** across twelve areas plus the non-happy
+   states.
+
+Together they pin the API surface, the admin gate, queue serialization, dedup
+upsert, the tri-state verify logic, restart recovery, the human-gate invariants,
+the teardown / compare / export contract, search reasons, and the security layer
+(auth gating, the founder-draft token, the SSRF guards, rate limiting,
+LLM-output bounds, LIKE-wildcard escaping).
+
+Note: the runner is **Windows-only** — it invokes `backend/.venv/Scripts/python.exe`
+and shells through `cmd.exe` — and needs **Node ≥23 first on PATH**, because the
+sort check runs TypeScript through Node's native type stripping. If a bundled
+Node 22 shadows the system Node, prepend the real one:
+
+```powershell
+$env:PATH = "C:\Program Files\nodejs;" + $env:PATH
+npm test
+```
+
+There is no CI.
 
 ## Deployment
 
