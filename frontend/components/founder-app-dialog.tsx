@@ -388,6 +388,7 @@ function ProfileReview({
                   href={link.url}
                   target="_blank"
                   rel="noopener noreferrer"
+                  aria-label={`Open the ${link.label} link for your app — ${link.url} (opens in a new tab)`}
                   className="truncate text-primary underline-offset-2 hover:underline"
                 >
                   {link.url}
