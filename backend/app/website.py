@@ -4,8 +4,7 @@ import html as html_lib
 import logging
 import re
 from html.parser import HTMLParser
-
-import httpx
+from urllib.parse import urlencode
 
 from . import netguard
 
@@ -99,16 +98,30 @@ def _normalize_date(raw: str | None) -> str | None:
     return None
 
 
+def _safe_domain(domain: str) -> str | None:
+    """A bare registrable host for the date lookups, or None.
+
+    The date sources interpolate the competitor's domain into a fixed-host URL
+    (rdap.org path, web.archive.org query). The host allowlist keeps a crafted
+    domain from smuggling path traversal or credentials into that URL — and the
+    lookups below still go through `netguard.safe_get`, so the response is
+    validated and size-capped like every other fetch.
+    """
+    host = (domain or "").strip().lower().removeprefix("www.").split(":")[0].rstrip(".")
+    if not host or "." not in host or not re.fullmatch(r"[a-z0-9.-]+", host):
+        return None
+    return host
+
+
 def rdap_registration_date(domain: str) -> str | None:
     """Domain registration date (YYYY-MM-DD) via RDAP bootstrap (rdap.org → TLD server).
     Free, no key. Note: domain registration can predate the company (Notion: 1997 vs 2013)."""
-    host = (domain or "").lower().removeprefix("www.").split(":")[0]
-    if not host or "." not in host:
+    host = _safe_domain(domain)
+    if not host:
         return None
     try:
-        r = httpx.get(
+        r = netguard.safe_get(
             f"https://rdap.org/domain/{host}", timeout=20, headers=UA_BROWSER,
-            follow_redirects=True,
         )
         if r.status_code == 200:
             for ev in r.json().get("events", []):
@@ -124,24 +137,27 @@ def rdap_registration_date(domain: str) -> str | None:
 def wayback_first_snapshot(domain: str) -> str | None:
     """First archived snapshot date (YYYY-MM-DD) via the Wayback CDX API, or None.
     CDX 503s transiently — retries and tries both www and bare host variants."""
-    candidates = [domain]
-    if domain.startswith("www."):
-        candidates.append(domain[4:])
+    base = _safe_domain(domain)
+    if not base:
+        return None
+    candidates = [base]
+    if base.startswith("www."):
+        candidates.append(base[4:])
     else:
-        candidates.append("www." + domain)
+        candidates.append("www." + base)
     for _ in range(2):
         for cand in candidates:
             try:
-                r = httpx.get(
-                    "http://web.archive.org/cdx/search/cdx",
-                    params={
-                        "url": cand,
-                        "output": "json",
-                        "fl": "timestamp",
-                        "filter": "statuscode:200",
-                        "collapse": "digest",
-                        "limit": "1",
-                    },
+                query = urlencode({
+                    "url": cand,
+                    "output": "json",
+                    "fl": "timestamp",
+                    "filter": "statuscode:200",
+                    "collapse": "digest",
+                    "limit": "1",
+                })
+                r = netguard.safe_get(
+                    f"http://web.archive.org/cdx/search/cdx?{query}",
                     timeout=30,
                 )
                 if r.status_code == 200:
