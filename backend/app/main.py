@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from . import config
 
@@ -131,8 +131,8 @@ app.add_middleware(
     # FRONTEND_ORIGIN may be a comma-separated list (e.g. both the
     # localhost: and 127.0.0.1: spellings of the dev frontend).
     allow_origins=[o.strip() for o in config.FRONTEND_ORIGIN.split(",") if o.strip()],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Admin-Token", "X-Founder-Token"],
 )
 # /api/startups returns the whole archive on every page load (the frontend
 # filters client-side). Measured at 1,292 rows: 950 KiB raw -> 225 KiB gzipped
@@ -163,8 +163,9 @@ _RATE_LOCK = threading.Lock()
 def rate_limited(bucket: str, limit: int, window_s: float = 60.0):
     """FastAPI dependency — at most `limit` requests per IP per window.
 
-    Read endpoints (search/stats/job polling) stay unlimited; this guards the
-    token gate (brute force) and the mutating endpoints (abuse / cost burn).
+    Guards the token gate (brute force), the mutating endpoints (abuse / cost
+    burn) and the heavy-read endpoints (full-archive scan floods). Public reads
+    get a generous bucket (120/min) — humans never notice, scrapers do.
     """
 
     def dep(request: Request) -> None:
@@ -223,16 +224,18 @@ def _note_failed_auth(request: Request, bucket: str = "admin", limit: int = 10, 
 
 
 class GithubSeedIn(BaseModel):
-    github_url: str
+    # Length caps are DoS hygiene, not validation: over-long values are 422s
+    # instead of oversized fetch targets / DB writes downstream.
+    github_url: str = Field(max_length=2000)
 
 
 class WebsiteSeedIn(BaseModel):
-    website_url: str
-    name: str | None = None
+    website_url: str = Field(max_length=2000)
+    name: str | None = Field(default=None, max_length=120)
 
 
 class SeedIn(BaseModel):
-    source: str
+    source: str = Field(max_length=64)
     params: dict = {}
 
 
@@ -269,26 +272,26 @@ class FounderAppIn(BaseModel):
             )
         return data
 
-    url: str | None = None
-    name_hint: str | None = None
-    agent_json: str | None = None
+    url: str | None = Field(default=None, max_length=2000)
+    name_hint: str | None = Field(default=None, max_length=120)
+    agent_json: str | None = Field(default=None, max_length=20000)
     agent: dict | None = None
     # form path
-    name: str | None = None
-    description: str | None = None
-    target_user: str | None = None
-    category: str | None = None
-    features: list[str] | None = None
-    positioning: str | None = None
+    name: str | None = Field(default=None, max_length=120)
+    description: str | None = Field(default=None, max_length=5000)
+    target_user: str | None = Field(default=None, max_length=2000)
+    category: str | None = Field(default=None, max_length=40)
+    features: list[str] | None = Field(default=None, max_length=20)
+    positioning: str | None = Field(default=None, max_length=1000)
     pricing: dict | None = None
-    website_url: str | None = None
-    github_url: str | None = None
-    app_store_url: str | None = None
-    play_store_url: str | None = None
+    website_url: str | None = Field(default=None, max_length=2000)
+    github_url: str | None = Field(default=None, max_length=2000)
+    app_store_url: str | None = Field(default=None, max_length=2000)
+    play_store_url: str | None = Field(default=None, max_length=2000)
 
 
 class RejectIn(BaseModel):
-    note: str
+    note: str = Field(max_length=2000)
 
 
 class GatewaySettingsIn(BaseModel):
@@ -302,15 +305,15 @@ class GatewaySettingsIn(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    api_key: str | None = None
-    model: str | None = None
-    base_url: str | None = None
+    api_key: str | None = Field(default=None, max_length=500)
+    model: str | None = Field(default=None, max_length=120)
+    base_url: str | None = Field(default=None, max_length=500)
 
 
 class ActiveGatewayIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    gateway_id: str
+    gateway_id: str = Field(max_length=64)
 
 
 class CompareIn(BaseModel):
@@ -351,6 +354,37 @@ def require_mutation_auth(request: Request, x_admin_token: str | None = Header(d
     require_admin(request, x_admin_token)
 
 
+def check_founder_token(founder_row, x_founder_token: str | None) -> None:
+    """Per-draft ownership gate: the draft's creation response carried a
+    one-time `founder_token`, and every later read/mutation of that draft must
+    present it as `X-Founder-Token`.
+
+    Without this, sequential integer ids are enumerable — anyone could read
+    another founder's draft, submission history and rejection notes, or run
+    paid (LLM/fetch) comparisons against it. Drafts created before per-draft
+    tokens existed carry no hash and stay accessible (local-upgrade path)."""
+    if founder_row is None:
+        return
+    if founder.verify_access_token(founder_row, x_founder_token):
+        return
+    raise HTTPException(403, "Invalid founder token for this draft")
+
+
+def _sanitized_502(exc: Exception, what: str) -> HTTPException:
+    """Upstream (fetch/LLM/provider) failures become a generic 502.
+
+    The provider's own text can carry internal URLs, key hints or attacker
+    reflection — it belongs in the server log (for the operator) rather than
+    in a response body (for any caller). Input-guidance 400s are unaffected:
+    those are our own words, not upstream text.
+    """
+    log.warning("%s failed: %s", what, exc)
+    return HTTPException(
+        status_code=502,
+        detail=f"{what} failed — check the URL and try again",
+    )
+
+
 admin = APIRouter(prefix="/api/admin", dependencies=[Depends(require_admin)])
 
 
@@ -384,10 +418,10 @@ def seed_jobs() -> list[dict]:
 
 
 class ApproveIn(BaseModel):
-    ids: list[int] | None = None
+    ids: list[int] | None = Field(default=None, max_length=1000)
     approve_all: bool = False
-    created_after: str | None = None
-    created_before: str | None = None
+    created_after: str | None = Field(default=None, max_length=32)
+    created_before: str | None = Field(default=None, max_length=32)
 
 
 @admin.get("/verify/suggested")
@@ -618,10 +652,11 @@ def _like_escape(term: str) -> str:
 
 @app.get("/api/startups")
 def list_startups(
-    category: str | None = None,
-    q: str | None = None,
+    category: str | None = Query(default=None, max_length=40),
+    q: str | None = Query(default=None, max_length=200),
     limit: int = Query(LIST_LIMIT_DEFAULT, ge=1, le=LIST_LIMIT_MAX),
     offset: int = Query(0, ge=0),
+    _rl: None = Depends(rate_limited("read", 120, 60)),
 ) -> list[dict]:
     """The archive. The frontend pulls this once and filters client-side, so
     the default limit is a growth ceiling rather than real pagination: once
@@ -655,9 +690,11 @@ def list_startups(
 def search(
     q: str | None = Query(
         default=None,
+        max_length=200,
         description="free-text query; split into words, all of which must match",
     ),
     limit: int = Query(LIST_LIMIT_DEFAULT, ge=1, le=LIST_LIMIT_MAX),
+    _rl: None = Depends(rate_limited("read", 120, 60)),
 ) -> list[dict]:
     """Classified search with a per-result reason (F-18).
 
@@ -702,7 +739,7 @@ def search(
 
 
 @app.get("/api/categories")
-def categories() -> list[dict]:
+def categories(_rl: None = Depends(rate_limited("read", 120, 60))) -> list[dict]:
     conn = db.connect()
     try:
         return [
@@ -721,8 +758,8 @@ def seed_github(body: GithubSeedIn) -> dict:
         return enrich.seed_from_github(body.github_url)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001 — LLM/GitHub/network failures → 502 with detail
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 — upstream text stays in the server log, never in the response
+        raise _sanitized_502(exc, "GitHub seed") from exc
 
 
 @app.post("/api/seed/website", dependencies=[Depends(require_mutation_auth), Depends(rate_limited("seed_url", 20, 60))])
@@ -732,16 +769,18 @@ def seed_website(body: WebsiteSeedIn) -> dict:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise _sanitized_502(exc, "Website seed") from exc
 
 
-@app.post("/api/founder-app", dependencies=[Depends(rate_limited("founder_app", 20, 60))])
+@app.post("/api/founder-app", dependencies=[Depends(rate_limited("founder_app_create", 10, 60))])
 def create_founder_app(body: FounderAppIn) -> dict:
     """Draft the founder's own app into the FOUNDER store (F-10/F-11/F-12).
 
     Deliberately NOT behind the admin token: this path cannot write the archive
     (F-20), so the token that guards archive mutations would only stand between
-    a founder and their own local draft. It is rate-limited all the same.
+    a founder and their own local draft. It is rate-limited all the same — and
+    creation is limited tighter (10/min) than confirm/publish, because the URL
+    path triggers an outbound fetch plus an LLM call on every hit.
 
     Nothing is auto-confirmed. Consent is a separate call —
     `POST /api/founder-app/{id}/publish` — because the eligibility rule is
@@ -757,18 +796,22 @@ def create_founder_app(body: FounderAppIn) -> dict:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 — a fetch/LLM failure on the URL path
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise _sanitized_502(exc, "Founder draft") from exc
     return result
 
 
 @app.get("/api/founder-app/{founder_app_id}")
-def get_founder_app(founder_app_id: int) -> dict:
+def get_founder_app(founder_app_id: int, x_founder_token: str | None = Header(default=None)) -> dict:
     """The founder's own draft, plus the two gates and the derived
     `archive_status`. Local read — there are no accounts, so there is no
-    notification: the status is what makes a rejected request visible."""
+    notification: the status is what makes a rejected request visible.
+
+    Gated by the draft's own token (X-Founder-Token, issued once at creation):
+    sequential ids must not be enumerable into other founders' drafts."""
     row = founder.get(founder_app_id)
     if not row:
         raise HTTPException(status_code=404, detail="Founder app not found")
+    check_founder_token(row, x_founder_token)
     gates = founder.eligibility(row)
     return {
         "founder_app_id": row["id"],
@@ -784,12 +827,14 @@ def get_founder_app(founder_app_id: int) -> dict:
 
 
 @app.post("/api/founder-app/{founder_app_id}/confirm", dependencies=[Depends(rate_limited("founder_app", 20, 60))])
-def confirm_founder_app(founder_app_id: int) -> dict:
+def confirm_founder_app(founder_app_id: int, x_founder_token: str | None = Header(default=None)) -> dict:
     """The confirm-before-diff gate (F-13): flips the draft to human_confirmed
     (F-05's human half) so the gap table may run against it. Publishing stays a
     separate decision."""
-    if not founder.get(founder_app_id):
+    row = founder.get(founder_app_id)
+    if not row:
         raise HTTPException(status_code=404, detail="Founder app not found")
+    check_founder_token(row, x_founder_token)
     try:
         return founder.confirm(founder_app_id)
     except ValueError as exc:
@@ -797,14 +842,16 @@ def confirm_founder_app(founder_app_id: int) -> dict:
 
 
 @app.post("/api/founder-app/{founder_app_id}/publish", dependencies=[Depends(rate_limited("founder_app", 20, 60))])
-def publish_founder_app(founder_app_id: int) -> dict:
+def publish_founder_app(founder_app_id: int, x_founder_token: str | None = Header(default=None)) -> dict:
     """The consent gate on its own (the checkbox ticked after a confirm).
 
     Eligibility first: no link means comparison-only, and no consent question is
     asked at all (F-20).
     """
-    if not founder.get(founder_app_id):
+    row = founder.get(founder_app_id)
+    if not row:
         raise HTTPException(status_code=404, detail="Founder app not found")
+    check_founder_token(row, x_founder_token)
     try:
         return founder.request_publish(founder_app_id, True)
     except ValueError as exc:
@@ -905,7 +952,7 @@ def mark_dead(startup_id: int) -> dict:
 
 
 @app.get("/api/stats")
-def stats() -> dict:
+def stats(_rl: None = Depends(rate_limited("read", 120, 60))) -> dict:
     conn = db.connect()
     try:
         total = conn.execute("SELECT COUNT(*) AS c FROM startups").fetchone()["c"]
@@ -924,7 +971,7 @@ def stats() -> dict:
 # archive endpoints above are untouched and never learn the founder store exists.
 
 
-def _resolve_you_or_4xx(ref) -> dict:
+def _resolve_you_or_4xx(ref, x_founder_token: str | None = None) -> dict:
     fid = compare_mod.founder_ref_to_id(ref)
     if fid is None:
         raise HTTPException(
@@ -934,6 +981,10 @@ def _resolve_you_or_4xx(ref) -> dict:
     row = founder.get(fid)
     if not row:
         raise HTTPException(status_code=404, detail=f"founder app {fid} not found")
+    # The `you` side is the founder's own draft — comparing or exporting
+    # against someone else's draft (and triggering a paid JIT capture for it)
+    # must require that draft's token, same as reading it.
+    check_founder_token(row, x_founder_token)
     return row
 
 
@@ -1000,10 +1051,10 @@ def _capture_or_retry(competitor_rows):
 
 
 @app.post("/api/compare", dependencies=[Depends(rate_limited("compare", 60, 60))])
-def api_compare(body: CompareIn) -> dict:
+def api_compare(body: CompareIn, x_founder_token: str | None = Header(default=None)) -> dict:
     """The gap table (F-15): refuse an unconfirmed `you`, capture any competitor
     whose teardown is missing or stale, then diff the two stores in Python."""
-    you_row = _resolve_you_or_4xx(body.you)
+    you_row = _resolve_you_or_4xx(body.you, x_founder_token)
     _assert_confirmed(you_row)
     competitor_rows = _resolve_competitors(body.competitors)
     retry = _capture_or_retry(competitor_rows)
@@ -1021,8 +1072,10 @@ def api_compare(body: CompareIn) -> dict:
 @app.get("/api/export/{fmt}")
 def api_export(
     fmt: str,
-    you: str = Query(..., description="founder app id or name slug"),
-    competitors: list[str] = Query(default=[], description="competitor id/slug, repeatable or comma-separated"),
+    you: str = Query(..., description="founder app id or name slug", max_length=200),
+    competitors: list[str] = Query(default=[], description="competitor id/slug, repeatable or comma-separated", max_length=200),
+    x_founder_token: str | None = Header(default=None),
+    _rl: None = Depends(rate_limited("export", 60, 60)),
 ) -> Response:
     """The three exports (F-16), shapes in `docs/gap-table-format.md` §5.
 
@@ -1038,7 +1091,7 @@ def api_export(
             status_code=404,
             detail=f"unknown export format {fmt!r}; use one of {', '.join(compare_mod.EXPORT_FORMATS)}",
         )
-    you_row = _resolve_you_or_4xx(you)
+    you_row = _resolve_you_or_4xx(you, x_founder_token)
     _assert_confirmed(you_row)
     competitor_rows = _resolve_competitors(_split_refs(competitors))
     conn = db.connect()
@@ -1055,7 +1108,7 @@ def api_export(
 
 
 @app.get("/api/startups/{slug}")
-def get_startup_by_slug(slug: str) -> dict:
+def get_startup_by_slug(slug: str, _rl: None = Depends(rate_limited("read", 120, 60))) -> dict:
     """The stable per-product endpoint (F-17) the frontend's `/products/<slug>`
     route calls.  A same-name collision resolves deterministically (human-verified
     first, then the lowest id) and the payload names the row it got; the two trust
