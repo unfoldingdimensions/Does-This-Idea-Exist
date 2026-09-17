@@ -1,9 +1,9 @@
 """GitHub REST API client — repo metadata for the seed-by-GitHub-link feature."""
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 
-from . import config
+from . import config, netguard
 
 UA = {"User-Agent": "IdeaExists/0.1 (local startup directory)"}
 
@@ -29,9 +29,21 @@ def fetch_repo(repo_url: str) -> dict:
     headers = dict(UA)
     if config.GITHUB_TOKEN:
         headers["Authorization"] = f"Bearer {config.GITHUB_TOKEN}"
+    # Path segments are percent-encoded so a crafted `owner` cannot smuggle
+    # path traversal or a query string into the fixed-host API URL; the target
+    # gets the same SSRF pre-check every other outbound call gets.
+    url = f"https://api.github.com/repos/{quote(owner, safe='')}/{quote(repo, safe='')}"
+    try:
+        netguard.check_target(url)
+    except netguard.BlockedAddressError as exc:
+        # A refused target is a network-class failure, NOT a missing repo:
+        # raising ValueError here would make verify.py count it as a genuine
+        # 404 strike toward the 3-strike dead-flip. RuntimeError is the
+        # skip-class signal in both callers (verify skips, seed 502s).
+        raise RuntimeError(f"GitHub API target refused: {exc}") from exc
     # follow_redirects: GitHub API returns 301 for renamed/transferred repos
     r = httpx.get(
-        f"https://api.github.com/repos/{owner}/{repo}",
+        url,
         headers=headers,
         timeout=30,
         follow_redirects=True,
