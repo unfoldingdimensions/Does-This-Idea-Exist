@@ -291,7 +291,7 @@ export async function compareStartups(
     withTimeout(
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...founderHeaders(you) },
         body: JSON.stringify({ you, competitors }),
       },
       WRITE_TIMEOUT_MS,
@@ -367,7 +367,7 @@ export async function exportGapTable(
   competitors.forEach((c) => params.append("competitors", c));
   const res = await fetch(
     `${API_BASE}/api/export/${format}?${params}`,
-    withTimeout(undefined, WRITE_TIMEOUT_MS),
+    withTimeout({ headers: { ...founderHeaders(you) } }, WRITE_TIMEOUT_MS),
   );
   if (res.status === 409) {
     throw new CompareNotConfirmed(
@@ -387,14 +387,61 @@ export async function exportGapTable(
 // Deliberately NOT behind the admin token: none of these can write the archive,
 // so the token that guards archive mutations would only stand between a founder
 // and their own local draft. Every call is rate-limited server-side.
+//
+// Each draft carries its own per-draft secret instead: the creation response
+// includes a one-time `founder_token`, stored here (sessionStorage, like the
+// admin token — a tab-local secret, never in a URL) and sent back as
+// X-Founder-Token. Sequential draft ids are not enumerable without it.
 
-function founderJson<T>(path: string, init?: RequestInit): Promise<T> {
+const FOUNDER_TOKENS_KEY = "ideasexist.founder.tokens";
+
+function readFounderTokens(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    return JSON.parse(sessionStorage.getItem(FOUNDER_TOKENS_KEY) ?? "{}") as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+/** Remember a draft's token under its id (and name slug, for slug-addressed calls). */
+export function storeFounderToken(id: number, token: string, slug?: string): void {
+  if (typeof window === "undefined" || !token) return;
+  const tokens = readFounderTokens();
+  tokens[String(id)] = token;
+  if (slug) tokens[slug.toLowerCase()] = token;
+  try {
+    sessionStorage.setItem(FOUNDER_TOKENS_KEY, JSON.stringify(tokens));
+  } catch {
+    /* storage full or unavailable — the next call just 403s honestly */
+  }
+}
+
+function founderTokenFor(you: string | number): string | null {
+  const tokens = readFounderTokens();
+  const direct = tokens[String(you)];
+  if (direct) return direct;
+  if (typeof you === "string") {
+    const lowered = you.toLowerCase();
+    const hit = tokens[lowered];
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function founderHeaders(you?: string | number): Record<string, string> {
+  if (you === undefined) return {};
+  const token = founderTokenFor(you);
+  return token ? { "X-Founder-Token": token } : {};
+}
+
+function founderJson<T>(path: string, init?: RequestInit, you?: string | number): Promise<T> {
   const ms = init?.method === "POST" ? WRITE_TIMEOUT_MS : READ_TIMEOUT_MS;
   return fetch(`${API_BASE}${path}`, {
     ...withTimeout(init, ms),
     // Never a `publish` field on create: it is a 422 on purpose. Create →
     // confirm → publish are three calls.
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: { "Content-Type": "application/json", ...founderHeaders(you), ...init?.headers },
     cache: "no-store",
   }).then(async (res) => {
     if (!res.ok) throw new Error(detailMessage(await readBody(res), res.status));
@@ -405,6 +452,9 @@ function founderJson<T>(path: string, init?: RequestInit): Promise<T> {
 /**
  * Draft the founder's own app. Exactly one path per call: `agent_json` (paste),
  * `url`, or the form fields. Nothing is auto-confirmed and nothing auto-diffs.
+ *
+ * The response carries the draft's one-time `founder_token` — stored here so
+ * every later read/confirm/publish/compare of this draft can prove ownership.
  */
 export function createFounderApp(
   body: Record<string, unknown>,
@@ -412,17 +462,22 @@ export function createFounderApp(
   return founderJson<FounderAppDraft>("/api/founder-app", {
     method: "POST",
     body: JSON.stringify(body),
+  }).then((draft) => {
+    if (draft.founder_token) {
+      storeFounderToken(draft.founder_app_id, draft.founder_token, draft.profile?.name);
+    }
+    return draft;
   });
 }
 
 /** The draft plus the derived `archive_status` and every decision on it. */
 export function getFounderApp(id: number): Promise<FounderAppDetail> {
-  return founderJson<FounderAppDetail>(`/api/founder-app/${id}`);
+  return founderJson<FounderAppDetail>(`/api/founder-app/${id}`, undefined, id);
 }
 
 /** The confirm-before-diff gate (F-13) — the gap table's precondition. */
 export function confirmFounderApp(id: number): Promise<FounderAppDraft> {
-  return founderJson<FounderAppDraft>(`/api/founder-app/${id}/confirm`, { method: "POST" });
+  return founderJson<FounderAppDraft>(`/api/founder-app/${id}/confirm`, { method: "POST" }, id);
 }
 
 /**
@@ -434,7 +489,7 @@ export function confirmFounderApp(id: number): Promise<FounderAppDraft> {
  * put a `profile` on screen that the response never carried.
  */
 export function publishFounderApp(id: number): Promise<FounderPublishResult> {
-  return founderJson<FounderPublishResult>(`/api/founder-app/${id}/publish`, { method: "POST" });
+  return founderJson<FounderPublishResult>(`/api/founder-app/${id}/publish`, { method: "POST" }, id);
 }
 
 // --- LLM gateways (docs/llm-gateways.md §4) ---------------------------------

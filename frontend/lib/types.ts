@@ -298,6 +298,10 @@ export interface FounderAppDraft {
   publish_offered: boolean;
   archive_status: ArchiveStatus;
   submission: FounderSubmission | null;
+  /** Per-draft secret, present ONLY on the creation response. The client stores
+   * it (sessionStorage) and sends it back as X-Founder-Token — reads, confirms
+   * and publishes never return it again. */
+  founder_token?: string;
 }
 
 /** `GET /api/founder-app/{id}` — the draft plus the decision history. */

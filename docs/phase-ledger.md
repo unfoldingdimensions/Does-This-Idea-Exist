@@ -1411,3 +1411,35 @@ RESULT: ALL PASS
 **Docs falsified by this phase, corrected in this branch:** `docs/frontend-plan.md` (its status line still said "blocked until Phase 5", and sec.2.1 implied the evidence rows were already readable), `docs/llm-gateways.md` (its status line still said the frontend section "is not built yet"), and `docs/codebase-comprehension.md` (a Phase 6 note for the new files, matching the Phase 1/2/4/5 note convention).
 
 **Date and who ran it:** 2026-09-16, the AutoClaw agent for this repo (`does-this-startup-exist`) on `DESKTOP-KV8OEKP`.
+
+---
+
+## Security review — post-Phase-6 (2026-09-17)
+
+**Not a phase.** An independent security review of the work on the Phase 6 branch, run after that phase's gate was recorded. Branch `fix/security-review`, cut from `phase/06-frontend-implementation` and stacked on its PR (#15); the phase rows above are unchanged, and Phase 6's own claim ("no `backend/` file was edited here") still holds — every backend change below is in this follow-up.
+
+### What it found, and what changed
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | **Founder drafts were enumerable.** Ids are sequential integers and the endpoints were open, so anyone could read another founder's draft, its submission history and its rejection notes — or run a compare/export against it, which also triggers a paid JIT capture (page fetch + LLM call) on someone else's behalf. | A per-draft 256-bit secret: minted at creation, returned **once**, stored only as a sha256 hex, required as `X-Founder-Token` on read / confirm / publish / compare / export, compared with `hmac.compare_digest`. Rows predating the column hold a NULL hash and stay accessible — the documented local-upgrade path, not a bypass for new drafts. |
+| 2 | **Unguarded outbound calls on attacker-influenceable input.** The GitHub client interpolated `owner/repo` raw into its URL; RDAP and Wayback called raw `httpx.get(..., follow_redirects=True)` on a domain taken from a seeded row. | `quote(..., safe="")` on both path segments plus `netguard.check_target`; both date lookups moved onto `netguard.safe_get` behind a `_safe_domain()` host allowlist, with the CDX query `urlencode`d. A blocked target raises `RuntimeError`, never `ValueError`, so it cannot be counted as a 404 strike toward the dead-flip. |
+| 3 | **CORS allowed every method and header** (`"*"`, `"*"`). | An explicit list: GET/POST/PUT/OPTIONS and Content-Type / X-Admin-Token / X-Founder-Token. |
+| 4 | **Public reads were unlimited**, and several are full-archive scans. | A 120/min per-IP bucket on `/api/startups`, `/api/search`, `/api/categories`, `/api/stats` and `/api/startups/{slug}`; founder-draft creation — the one public POST that fetches a page and calls the LLM — gets 10/min. |
+| 5 | **No length caps** on request bodies or query strings. | `Field(max_length=…)` / `Query(max_length=…)` across every model: an oversized payload is a 422 rather than an oversized fetch target or DB write. |
+| 6 | **Upstream error text was echoed to the caller** in 502 bodies — provider text can carry internal URLs, key hints or attacker reflection. | `_sanitized_502` logs the detail server-side and returns a generic message. Our own input-guidance 400s are unchanged. |
+| 7 | **Rendered links trusted the stored URL**, so a row predating the backend's `_http_url` guard (or edited directly in the DB) could render a `javascript:` href as a click-to-execute sink. One link the Phase 6 dialog added also still carried `rel="noreferrer"` alone. | An `isHttpUrl()` guard on every external link in the card, the dossier and the teardown view; the missing `noopener` fixed. |
+| 8 | **HSTS only on the API host**, so a first-visit downgrade could strip TLS before the app loaded. | `next.config.ts` sets it on the frontend host in production too (browsers ignore it over http/localhost, so the local prod-build path is unaffected). |
+
+### Verification
+
+```
+cd backend
+..\backend\.venv\Scripts\python.exe -m tests.functional   → RESULT: ALL PASS
+                                                            TESTS: 234 run, 234 passed, 0 failed
+..\backend\.venv\Scripts\python.exe -m tests.smoke        → RESULT: ALL PASS
+```
+
+`tests/functional.py` grew 229 → **234** checks (the five token checks: creation issues one; a draft is unreadable without it — 403, not 404 or 200; readable with it and reads never re-issue it; compare refuses a draft without it; an export without it is refused). `npm test` carries all five steps green on this branch.
+
+**Date and who ran it:** 2026-09-17, the AutoClaw agent for this repo on `DESKTOP-KV8OEKP`, at the owner's request.

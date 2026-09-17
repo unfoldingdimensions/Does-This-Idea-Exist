@@ -25,6 +25,15 @@ import { cn } from "@/lib/utils";
 
 export type StatusChoice = "verified" | "unverified" | "dead";
 
+/**
+ * Defense in depth for external links: the backend's `_http_url` strips
+ * non-http(s) schemes at write time, but a row predating that guard (or edited
+ * directly in the DB) must never become a click-to-execute `javascript:` sink.
+ * The Website/Code buttons render only for http(s) URLs.
+ */
+function isHttpUrl(value: string | null | undefined): value is string {
+  return typeof value === "string" && /^https?:\/\//i.test(value.trim());
+}
 const STATUS_OPTIONS: {
   value: StatusChoice;
   label: string;
@@ -545,7 +554,7 @@ export function StartupCard({
         </div>
 
         <div className="flex items-center gap-2 border-t border-border/60 pt-3">
-          {startup.website_url && (
+          {isHttpUrl(startup.website_url) && (
             <motion.div
               whileHover={reduce ? undefined : { scale: 1.04, y: -1 }}
               whileTap={reduce ? undefined : { scale: 0.96 }}
@@ -563,7 +572,7 @@ export function StartupCard({
               </Button>
             </motion.div>
           )}
-          {startup.github_url && (
+          {isHttpUrl(startup.github_url) && (
             <motion.div
               whileHover={reduce ? undefined : { scale: 1.04, y: -1 }}
               whileTap={reduce ? undefined : { scale: 0.96 }}

@@ -18,6 +18,14 @@ const securityHeaders = (): Array<{ source: string; headers: Array<{ key: string
     { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), browsing-topics=()" },
   ];
   if (isProd) {
+    // HSTS belongs on the frontend host too, not just the API (which sets its
+    // own in app/main.py): without it a first-visit downgrade can strip TLS
+    // before the app loads. Browsers ignore it over http/localhost, so the
+    // local prod-build path (ALLOW_LOCALHOST_BUILD) is unaffected.
+    headers.push({
+      key: "Strict-Transport-Security",
+      value: "max-age=63072000; includeSubDomains",
+    });
     headers.push({
       key: "Content-Security-Policy",
       value: [

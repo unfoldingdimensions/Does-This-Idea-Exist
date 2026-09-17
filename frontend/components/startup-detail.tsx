@@ -16,6 +16,15 @@ import type { Startup } from "@/lib/types";
 import { EASE } from "@/lib/motion";
 
 /**
+ * Same http(s)-only rule as `startup-card.tsx`: a `website_url`/`github_url`
+ * that is not http(s) (a row predating the backend's `_http_url` guard, or one
+ * edited directly in the DB) renders no link rather than a `javascript:` sink.
+ */
+function isHttpUrl(value: string | null | undefined): value is string {
+  return typeof value === "string" && /^https?:\/\//i.test(value.trim());
+}
+
+/**
  * Detail modal — the card's shared-layout expansion into the teardown dossier
  * (Watermelon expandable-profile-card pattern, adapted). Card click → the card
  * itself grows into the panel; clicking a "More like this" row morphs it into
@@ -237,7 +246,7 @@ export function StartupDetail({
               {/* The quick external actions keep their own rel/aria-label (item
                   8): a screen reader has to be told these open a new tab. */}
               <div className="flex flex-wrap items-center gap-2">
-                {startup.website_url && (
+                {isHttpUrl(startup.website_url) && (
                   <Button asChild variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
                     <a
                       href={startup.website_url}
@@ -249,7 +258,7 @@ export function StartupDetail({
                     </a>
                   </Button>
                 )}
-                {startup.github_url && (
+                {isHttpUrl(startup.github_url) && (
                   <Button asChild variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
                     <a
                       href={startup.github_url}
