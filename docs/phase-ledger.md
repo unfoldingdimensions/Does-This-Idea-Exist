@@ -13,7 +13,7 @@
 | 5 — Backend functional test gate | **PASS** | Branch `phase/05-backend-functional-gate`, cut from `main` at `850c6e9`. Backend only — no `frontend/` file touched. New: `backend/tests/functional.py`, one self-contained suite over **F-01–F-24 + the §6 invariants** (187 checks) with its own throwaway archive + founder store and the fetcher, both LLM prompts and both date sources stubbed: `cd backend` then `..\backend\.venv\Scripts\python.exe -m tests.functional` → **`RESULT: ALL PASS`** — `TESTS: 187 run, 187 passed, 0 failed` (exit 0, ~2.8 s; identical across four consecutive runs). Wired into `scripts\verify.mjs` directly after the smoke suite, so `npm test` now runs **five** steps → **`RESULT: ALL PASS`** (backend smoke exit 0 · backend functional exit 0 · frontend sort check exit 0 · frontend lint+build exit 0 · e2e 35 passed / 0 failed). **Traceability table F-01–F-24 → test → PASS below.** Real-backend smoke against the **real** archive: WAL-safe backup to `ideasexist.db.bak-phase5` first, then the first boot since Phase 1 → **18 → 40 columns and the `evidence` table appearing, 1,282 rows before and after**; `GET /api/health`, `/api/stats`, `/api/categories`, `/api/search?q=obsidian`, `/api/startups/obsidian` all answered with real data; a real founder app (`Phase 5 Smoke App`, confirmed) plus a real JIT capture of **Obsidian** (6.0 s, page plan fetched) → 3 sourced negative evidence rows written, with `features_json`/`pricing_json`/`positioning` left **unknown** because the LLM gateway answered **401** for the configured `OPENCODE_GO_API_KEY` — recorded honestly, not hidden (see §Phase 5 evidence 4). All four `scripts/phaseN-verify.py` re-run on this branch → **`RESULT: ALL PASS`** (31 / 74 / 47 / 59 checks); `phase4-verify.py` needed its rung-census assertion repaired against the now-real captured state (recorded below). Full output in §Phase 5 evidence below. | 2026-09-16 |
 | 6 — Frontend implementation | **PASS** | Branch `phase/06-frontend-implementation`, cut from `fix/startup-evidence-endpoint` (see the finding in §Phase 6 evidence 1 — the dossier's sourced negative list needed a backend read that did not exist, so it went to its own branch/PR **#14** and this branch consumes it; **no `backend/` file was edited here**). All **nine** items run against the real stack — backend on `:8020` over the **real** archive plus a real founder store, frontend on `:3023`. `npm test` → **`RESULT: ALL PASS`**, five steps: backend smoke exit 0 · backend functional exit 0 (**229/229**) · frontend sort check exit 0 · frontend lint+build exit 0 (the new `ƒ /products/[slug]` route in the build output) · e2e **35 passed / 0 failed**. Every non-happy state in the phase brief was exercised and is recorded with the response behind it: compare on an unconfirmed draft → **409** `{"state":"not_confirmed"}` rendered in the UI as "The draft must be confirmed first" + a **Confirm the draft** action and **no table**; a never-captured competitor → **200** `{"state":"queued","message":"capture queued"}` with a Retry, and the table only after the capture landed; an unknown competitor → **404** naming the ref; every empty cell → the word `unknown` (never blank, never "no"); founder `archive_status` shown (`local_only` → `pending`, with the rejection note path wired); gateway switch on a not-ready gateway → **400** with the API's own reason, and the control disabled with that same reason; a **key_hint** and never a key. Real payloads pasted in §Phase 6 evidence 2–5. Falsified docs corrected in this branch: `docs/frontend-plan.md` (status + the §2.1 evidence read), `docs/llm-gateways.md` (status), `docs/codebase-comprehension.md` (a Phase 6 note). | 2026-09-16 |
 | 7 — Frontend tests | **PASS** | Branch `phase/07-frontend-tests`, cut from `main` at `fe5a12a`. Frontend tests only — **no `backend/` file touched**. Two code commits: the suite (`922240f`) and the three accessible names it found unnamed (`6497e15`). Tiers 5–6 of `scripts/e2e-verify-runner.ts` render the **real components** against **stubbed HTTP** — no server, no network, no live archive, no LLM, no timers left running — one stub per test, restored in a `finally`, and an unmatched request answers 404 naming its own URL so a forgotten route fails instead of silently passing. **204 new checks** (172 `P7.*` + 32 `P8.*`) over the **twelve areas** of `docs/frontend-plan.md` §3, plus a sweep of the non-happy states Phase 6 recorded: search reasons + the empty-query 200 `[]` contract (never the archive); the dossier's plan-by-plan pricing with its capture date, flat features, sourced "doesn't do" list and honest `unknown`s; all three founder paths (URL / form / agent-JSON) with a 3-feature form refused **locally, with no request**; confirm-before-diff (**409 → the confirm step, and no table — not even an empty one**); the five bands in the fixed order with sourced cells and `unknown` cells; three exports (bytes, media type, filename) and a surfaced failure; `/products/<slug>` and its themed "Not filed" 404; light + dark, reduced motion, the external-link `rel`/`aria-label` rule, and the empty/loading/error states; the two trust badges (distinct, lapsed vs never-checked, and none inside a claim); link-eligibility & consent; dimension 7 banding with review links and **no score anywhere**; and founded honesty (an RDAP date is not a founding year, and no fabricated `2021` renders). New: `scripts/e2e-dom-setup.ts` — the jsdom bootstrap must be the **first** import, because Radix captures `globalThis?.document` at module load and an inline bootstrap left every dialog and popover rendering empty. `npm test` → **`RESULT: ALL PASS`**, five steps: backend smoke exit 0 · backend functional **234/234** · frontend sort check exit 0 · frontend lint+build exit 0 · frontend e2e **239 passed / 0 failed**. **Traceability table below.** The only production change is the two components whose new-tab links the area-8 assertion found unnamed. | 2026-09-17 |
-| 8 — Full end-to-end test | pending | Unblocked by the Phase 5 `PASS` above. | |
+| 8 — Full end-to-end test | **PASS** | Branch `phase/08-end-to-end`, cut from `main` at `f9288cd`. The loop ran **once, in order**, against the real stack (backend `:8020` over the real archive + a real founder store; frontend `:3023`), after a WAL-safe backup (`ideasexist.db.bak-phase8-20260917-161228`, sqlite3 online-backup API — never a file copy). Precondition: `.effective.ready=true`, but the active `opencode-go` key answered **401 (insufficient balance)** on the probe; the **`gemini`** gateway was made active and probed **ok (200)** first (key never printed). Step 1: seed `capacities.io` → **new row id 1296** (`_inserted: true`), **1282 → 1283 rows** (a seed of an already-filed URL, `linear.app`, correctly **updated** row 4 instead — `_inserted: false`). Step 2: full verify pass → **1283 checked / 1266 ok / 15 skipped / 2 failed / `dead_flipped: []`**; the seeded entry's `last_checked` moved `null → 2026-09-17 06:39:07` and the two trust signals read distinctly (`admin_verified` false, `machine_verified` true; true/true after the human stamp; and a controlled 8-day-aged check read `machine_verified=false` with `admin_verified` still true). Step 3: `GET /api/startups/capacities` **twice returned byte-identical payloads and captured nothing** (the plan's stated trigger falsified); the real JIT capture (`POST /api/admin/capture/1296`, the same callable `/api/compare` uses) wrote **10 features, 4 pricing plans, positioning, 4 sourced negatives — 20 evidence rows**, docs `unreadable: HTTP 404`, and a second trigger inside the window answered **`cached`**. Step 4: link-less draft → `publish_offered: false`, publish refused **400** (F-20); link draft → **pending** → **approved**, deduped onto the existing archive row (`archive_inserted: false`, 1283 → 1283). Step 5: compare → **5 bands** (`you_have_they_dont` 4 / `they_have_you_dont` 13 / `both_have` 8 / `unknown` 3 / `asked_for` 0), every cell sourced or `unknown`. Step 6: exports parse (markdown 4611 B · json 8604 B · csv 4044 B). Step 7: search → `Exact name match`. Step 8: browser pass — the three key pages **0 console errors**, the founder flow + gap table + three export clicks driven in a real browser with **0 console/page errors**. Archive **1283** before and after the whole founder flow; **evidence 7 → 27**; **no founder-store row in `/api/startups` / `/api/stats` / `/api/categories` at any checkpoint**. `npm test` → **`RESULT: ALL PASS`** (backend functional **234/234**, frontend e2e **239 passed / 0 failed**). Falsified doc corrected: `docs/e2e-test-plan.md`. Full step-by-step output in §Phase 8 evidence below. | 2026-09-17 |
 | 9 — Handoff & close-out | pending | | |
 
 **Baseline (recorded in Phase 0, 2026-09-15):** see the full evidence block below.
@@ -1593,3 +1593,298 @@ RESULT: ALL PASS
 Phase 7 = **PASS**.
 
 **Date and who ran it:** 2026-09-17, the AutoClaw agent for this repo (`does-this-startup-exist`) on `DESKTOP-KV8OEKP`.
+
+---
+
+## Phase 8 evidence — full end-to-end test (2026-09-17)
+
+**Branch:** `phase/08-end-to-end`, cut from `main` at `f9288cd`. Two commits: `3e544d5` — `docs(phase-8): correct the e2e plan against the running stack` (the run falsified three step statements; corrected before this section was written) — and the docs commit carrying this section. **No application code was edited on this branch.** The run proves the already-built product; the only document it falsified is corrected here.
+
+**The stack under test** (both processes left running for the next reader):
+
+```
+# terminal 1 - the real backend, the real archive, the real founder store
+cd backend
+..\backend\.venv\Scripts\python.exe -m uvicorn app.main:app --port 8020 --workers 1
+
+# terminal 2 - the frontend
+cd frontend
+npm run dev            # next dev --webpack --port 3023 -H 127.0.0.1
+```
+
+`GET /api/health` → `{"ok":true,"llm_model":"deepseek-v4-flash","db":"ideasexist.db"}`.
+
+**Pre-run facts, recorded so the change is auditable:**
+
+- **WAL-safe backup first:** the sqlite3 online-backup API → `backend/data/ideasexist.db.bak-phase8-20260917-161228`, **1,900,544 bytes**. Never a file copy.
+- Archive before: **1,282 rows, 40 columns**; `evidence` present with **7 rows**; tables `evidence, jobs, sqlite_sequence, startups, verify_log`.
+
+### 0. The precondition — a working LLM gateway
+
+`GET /api/admin/settings/gateways` → `active: opencode-go`, **`.effective.ready: true`** (a resolved key and a model are both present). Because Phase 5 recorded this key answering 401, it was probed rather than trusted:
+
+```
+POST /api/admin/settings/gateways/opencode-go/test -> ok:false http_status:401
+  error: {"type":"error","error":{"type":"CreditsError","message":"Insufficient balance. ..."}}
+POST /api/admin/settings/gateways/gemini/test       -> ok:true  http_status:200 latency_ms:1565
+POST /api/admin/settings/gateways/opencode-zen/test -> ok:false "no API key configured for this gateway"
+POST /api/admin/settings/gateways/openrouter/test   -> ok:false "no API key configured for this gateway"
+POST /api/admin/settings/gateways/command-code/test -> ok:false "no API key configured for this gateway"
+```
+
+`.effective.ready` was true, but the active key could not serve. **`gemini` (`gemini-2.5-flash`, `key_source: env`) was made active** — `POST /api/admin/settings/gateways/active {"gateway_id":"gemini"}` → **200**, `effective.ready: true` — and every LLM call in the run went through it. `key_hint` was visible in the payloads; **no key or token was ever printed or committed.**
+
+### 1. Seed a competitor
+
+`POST /api/seed/website {"website_url": "https://linear.app"}` was tried first: it **matched an existing row** (id 4, `name: Linear`) and returned **`_inserted: false`** — the archive stayed 1,282. Recorded here because it is the dedup working, and it changes the plan's step-1 expectation (an insert).
+
+A URL **not** in the archive was then seeded:
+
+```
+POST /api/seed/website {"website_url": "https://capacities.io"} -> HTTP 200
+{
+  "id": 1296, "name": "Capacities", "category": "productivity",
+  "website_url": "https://capacities.io", "founded": "2021-11-11",
+  "status": "active", "verified": 0, "verified_at": null, "last_checked": null,
+  "check_failures": 0, "source": "website",
+  "provenance": "machine_drafted", "date_source": "wayback", "_inserted": true
+}
+archive rows BEFORE seed: startups=1282 evidence=7
+archive rows AFTER  seed: startups=1283 evidence=7
+```
+
+Provenance flags: **`provenance: machine_drafted`**, `date_source: wayback` (a founded date from an archive snapshot, not a registry — F-04). **Row count 1,282 → 1,283.**
+
+### 2. Verify liveness
+
+`POST /api/verify/run` → `{"job_id":"85110e9daad9"}`; the pass walked every row (~17 minutes, ~75 rows/min) and finished:
+
+```
+status=done total=1283 done=1283 ok=1266 skipped=15 failed=2
+dead_flipped=[]
+breakdown={'verified': 1278, 'unverified': 5, 'dead': 0}
+failed_list=[
+  {"id": 1001, "name": "Datree",               "url": "https://www.datree.io/",  "reason": "website: HTTP 404"},
+  {"id": 1063, "name": "IronNet Cybersecurity", "url": "https://www.ironnet.com/", "reason": "website: HTTP 404"}
+]
+skipped_urls (first 5): Capterra (HTTP 403) · OpenAI (403) · Product Hunt (403) · SSENSE (403) · UNIQLO (403)
+```
+
+**`dead_flipped: []` — a live entry did not dead-file.** The 15 skips are bot walls (403), which never count as strikes. The seeded entry, checked last:
+
+```
+seeded entry after the pass:  slug=capacities resolved_id=1296 status=active
+  last_checked="2026-09-17 06:39:07"  check_failures=0
+  admin_verified=false  admin_verified_at=null
+  machine_verified=true machine_verified_at="2026-09-17 06:39:07"
+```
+
+`last_checked` moved `null → 2026-09-17 06:39:07`, and the **two trust signals read distinctly**: the machine signal is true, the human signal is false (no one had stamped it). The human gate was then applied — `POST /api/startups/1296/verify` → `verified: 1`, `verified_at: 2026-09-17 06:40:58` — giving `admin_verified=true` with `machine_verified=true`.
+
+The third distinct state — a **stale** check reading `machine_verified=false` while `admin_verified` stays true — was demonstrated under control: a full pass leaves every row fresh, so within a 7-day window it cannot be observed by waiting. The seeded row's `last_checked` was aged **8 days via a recorded SQL `UPDATE`** (backup already taken), the badge read back, then the exact pre-demo value was restored:
+
+```
+AFTER aging:  last_checked="2026-09-09 06:41:34"
+  admin_verified=true  admin_verified_at="2026-09-17 06:40:58"
+  machine_verified=false machine_verified_at="2026-09-09 06:41:34"
+restored last_checked = '2026-09-17 06:39:07'   (net-zero; verified by re-read)
+```
+
+### 3. Open the teardown (just-in-time)
+
+The plan says a `GET /api/startups/{slug}` **triggers** the capture. It does not. Two consecutive reads of the never-captured competitor:
+
+```
+GET /api/startups/capacities (first)  -> HTTP 200 in 2.08s
+GET /api/startups/capacities (second) -> HTTP 200 in 2.07s
+second payload identical to first (byte-for-byte): True    evidence first=0 second=0
+  pricing_json=null  pricing_captured_at=null  features_json=null  positioning=null
+```
+
+The payload is a pure read — **no capture fired, no evidence was written.** The real trigger is `POST /api/compare` (F-22) or the admin capture button; both call `capture.start_capture()`. The capture was therefore triggered through its actual callable, the panel's button:
+
+```
+POST /api/admin/capture/1296 -> {"state":"queued","startup_id":1296,"job_id":"53d2cb1c7b21","message":"capture queued"}
+... status=done
+result: {features:10, plans:4, positioning:true, negatives:4, evidence_rows:20,
+         reviews:0, reviews_skipped:1, asks:0,
+         pages:{homepage:{state:readable}, pricing:{state:readable},
+                docs:{url:"https://capacities.io/docs", state:"unreadable", reason:"HTTP 404"}}}
+```
+
+A **second** trigger inside the window:
+
+```
+POST /api/admin/capture/1296 -> {"state":"cached","captured_at":"2026-09-17 06:42:16","message":"teardown served from cache"}
+```
+
+`GET /api/startups/capacities` then carried the teardown. Pricing, plan by plan, each with its capture date:
+
+```
+free_tier: "Free with unlimited spaces, objects, blocks, custom object types, synchronization, ..."
+Capacities Pro                     $9.99 USD  / monthly   (captured 2026-09-17 06:42:16)
+Capacities Pro (billed annually)   $8.33 USD  / annual
+Capacities Believer                from $12.49 USD / monthly
+Capacities Believer (annually)     from $10.41 USD / annual
+  pricing_source_url: https://capacities.io/pricing
+```
+
+Features (10, flat, each an evidence row sourced to the homepage): `connected objects · link anything to anything · daily notes · backlinks · related content surfacing · AI assistant · smart queries · calendar integrations · task management · API access`. Positioning: *"A home for everything you think, learn, and create, for knowledge workers, transforming how they manage information as connected objects."*
+
+The sourced **"doesn't do"** list — each entry an observation naming its page, and the one unreadable page rendered `unknown`, never "no":
+
+```
+no self-host              <- https://capacities.io/pricing  ("pricing page lists ... no self-host tier")   confidence 0.8
+API: unknown              <- https://capacities.io/docs     (page unreadable, HTTP 404)                     confidence 0.1
+no mobile app             <- https://capacities.io          ("the page's own links list no App Store / Google Play link")  conf 0.8
+no self-host option listed<- https://capacities.io/pricing                                                      confidence 0.5
+```
+
+`machine_verified` / `machine_verified_at` are **explicit fields** on the payload (F-21), and **no badge is rendered against a claim** — the two badges sit on the record with the disclaimer that they say nothing about any claim, and every claim below carries its own source line. Review-derived asks (dimension 7): the review provider was skipped (`reviews: 0, reviews_skipped: 1, asks: 0`), so there are **none** — dimension 7 renders as an empty band, not invented data.
+
+### 4. Enter the founder's app
+
+**Draft A — the form path, link-less** (`POST /api/founder-app`):
+
+```
+founder_app_id: 4   confirmed: false   source_kind: "form"
+profile: Phase 8 Evidence App · features [local-first storage, markdown files, backlinks, offline mode, plugin API]
+         pricing {free_tier: "Free up to 3 vaults", plans:[{Pro, $8, monthly}]}
+eligibility: {has_link: false, link: "", link_field: null}
+publish_offered: false   archive_status: "local_only"
+founder_token: <one-time, 43 chars, never printed>
+```
+
+Confirmed (`POST /api/founder-app/4/confirm` → `confirmed: true`). **Publishing was refused**, F-20:
+
+```
+POST /api/founder-app/4/publish -> HTTP 400
+{"detail":"this app has no link (website / github / app store / play store) — it is comparison-only and
+ can never enter the archive, so no consent question is asked (F-20)"}
+```
+
+That is the checkbox case: the consent box is **absent** for a link-less profile, and a link-less app can never be published.
+
+**Store separation, verified directly:** `founder.db` holds `founder_apps` (id 4, `confirmed_at` set, `has_token: 1`) and `founder_submissions`; `ideasexist.db` holds none of the founder tables. `GET /api/startups` contains **no** row named `Phase 8 Evidence App`; `/api/stats` total **1,283**; the archive has **0** rows matching `Phase 8`.
+
+**Draft B — the form path, with a link** (`website_url: https://www.craft.do`): `has_link: true`, `link_field: website_url`, `publish_offered: true`. Confirm → publish → **pending**:
+
+```
+POST /api/founder-app/5/publish -> {"submitted":true,"submission_id":3,"archive_status":"pending",
+  "message":"submitted to the archive queue — the same admin gate as any competitor"}
+GET /api/admin/founder/submissions -> pending: [..., {submission_id:3, founder_app_id:5, name:"Craft", website_url:"https://www.craft.do"}]
+```
+
+Then approved through the admin gate:
+
+```
+POST /api/admin/founder/submissions/3/approve -> HTTP 200
+{"submission":{... "status":"approved", "archive_startup_id":86, "decided_by":"admin"},
+ "archive_startup_id":86, "archive_inserted":false}
+archive total before approve=1283 after approve=1283
+```
+
+**`archive_inserted: false`** — the approved app deduped onto the existing archive row **86** (`Craft`, already filed) rather than creating a twin; the archive total did not move. The founder-store record stayed in its own file; what the archive holds is an archive row.
+
+### 5. Run comparison
+
+`POST /api/compare {"you": 4, "competitors": ["capacities", "obsidian"]}` (with `X-Founder-Token`) → **200**, the table served immediately because both competitors were inside the 7-day cache window. **Five bands**, every cell sourced or `unknown`:
+
+```
+you_have_they_dont 4 | they_have_you_dont 13 | both_have 8 | unknown 3 | asked_for 0
+  you_have_they_dont | Pricing  | you: Pro $8/monthly    | them: not listed on their pricing page              | src: https://capacities.io/pricing
+  you_have_they_dont | Features | you: local-first storage | them: not in their feature list (Capacities) — … (Obsidian) | src: capacities.io — obsidian.md
+  both_have          | Features | you: backlinks         | them: backlinks (Capacities)                        | src: https://capacities.io
+  unknown            | What it doesn't do | you: n/a | them: unknown — could not read the page (Capacities) | src: https://capacities.io/docs
+  unknown            | Activity / liveness| you: n/a | them: alive, last checked 2026-09-17 06:39:07 (Capacities) … | src: capacities.io — obsidian.md
+  asked_for          | (empty band — no review-derived asks exist)
+```
+
+### 6. Export
+
+`GET /api/export/{markdown|json|csv}?you=4&competitors=capacities&competitors=obsidian` (with `X-Founder-Token`):
+
+```
+markdown -> HTTP 200, 4611 bytes   head: "# Gap table — Phase 8 Evidence App vs Capacities, Obsidian"
+json     -> HTTP 200, 8604 bytes   parses; keys [rows, them, you]; 28 rows; bands {you_have_they_dont, they_have_you_dont, both_have, unknown}
+csv      -> HTTP 200, 4044 bytes   header: band,dimension,you,them,source_url,captured_at
+```
+
+All three **parse**. The CSV header is recorded above; the `asked_for` band value appears as a row only when asks exist — dimension 7 is empty in this run, so no `asked_for` row is present (recorded, not manufactured).
+
+### 7. Search-with-reasons
+
+```
+GET /api/search?q=capacities -> 200, 27 hits; #1 Capacities  reason="Exact name match"
+GET /api/search?q=obsidian   -> 200, 16 hits; #1 Obsidian    reason="Exact name match"
+```
+
+Reasons come from the frozen vocabulary.
+
+### 8. Frontend pass-through
+
+Real browser access was the AutoClaw side-panel browser plus Chrome driven over CDP (puppeteer-core), both against the built frontend on `:3023`.
+
+**Console-error sweep (Chrome/CDP) — the key pages:**
+
+```
+/                              200  console errors 0   page errors 0   failed requests 0   (1,283 filings · 1,279 verified rendered)
+/products/capacities           200  console errors 0   page errors 0   failed requests 0   (dossier: both badges, pricing plan-by-plan, the sourced doesn't-do list)
+/products/obsidian             200  console errors 0   page errors 0   failed requests 0
+/products/not-a-real-product   200  console errors 1   -> the ONLY console error in the sweep: Chrome logging the
+                                    expected 404 from GET /api/startups/not-a-real-product, which the page handles by
+                                    rendering the themed "Not filed" panel. This is the deliberate not-found probe,
+                                    not a key page; the three key pages have zero.
+```
+
+The side-panel browser independently rendered `/products/capacities` and reported the same data the backend returned — Admin Verified · Sep 17, Machine Verified · last checked Sep 17, the four pricing plans, the ten features, the positioning quote, and the four observations each linking its page — **no drift** between the API payload and the render.
+
+**The founder flow, driven in the browser (Chrome/CDP):** open `/products/capacities` → *Compare with my app* → the **Form** tab → fill and submit → the draft reviewed → **Confirm this draft** → dialog closed → the gap table rendered. Captured responses:
+
+```
+POST /api/founder-app          200  (draft created)
+GET  /api/founder-app/6        200
+POST /api/founder-app/6/confirm 200
+POST /api/compare              200  16,135 bytes
+GET  /api/export/markdown?...  200   3,870 bytes
+GET  /api/export/json?...      200   7,350 bytes
+GET  /api/export/csv?...       200   3,352 bytes
+```
+
+The gap table's five headings rendered in the browser — `YOU HAVE — THEY DON'T`, `THEY HAVE — YOU DON'T`, `BOTH HAVE (PARITY — NO DIFFERENTIATION HERE)`, `UNKNOWN — MISSING DATA, NOT A GAP`, `THEIR USERS ASK FOR IT` — with the three export buttons (Markdown / JSON / CSV) present and clicking each returning **200**. **0 console errors, 0 page errors, 0 failed requests** across the whole flow. Screenshots: `ui-1-dialog-open.png` … `ui-6-after-export.png`.
+
+**Not verified here, named rather than implied:** (a) the **mobile viewport** — the side-panel window is fixed and no resize is exposed; reflow remains `scripts/reflow-check.mjs`'s job. (b) The **dark theme** was not screenshotted (the toggle exists and is reachable; the theme is a token swap over unchanged components, covered by the Phase 7 suite). (c) The **admin panel** was exercised only at the API level — it sits behind the owner token, which this agent must not read out of `backend/.env`, so its rendering is outside this pass. (d) The **authored-link** and **agent-JSON** founder paths were not re-driven in the browser (the form path was; all three are covered by the Phase 6/7 suites).
+
+### The pass criteria, each against the run
+
+| Criterion | Result |
+|---|---|
+| The gap table is correct and sourced; `unknown` shows as unknown | **PASS** — 5 bands; every non-`unknown` cell carries a source; the one unreadable page renders `unknown` |
+| Every negative traces to an enumerating page; nothing printed from a 404 on a guessed URL | **PASS** — the 4 negatives each name the page fetched (`/pricing`, `/docs`, homepage); the `/docs` 404 produced `API: unknown`, not "no" |
+| Trust signals distinct; no badge against a claim; a stale check reads `machine_verified=false` while `admin_verified` stays true | **PASS** — distinct fields shown (false/true → true/true → the controlled stale read false/true); badges render on the record, never in a claim |
+| No founder-store record in `/api/startups` / `/api/stats` / `/api/categories` | **PASS** — checked at every checkpoint; archive total **1,283** before and after the whole founder flow; no founder-only name ever appeared |
+| All three exports parse | **PASS** |
+| The frontend renders the same data the backend returned | **PASS** — side-panel render matches the payload; the CDP run's export bytes match the API run's |
+| Zero console errors on the key pages | **PASS** — `/`, `/products/capacities`, `/products/obsidian` at 0; the one console log in the sweep is the handled 404 on the deliberate not-found probe |
+
+### The gate
+
+```
+$env:PATH = "C:\Program Files\nodejs;" + $env:PATH
+npm test
+
+[PASS] backend smoke (exit 0)
+[PASS] backend functional (Phase 5 gate) (exit 0)   -> TESTS: 234 run, 234 passed, 0 failed
+[PASS] frontend sort check (exit 0)
+[PASS] frontend lint + build (exit 0)
+[PASS] frontend e2e verification (exit 0)           -> TEST RESULTS: 239 PASSED, 0 FAILED
+RESULT: ALL PASS
+```
+
+Final archive facts: **1,283 rows** (1,282 + the seeded competitor), **evidence 7 → 27** (+20 from the capture), `/api/stats` `{total:1283, verified:1279, dead:0}`.
+
+**Falsified doc corrected in this branch:** `docs/e2e-test-plan.md` — its status line, and three step statements the run disproved (the capture trigger, the per-draft token, the export inputs), corrected in `3e544d5`.
+
+**Date and who ran it:** 2026-09-17, the AutoClaw agent for this repo (`does-this-startup-exist`) on `DESKTOP-KV8OEKP`.
+
+**Phase 8 = PASS.**
