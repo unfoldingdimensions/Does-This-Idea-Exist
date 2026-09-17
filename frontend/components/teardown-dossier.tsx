@@ -429,12 +429,15 @@ function DoesntDoSection({ evidence }: { evidence: EvidenceRow[] }) {
   );
 }
 
-/** The record's own links, with the security/aria hardening from item 8. */
+/** The record's own links, with the security/aria hardening from item 8.
+ * Every URL passes the same http(s)-only rule as the source lines: a row
+ * predating the backend's `_http_url` guard must never render a `javascript:`
+ * sink, however many link columns the record carries. */
 function RecordLinks({ record, name }: { record: StartupRecord | null; name: string }) {
   const links: { href: string; label: string; icon: React.ReactNode; aria: string }[] = [];
   const website = col(record, "website_url");
   const github = col(record, "github_url");
-  if (website) {
+  if (website && isHttpUrl(website)) {
     links.push({
       href: website,
       label: "Website",
@@ -442,7 +445,7 @@ function RecordLinks({ record, name }: { record: StartupRecord | null; name: str
       aria: `Visit ${name} website (opens in a new tab)`,
     });
   }
-  if (github) {
+  if (github && isHttpUrl(github)) {
     links.push({
       href: github,
       label: "Code",
@@ -456,7 +459,7 @@ function RecordLinks({ record, name }: { record: StartupRecord | null; name: str
   ];
   for (const [key, label] of stores) {
     const href = col(record, key);
-    if (href) {
+    if (href && isHttpUrl(href)) {
       links.push({
         href,
         label,
@@ -472,7 +475,7 @@ function RecordLinks({ record, name }: { record: StartupRecord | null; name: str
   ];
   for (const [key, label] of extras) {
     const href = col(record, key);
-    if (href) {
+    if (href && isHttpUrl(href)) {
       links.push({
         href,
         label,
