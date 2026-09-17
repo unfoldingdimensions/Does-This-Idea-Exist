@@ -1,6 +1,6 @@
 # End-to-End Test Plan
 
-**Status:** `blocked` until Phase 7 (frontend tests) is `PASS`.
+**Status:** `unblocked` — Phase 7 (frontend tests) is **PASS** in `docs/phase-ledger.md` (2026-09-17). The gate this plan was waiting on is satisfied; the journey below is now the Phase 8 gate.
 **Purpose:** one complete backend→frontend journey, run once in sequence, with every step's actual output recorded — the final release gate.
 
 ---

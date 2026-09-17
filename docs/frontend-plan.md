@@ -1,6 +1,6 @@
 # Frontend Implementation & Test Plan
 
-**Status:** `implemented` — Phase 6 is **PASS** in `docs/phase-ledger.md` (2026-09-16), and §2 below is the record of what was built.
+**Status:** `implemented` — Phase 6 is **PASS** in `docs/phase-ledger.md` (2026-09-16), and §2 below is the record of what was built. **Tests:** §3 is implemented and **PASS** (Phase 7, 2026-09-17) — the suite is Tiers 5–6 of `scripts/e2e-verify-runner.ts`, over the DOM bootstrap in `scripts/e2e-dom-setup.ts`, invoked by `scripts/e2e-verify.mjs` as step 5 of `npm test` (239 passed / 0 failed).
 **Rule (historical):** no frontend file may be created or edited, and no frontend task scheduled, while this plan is `blocked`. The orchestrator checks the ledger before touching `frontend/`. That gate was satisfied at Phase 5 `PASS` (2026-09-16).
 
 > **Phase 6 correction (2026-09-16).** §1 listed the consumable surface as the endpoints, the two trust signals and the founder-store endpoints — but **the `evidence` rows were readable by nothing**. The only reader in the whole backend was the compare path's `them_side()`, and §2 item 1 needs those rows to render the sourced "doesn't do" list. The read was added on its own branch and PR (`fix/startup-evidence-endpoint`, #14: `GET /api/startups/{slug}` now carries `evidence`, +4 checks in `backend/tests/functional.py`) rather than inside the frontend branch, per the phase rule. `docs/teardown-spec.md` §2 field 4 was right; the endpoint list here was incomplete.
@@ -52,7 +52,7 @@ Before any frontend work:
 | 11 | Reviews / dimension 7 | "what their users ask for" renders as gap-table dimension 7 with sourced items linked to their review, correctly banded (covered by your features → group 1; covered by neither → group 4); **no score or aggregate exists anywhere in the UI** |
 | 12 | `founded` honesty | an RDAP-sourced date is not labelled a founding year; no fabricated `"2021"` fallback renders |
 
-**Exit gate:** the frontend test run is green with output recorded in the ledger.
+**Exit gate:** the frontend test run is green with output recorded in the ledger. **Satisfied 2026-09-17** — Phase 7 `PASS`, 239 checks passed / 0 failed, traceability table in `docs/phase-ledger.md` §Phase 7 evidence 2.
 
 ---
 
