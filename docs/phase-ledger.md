@@ -12,7 +12,7 @@
 | 4 — Search classification & match reasons | **PASS** | Branch `phase/04-search-classification`, cut from `main` at `e92b1a8`. `backend\.venv\Scripts\python.exe scripts\phase4-verify.py` → **RESULT: ALL PASS** (58 checks, exit 0) on a copy of the live archive + a throwaway founder store, with **no fetcher and no LLM at all** (a search reads stored data only): a real product name returns as result **#1** with `reason == "Exact name match"` (Obsidian, exactly one exact-name hit); a query matching at every rung returns non-decreasing rungs `[0, 2, 3, 4, 4, 5, 6]` and the fixtures come back exact → name → tagline → description → category → fuzzy; every one of the **eight frozen reason strings** is emitted (including the latent "Same audience, different approach", which no column writes today); dead **and** pivoted rows sort last under an otherwise equal match and are still returned; a **0-star exact-name match beats a 99999-star fuzzy one**; a two-term query returns **only** rows matching both and scores by the **worst** term (0.143, not the 0.071 average); the empty-query contract (no `q`, `q=`, `q=<blank>`) is **200 + `[]`**; `q=%` and `q=_` return **0 rows**, and `/api/startups?q=%` is still literal (40 of 1,282 — every hit really contains a `%`); a search writes no evidence row and queues no capture job, and a tripwire proves it never calls `capture.start_capture` (the F-22 contrast with `/api/compare`); no founder-store record appears in a search result; the keyword rung matches a fixture with `features_json` populated and **skips** the row where it is NULL (data-awareness); and the reachable-rung census is recorded below. Suites: `..\backend\.venv\Scripts\python.exe -m tests.smoke` (from `backend/`) → **RESULT: ALL PASS** (85 PASS / 0 FAIL); `npm test` with Node 24 first on PATH → **RESULT: ALL PASS** (backend smoke exit 0 · frontend sort check exit 0 · frontend lint+build exit 0 · e2e 35 passed / 0 failed). No `frontend/` file touched (asserted in the verifier). Full output in §Phase 4 evidence below. | 2026-09-16 |
 | 5 — Backend functional test gate | **PASS** | Branch `phase/05-backend-functional-gate`, cut from `main` at `850c6e9`. Backend only — no `frontend/` file touched. New: `backend/tests/functional.py`, one self-contained suite over **F-01–F-24 + the §6 invariants** (187 checks) with its own throwaway archive + founder store and the fetcher, both LLM prompts and both date sources stubbed: `cd backend` then `..\backend\.venv\Scripts\python.exe -m tests.functional` → **`RESULT: ALL PASS`** — `TESTS: 187 run, 187 passed, 0 failed` (exit 0, ~2.8 s; identical across four consecutive runs). Wired into `scripts\verify.mjs` directly after the smoke suite, so `npm test` now runs **five** steps → **`RESULT: ALL PASS`** (backend smoke exit 0 · backend functional exit 0 · frontend sort check exit 0 · frontend lint+build exit 0 · e2e 35 passed / 0 failed). **Traceability table F-01–F-24 → test → PASS below.** Real-backend smoke against the **real** archive: WAL-safe backup to `ideasexist.db.bak-phase5` first, then the first boot since Phase 1 → **18 → 40 columns and the `evidence` table appearing, 1,282 rows before and after**; `GET /api/health`, `/api/stats`, `/api/categories`, `/api/search?q=obsidian`, `/api/startups/obsidian` all answered with real data; a real founder app (`Phase 5 Smoke App`, confirmed) plus a real JIT capture of **Obsidian** (6.0 s, page plan fetched) → 3 sourced negative evidence rows written, with `features_json`/`pricing_json`/`positioning` left **unknown** because the LLM gateway answered **401** for the configured `OPENCODE_GO_API_KEY` — recorded honestly, not hidden (see §Phase 5 evidence 4). All four `scripts/phaseN-verify.py` re-run on this branch → **`RESULT: ALL PASS`** (31 / 74 / 47 / 59 checks); `phase4-verify.py` needed its rung-census assertion repaired against the now-real captured state (recorded below). Full output in §Phase 5 evidence below. | 2026-09-16 |
 | 6 — Frontend implementation | **PASS** | Branch `phase/06-frontend-implementation`, cut from `fix/startup-evidence-endpoint` (see the finding in §Phase 6 evidence 1 — the dossier's sourced negative list needed a backend read that did not exist, so it went to its own branch/PR **#14** and this branch consumes it; **no `backend/` file was edited here**). All **nine** items run against the real stack — backend on `:8020` over the **real** archive plus a real founder store, frontend on `:3023`. `npm test` → **`RESULT: ALL PASS`**, five steps: backend smoke exit 0 · backend functional exit 0 (**229/229**) · frontend sort check exit 0 · frontend lint+build exit 0 (the new `ƒ /products/[slug]` route in the build output) · e2e **35 passed / 0 failed**. Every non-happy state in the phase brief was exercised and is recorded with the response behind it: compare on an unconfirmed draft → **409** `{"state":"not_confirmed"}` rendered in the UI as "The draft must be confirmed first" + a **Confirm the draft** action and **no table**; a never-captured competitor → **200** `{"state":"queued","message":"capture queued"}` with a Retry, and the table only after the capture landed; an unknown competitor → **404** naming the ref; every empty cell → the word `unknown` (never blank, never "no"); founder `archive_status` shown (`local_only` → `pending`, with the rejection note path wired); gateway switch on a not-ready gateway → **400** with the API's own reason, and the control disabled with that same reason; a **key_hint** and never a key. Real payloads pasted in §Phase 6 evidence 2–5. Falsified docs corrected in this branch: `docs/frontend-plan.md` (status + the §2.1 evidence read), `docs/llm-gateways.md` (status), `docs/codebase-comprehension.md` (a Phase 6 note). | 2026-09-16 |
-| 7 — Frontend tests | pending | Unblocked by the Phase 6 `PASS` above. The Phase 7 test plan is `docs/frontend-plan.md` §3 (12 areas). | |
+| 7 — Frontend tests | **PASS** | Branch `phase/07-frontend-tests`, cut from `main` at `fe5a12a`. Frontend tests only — **no `backend/` file touched**. Two code commits: the suite (`922240f`) and the three accessible names it found unnamed (`6497e15`). Tiers 5–6 of `scripts/e2e-verify-runner.ts` render the **real components** against **stubbed HTTP** — no server, no network, no live archive, no LLM, no timers left running — one stub per test, restored in a `finally`, and an unmatched request answers 404 naming its own URL so a forgotten route fails instead of silently passing. **204 new checks** (172 `P7.*` + 32 `P8.*`) over the **twelve areas** of `docs/frontend-plan.md` §3, plus a sweep of the non-happy states Phase 6 recorded: search reasons + the empty-query 200 `[]` contract (never the archive); the dossier's plan-by-plan pricing with its capture date, flat features, sourced "doesn't do" list and honest `unknown`s; all three founder paths (URL / form / agent-JSON) with a 3-feature form refused **locally, with no request**; confirm-before-diff (**409 → the confirm step, and no table — not even an empty one**); the five bands in the fixed order with sourced cells and `unknown` cells; three exports (bytes, media type, filename) and a surfaced failure; `/products/<slug>` and its themed "Not filed" 404; light + dark, reduced motion, the external-link `rel`/`aria-label` rule, and the empty/loading/error states; the two trust badges (distinct, lapsed vs never-checked, and none inside a claim); link-eligibility & consent; dimension 7 banding with review links and **no score anywhere**; and founded honesty (an RDAP date is not a founding year, and no fabricated `2021` renders). New: `scripts/e2e-dom-setup.ts` — the jsdom bootstrap must be the **first** import, because Radix captures `globalThis?.document` at module load and an inline bootstrap left every dialog and popover rendering empty. `npm test` → **`RESULT: ALL PASS`**, five steps: backend smoke exit 0 · backend functional **234/234** · frontend sort check exit 0 · frontend lint+build exit 0 · frontend e2e **239 passed / 0 failed**. **Traceability table below.** The only production change is the two components whose new-tab links the area-8 assertion found unnamed. | 2026-09-17 |
 | 8 — Full end-to-end test | pending | Unblocked by the Phase 5 `PASS` above. | |
 | 9 — Handoff & close-out | pending | | |
 
@@ -1443,3 +1443,153 @@ cd backend
 `tests/functional.py` grew 229 → **234** checks (the five token checks: creation issues one; a draft is unreadable without it — 403, not 404 or 200; readable with it and reads never re-issue it; compare refuses a draft without it; an export without it is refused). `npm test` carries all five steps green on this branch.
 
 **Date and who ran it:** 2026-09-17, the AutoClaw agent for this repo on `DESKTOP-KV8OEKP`, at the owner's request.
+
+---
+
+## Phase 7 evidence — frontend tests (2026-09-17)
+
+**Branch:** `phase/07-frontend-tests`, cut from `main` at `fe5a12a`. Two code commits, in dependency order, then the docs commit that carries this section:
+
+| Commit | What |
+|---|---|
+| `922240f` | `test(frontend): add the twelve-area Phase 7 suite` — `scripts/e2e-verify-runner.ts` (Tiers 5–6) and the new `scripts/e2e-dom-setup.ts` |
+| `6497e15` | `fix(frontend): name the new-tab links the Phase 7 suite found unnamed` — `gap-table.tsx`, `founder-app-dialog.tsx` |
+
+**No `backend/` file is edited on this branch.** The only `frontend/` files edited are the two named above, and both are bug fixes a test genuinely exposed (§4).
+
+### 0. What the suite is, and what it deliberately is not
+
+The twelve areas run against the **real** components with `globalThis.fetch` replaced per test. The stub is restored in a `finally`, and an unmatched request answers `404 {"detail": "no stub for <METHOD> <url>"}` — a forgotten route is the finding, rather than a silent `{}` that lets the UI look right for the wrong reason.
+
+* Assertions are on **roles, accessible names and visible text** — never CSS class names. (Tiers 1–4 assert things like `.sky-sun`; that style tests the markup rather than what a user perceives, and it breaks on a restyle. This is the departure the plan asked for.)
+* Fixtures are the shapes the backend actually answered with, from Phase 6 §2–§4 above: the three `obsidian` negative evidence rows, the compare bands, the `409 not_confirmed`, `200 queued`, `404 competitor not found`, and the export byte heads. Where a fixture is instead built from the contract (the captured-pricing dossier from `docs/teardown-spec.md` §5.1/§6, the dimension-7 rows from `docs/gap-table-format.md` §6), the source is named in a comment above it — an invented fixture passes while the UI is wrong.
+* Nothing here talks to a server, the network, the live archive or the LLM. That is Phase 8's job.
+
+### 1. The exit gate — the run, with its counts
+
+```
+$env:PATH = "C:\Program Files\nodejs;" + $env:PATH
+node scripts/e2e-verify.mjs
+
+--- Tier 1: Celestial Sky & Custom Sun/Moon Engine (R1) ---   … (Tiers 1–4, unchanged)
+--- Tier 5: [1] search with reasons ---
+--- Tier 5: [2] dossier -> teardown ---
+--- Tier 5: [3] founder-app: URL / form / agent-JSON ---
+--- Tier 5: [4] confirm-before-diff ---
+--- Tier 5: [5] gap table ---
+--- Tier 5: [6] export ---
+--- Tier 5: [7] /products/<slug> ---
+--- Tier 5: [8] visual & a11y ---
+--- Tier 5: [9] trust badges ---
+--- Tier 5: [10] link eligibility & consent ---
+--- Tier 5: [11] reviews / gap-table dimension 7 ---
+--- Tier 5: [12] founded honesty ---
+--- Tier 6: the non-happy states from the ledger ---
+
+==========================================
+TEST RESULTS: 239 PASSED, 0 FAILED
+==========================================
+
+[PASS] All E2E Verification tests passed successfully!
+```
+
+**Checks run / passed / failed: 239 / 239 / 0.** That is the **35** existing Tier 1–4 checks plus **204** new ones (172 `P7.*`, 32 `P8.*`). None of the 35 was weakened, skipped or deleted, and no Tier 1–4 assertion became obsolete — the UI those suites assert on did not change in this phase.
+
+### 2. Traceability — each area → the checks that cover it → PASS
+
+| # | Area (`docs/frontend-plan.md` §3) | Suite | Checks | Result |
+|---|---|---|---|---|
+| 1 | Search-with-reasons | Tier 5 [1] | `P7.1` ×7 | **PASS** |
+| 2 | Dossier → teardown | Tier 5 [2] | `P7.2` ×18 | **PASS** |
+| 3 | Founder-app — URL / form / agent-JSON | Tier 5 [3] | `P7.3` ×16 | **PASS** |
+| 4 | Confirm-before-diff | Tier 5 [4] | `P7.4` ×6 | **PASS** |
+| 5 | Gap table | Tier 5 [5] | `P7.5` ×17 | **PASS** |
+| 6 | Export | Tier 5 [6] | `P7.6` ×23 | **PASS** |
+| 7 | `/products/<slug>` | Tier 5 [7] | `P7.7` ×14 | **PASS** |
+| 8 | Visual & a11y | Tier 5 [8] | `P8.1` ×32 | **PASS** |
+| 9 | Trust badges | Tier 5 [9] | `P7.9` ×11 | **PASS** |
+| 10 | Link eligibility & consent | Tier 5 [10] | `P7.10` ×14 | **PASS** |
+| 11 | Reviews / dimension 7 | Tier 5 [11] | `P7.11` ×11 | **PASS** |
+| 12 | `founded` honesty | Tier 5 [12] | `P7.12` ×17 | **PASS** |
+| — | The non-happy states from Phase 6 §3 (extra, not an area) | Tier 6 | `P7.0` ×18 | **PASS** |
+
+No area is missing a row. (Area 8's checks carry the `P8.1` prefix — the visual/a11y group — which is why `P7.8` is not a thing.)
+
+### 3. The non-happy states, as the suite asserts them
+
+Every state below is a normal answer from this backend, and each gets its own honest render with its own way forward — never an empty box:
+
+| State | Asserted render |
+|---|---|
+| `409 {"state":"not_confirmed"}` | "The draft must be confirmed first" + the server's sentence + a **Confirm the draft** action; **no `<table>` in the DOM at all** |
+| `200 {"state":"queued"}` / `in_progress` | the server's message, the competitor names, a **Retry** that re-fires the request; no partial table |
+| `404 competitor not found` | the server's sentence verbatim (it names the ref) + a Retry |
+| any empty claim cell | the literal word `unknown`; no cell in the table is ever blank |
+| stale `last_checked` | Machine Verified shows `lapsed — last checked <date>` while Admin Verified stays verified |
+| never-checked record | Machine Verified reads `never checked` |
+| link-less draft | the consent checkbox is **absent**; the panel says it is comparison-only and never published |
+| rejected submission | "Not accepted" + "Why it was turned down" + the note verbatim + the submission history |
+| unreachable backend | a `role="alert"` with a Retry, distinct from "unconfirmed" and from "not filed" |
+
+### 4. The three links the suite found unnamed (the only production change)
+
+`docs/frontend-plan.md` §3 area 8 requires every external link to carry **both** `rel="noopener noreferrer"` **and** an `aria-label` naming what it opens. The suite asserts that literally, across every surface it renders. On first run it failed:
+
+```
+✗ FAIL: P8.1 gap table: every external link carries an aria-label naming what it opens
+        (offenders: https://g2.com/noted-reviews, https://reddit.com/r/noted)
+✗ FAIL: P8.1 founder dialog: every external link carries an aria-label naming what it opens
+        (offenders: https://loom-note.test, https://github.com/loom/note)
+```
+
+Both already carried `rel="noopener noreferrer"`; neither told a screen reader that the link opens a new tab, or what it opens:
+
+* `gap-table.tsx` — the **source link** in a comparison row (`SourceToken`).
+* `founder-app-dialog.tsx` — the **Website / GitHub** links in the drafted profile (`ProfileReview`).
+
+Fixed with two attribute additions (`6497e15`), so the rule now holds uniformly across the card (×2), the detail modal (×2), the dossier's source lines and sourced "doesn't do" links, the record links, the comparison source cells and the founder's own links. **No assertion was softened to reach green** — the failing check is the one that found the bug.
+
+### 5. The harness change that made portalled surfaces testable
+
+The jsdom bootstrap moved into `scripts/e2e-dom-setup.ts`, imported **first** by the runner. It has to be its own module: Radix's portal module evaluates `globalThis?.document ? React.useLayoutEffect : () => {}` **at module load**, and esbuild hoists every import above a module's own statements — so an inline bootstrap is installed too late, Radix's mounted flag never flips, and every `Dialog`/`Popover` silently renders nothing. That one fact had made area 3, area 10 and the founder-dialog half of area 8 untestable.
+
+The same module closes three related holes the portalled surfaces exposed: `self` (next/link reads it; without it every render of a `Link` throws `self is not defined`), a bare `requestAnimationFrame` (Radix tabs call it unqualified, so it must exist on the Node global, not only on `window`), and `navigator` (Node ≥21 defines its own, so a plain assignment silently left Node's in place and app code reading `navigator.clipboard` never saw the DOM's).
+
+Tiers 1–4 were re-run after the extraction and are unchanged: 35/35. The DOM bootstrap also now holds the reduced-motion control the plan's area 8 names (`setReducedMotion()`), which the harness already had.
+
+### 6. `npm test` — still five steps, all green
+
+```
+$env:PATH = "C:\Program Files\nodejs;" + $env:PATH
+npm test
+
+[PASS] backend smoke (exit 0)
+[PASS] backend functional (Phase 5 gate) (exit 0)   RESULT: ALL PASS — TESTS: 234 run, 234 passed, 0 failed
+[PASS] frontend sort check (exit 0)                 RESULT: ALL PASS
+[PASS] frontend lint + build (exit 0)
+[PASS] frontend e2e verification (exit 0)           TEST RESULTS: 239 PASSED, 0 FAILED
+
+RESULT: ALL PASS
+```
+
+(Exit code 0.) `eslint` is clean and `next build` compiles — including the two edited components. The suite runs inside step 5, hermetically, in a few seconds.
+
+### 7. Docs falsified by this phase, corrected in this branch
+
+* `docs/e2e-test-plan.md` — its status line read `blocked until Phase 7 (frontend tests) is PASS`. Phase 7 is now `PASS`, so that line is false as written; updated to name the gate as satisfied and the plan as the next gate.
+* `docs/frontend-plan.md` — its status line still described the Phase 6 state only; it now records that §3's tests are implemented and `PASS`, and where the suite lives.
+* No other doc was falsified: the twelve areas needed no change to the gateway contract (`docs/llm-gateways.md`), the gap-table format or the teardown spec.
+
+### 8. What could not be verified here, and why
+
+* **CSS layout / reflow.** jsdom applies no stylesheet, so the "mobile viewport" check (area 8) asserts only that **no JS width branch drops a control** at 375px — every band, and the sourced links, are still in the DOM. Actual reflow remains `scripts/reflow-check.mjs`'s job, as it has been since Phase 6.
+* **Colour contrast.** Unchanged and still `scripts/contrast_lab.py`.
+* **A real browser.** Not added, and not needed: the twelve areas are DOM-and-contract assertions, and the two things a browser would add (pixel layout, real rendering) are already owned by the sibling tools above. Keeping a browser out of `npm test` is what the phase brief requires.
+* **The admin LLM-gateway section** (`docs/llm-gateways.md` §4) is **not** one of the twelve areas; it sits behind the owner token, whose value this agent must not read out of `backend/.env`. It is therefore outside this suite — recorded rather than silently skipped. Its one external link (a provider docs link) is consequently outside the area-8 `aria-label` sweep too; every link on the six public surfaces is inside it.
+* **The live end-to-end run** is Phase 8. It is not started here.
+
+### 9. The gate
+
+Phase 7 = **PASS**.
+
+**Date and who ran it:** 2026-09-17, the AutoClaw agent for this repo (`does-this-startup-exist`) on `DESKTOP-KV8OEKP`.
