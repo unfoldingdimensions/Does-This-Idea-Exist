@@ -705,8 +705,25 @@ FORM_PAYLOAD = {
     "website_url": "https://loom-note.example",
 }
 
+# Per-draft access tokens (X-Founder-Token): creation responses carry the
+# one-time secret, and every later read/mutation of that draft must present
+# it. The registry spans the TestClient blocks below (each block is a new
+# client, same founder store).
+_FTOKENS: dict[int, str] = {}
+
+
+def _remember(draft: dict) -> dict:
+    if isinstance(draft, dict) and draft.get("founder_token"):
+        _FTOKENS[draft["founder_app_id"]] = draft["founder_token"]
+    return draft
+
+
+def _fh(fid: int) -> dict:
+    token = _FTOKENS.get(fid)
+    return {"X-Founder-Token": token} if token else {}
+
 with TestClient(api) as client:
-    _url_app = client.post("/api/founder-app", json={"url": SITE}).json()
+    _url_app = _remember(client.post("/api/founder-app", json={"url": SITE}).json())
     check("URL path drafts the founder's app (F-10)",
           bool(_url_app.get("founder_app_id"))
           and _url_app["profile"]["name"] == "Acme Notes"
@@ -715,13 +732,27 @@ with TestClient(api) as client:
     check("the URL path does not invent the founder's feature list (F-10)",
           _url_app["profile"]["features"] == [], str(_url_app["profile"]["features"]))
 
-    _form_app = client.post("/api/founder-app", json=FORM_PAYLOAD).json()
+    _form_app = _remember(client.post("/api/founder-app", json=FORM_PAYLOAD).json())
     _fid = _form_app["founder_app_id"]
     check("form path drafts a full teardown record (F-11)",
           bool(_form_app.get("founder_app_id"))
           and 5 <= len(_form_app["profile"]["features"]) <= 10
           and _form_app["profile"]["pricing"].get("plans"),
           str(_form_app["profile"]["features"]))
+    check("creation issues a one-time founder token (per-draft ownership)",
+          isinstance(_form_app.get("founder_token"), str)
+          and len(_form_app["founder_token"]) > 20,
+          "founder_token present")
+    check("a draft is unreadable without its token (403, not 404/200)",
+          client.get(f"/api/founder-app/{_fid}").status_code == 403
+          and client.get(f"/api/founder-app/{_fid}",
+                         headers={"X-Founder-Token": "wrong"}).status_code == 403,
+          "no token and wrong token both 403")
+    check("a draft is readable with its token, and reads never re-issue it",
+          client.get(f"/api/founder-app/{_fid}", headers=_fh(_fid)).status_code == 200
+          and "founder_token" not in client.get(f"/api/founder-app/{_fid}",
+                                                headers=_fh(_fid)).json(),
+          "200 with token, no re-issue")
 
     _missing = client.post("/api/founder-app", json={**FORM_PAYLOAD, "features": None})
     _short = client.post("/api/founder-app", json={**FORM_PAYLOAD, "features": ["a", "b", "c", "d"]})
@@ -744,6 +775,7 @@ with TestClient(api) as client:
                   "play_store": "", "github": ""},
     }
     _agent = client.post("/api/founder-app", json={"agent_json": json.dumps(_agent_payload)})
+    _remember(_agent.json())
     check("agent-JSON path drafts the founder's app (F-12)",
           _agent.status_code == 200
           and _agent.json()["profile"]["app_store_url"].startswith("https://apps.apple.com"),
@@ -790,23 +822,24 @@ with TestClient(api) as client:
           "founder_apps is absent from the archive; startups is absent from the founder store")
 
     # eligibility gate — no link, no consent question
-    _linkless = client.post("/api/founder-app",
-                            json={**FORM_PAYLOAD, "name": "Linkless Co",
-                                  "website_url": None}).json()
+    _linkless = _remember(client.post("/api/founder-app",
+                                      json={**FORM_PAYLOAD, "name": "Linkless Co",
+                                            "website_url": None}).json())
     check("a link-less submission is comparison-only (F-20)",
           _linkless["publish_offered"] is False
           and _linkless["archive_status"] == "local_only"
           and _linkless["eligibility"]["has_link"] is False, str(_linkless["eligibility"]))
-    _linkless_pub = client.post(f"/api/founder-app/{_linkless['founder_app_id']}/publish")
+    _linkless_pub = client.post(f"/api/founder-app/{_linkless['founder_app_id']}/publish",
+                                  headers=_fh(_linkless["founder_app_id"]))
     check("no consent question is asked when there is no link (F-20)",
           _linkless_pub.status_code == 400
           and "comparison-only" in _linkless_pub.json()["detail"],
           str(_linkless_pub.json().get("detail"))[:90])
-    _store_only = client.post("/api/founder-app", json={
+    _store_only = _remember(client.post("/api/founder-app", json={
         "name": "Play Only Co", "category": "other",
         "features": ["a", "b", "c", "d", "e"],
         "play_store_url": "https://play.google.com/store/apps/details?id=co",
-    }).json()
+    }).json())
     check("a store-only link satisfies eligibility (F-19/F-20)",
           _store_only["eligibility"]["link_field"] == "play_store_url"
           and _store_only["publish_offered"] is True,
@@ -820,18 +853,25 @@ with TestClient(api) as client:
         _refused = "not confirmed" in str(exc)
     check("the compare path refuses an unconfirmed founder app (F-13)", _refused,
           "assert_comparable raised")
-    _unconfirmed_app = client.post("/api/founder-app",
-                                   json={**FORM_PAYLOAD, "name": "Unconfirmed Gate Co"}).json()
-    _gate = client.post("/api/compare", json={"you": {"id": _unconfirmed_app["founder_app_id"]},
-                                              "competitors": [{"id": _comp_id}]})
+    _unconfirmed_app = _remember(client.post("/api/founder-app",
+                                                 json={**FORM_PAYLOAD, "name": "Unconfirmed Gate Co"}).json())
+    _unconfirmed_id = _unconfirmed_app["founder_app_id"]
+    _gate = client.post("/api/compare", json={"you": {"id": _unconfirmed_id},
+                                              "competitors": [{"id": _comp_id}]},
+                        headers=_fh(_unconfirmed_id))
     _gate_detail = _gate.json().get("detail")
     check("the endpoint refuses an unconfirmed app with an explicit 409 not_confirmed (F-13)",
           _gate.status_code == 409 and isinstance(_gate_detail, dict)
           and _gate_detail.get("state") == "not_confirmed"
           and "confirm" in _gate_detail.get("message", ""),
           f"{_gate.status_code}: {_gate_detail}")
+    _gate_no_token = client.post("/api/compare",
+                                 json={"you": {"id": _unconfirmed_id},
+                                       "competitors": [{"id": _comp_id}]})
+    check("compare refuses a draft presented without its token (per-draft ownership)",
+          _gate_no_token.status_code == 403, f"{_gate_no_token.status_code}")
 
-    _confirmed = client.post(f"/api/founder-app/{_fid}/confirm").json()
+    _confirmed = client.post(f"/api/founder-app/{_fid}/confirm", headers=_fh(_fid)).json()
     _conn = founder.connect()
     try:
         _prov = _conn.execute("SELECT provenance, confirmed_at FROM founder_apps WHERE id = ?",
@@ -863,7 +903,7 @@ with TestClient(api) as client:
           f"HTTP {_typo.status_code}")
 
     # consent -> pending -> approve -> archive_startup_id
-    _published = client.post(f"/api/founder-app/{_fid}/publish").json()
+    _published = client.post(f"/api/founder-app/{_fid}/publish", headers=_fh(_fid)).json()
     check("ticking the opt-in creates a pending submission (F-13/F-24)",
           _published["submitted"] is True and _published["archive_status"] == "pending",
           str(_published))
@@ -889,11 +929,11 @@ with TestClient(api) as client:
           str(founder.archive_status(_fid)))
 
     # rejection carries a note; a resubmission is a NEW row
-    _reject_app = client.post("/api/founder-app",
-                              json={**FORM_PAYLOAD, "name": "Rejected Co"}).json()
+    _reject_app = _remember(client.post("/api/founder-app",
+                                        json={**FORM_PAYLOAD, "name": "Rejected Co"}).json())
     _rid = _reject_app["founder_app_id"]
-    client.post(f"/api/founder-app/{_rid}/confirm")
-    _first_sub = client.post(f"/api/founder-app/{_rid}/publish").json()["submission_id"]
+    client.post(f"/api/founder-app/{_rid}/confirm", headers=_fh(_rid))
+    _first_sub = client.post(f"/api/founder-app/{_rid}/publish", headers=_fh(_rid)).json()["submission_id"]
     _rejected = client.post(f"/api/admin/founder/submissions/{_first_sub}/reject",
                             json={"note": "The site is behind a login, so nothing could be read."},
                             headers=AUTH).json()
@@ -904,7 +944,7 @@ with TestClient(api) as client:
     check("a rejection with no note is refused (F-24)",
           client.post(f"/api/admin/founder/submissions/{_first_sub}/reject",
                       json={"note": "  "}, headers=AUTH).status_code == 400, "400")
-    _second_sub = client.post(f"/api/founder-app/{_rid}/publish").json()["submission_id"]
+    _second_sub = client.post(f"/api/founder-app/{_rid}/publish", headers=_fh(_rid)).json()["submission_id"]
     _history = founder.decisions(_rid)
     check("resubmitting after a rejection creates a NEW row, never an edit (F-24)",
           len(_history) == 2 and [h["status"] for h in _history] == ["rejected", "pending"]
@@ -913,7 +953,7 @@ with TestClient(api) as client:
     check("archive_status follows the newest submission (F-24)",
           founder.archive_status(_rid) == "pending", founder.archive_status(_rid))
     check("the founder draft is readable back from its own endpoint (F-10)",
-          client.get(f"/api/founder-app/{_fid}").json()["profile"]["name"] == "Loom-note",
+          client.get(f"/api/founder-app/{_fid}", headers=_fh(_fid)).json()["profile"]["name"] == "Loom-note",
           "GET /api/founder-app/{id}")
 
     # --- F-14: idempotency kept, with the teardown carve-out ----------------
@@ -978,7 +1018,8 @@ with TestClient(api) as client:
 
     _table_resp = client.post("/api/compare",
                               json={"you": {"id": _fid_confirmed},
-                                    "competitors": [{"id": _comp_id}]})
+                                    "competitors": [{"id": _comp_id}]},
+                              headers=_fh(_fid_confirmed))
     check("compare returns the table for a confirmed founder app (F-15/F-22)",
           _table_resp.status_code == 200 and "you_have_they_dont" in _table_resp.json(),
           f"{_table_resp.status_code}")
@@ -1066,9 +1107,10 @@ with TestClient(api) as client:
 
     # --- F-16: the three exports, stateless and deterministic --------------
     _params = {"you": str(_fid_confirmed), "competitors": str(_comp_id)}
-    _md = client.get("/api/export/markdown", params=_params)
-    _js = client.get("/api/export/json", params=_params)
-    _cv = client.get("/api/export/csv", params=_params)
+    _fh_confirmed = _fh(_fid_confirmed)
+    _md = client.get("/api/export/markdown", params=_params, headers=_fh_confirmed)
+    _js = client.get("/api/export/json", params=_params, headers=_fh_confirmed)
+    _cv = client.get("/api/export/csv", params=_params, headers=_fh_confirmed)
     check("all three exports answer 200 (F-16)",
           _md.status_code == _js.status_code == _cv.status_code == 200,
           f"{_md.status_code}/{_js.status_code}/{_cv.status_code}")
@@ -1095,10 +1137,15 @@ with TestClient(api) as client:
           any(rw[0] == "asked_for" for rw in _csv_rows[1:]),
           str(sorted({rw[0] for rw in _csv_rows[1:]})))
     check("re-running an export with the same inputs gives the same bytes (F-16)",
-          _md.text == client.get("/api/export/markdown", params=_params).text
-          and _js.text == client.get("/api/export/json", params=_params).text
-          and _cv.text == client.get("/api/export/csv", params=_params).text,
+          _md.text == client.get("/api/export/markdown", params=_params,
+                                 headers=_fh_confirmed).text
+          and _js.text == client.get("/api/export/json", params=_params,
+                                     headers=_fh_confirmed).text
+          and _cv.text == client.get("/api/export/csv", params=_params,
+                                     headers=_fh_confirmed).text,
           "markdown/json/csv all byte-identical across two calls")
+    check("an export without the draft's token is refused (per-draft ownership)",
+          client.get("/api/export/json", params=_params).status_code == 403, "403")
     check("an unknown export format is refused (F-16)",
           client.get("/api/export/pdf", params=_params).status_code == 404, "404")
     check("an export never triggers a capture (F-16 — stateless, pure read)",
@@ -1208,7 +1255,8 @@ with TestClient(api) as client:
     # --- F-22 wiring: a never-captured competitor gets queued, not a table --
     _jit_id = insert_startup("Jit Wiring Co", SITE_JIT)
     _queued = client.post("/api/compare",
-                          json={"you": {"id": _fid_confirmed}, "competitors": [{"id": _jit_id}]})
+                          json={"you": {"id": _fid_confirmed}, "competitors": [{"id": _jit_id}]},
+                          headers=_fh(_fid_confirmed))
     check("a never-captured competitor returns the queued/retry state (F-22)",
           _queued.status_code == 200
           and _queued.json().get("state") in ("queued", "in_progress")
@@ -1217,7 +1265,8 @@ with TestClient(api) as client:
           f"{_queued.json().get('message')}")
     wait_capture_job(_jit_id)
     _served = client.post("/api/compare",
-                          json={"you": {"id": _fid_confirmed}, "competitors": [{"id": _jit_id}]})
+                          json={"you": {"id": _fid_confirmed}, "competitors": [{"id": _jit_id}]},
+                          headers=_fh(_fid_confirmed))
     check("once captured, the same call returns the table (F-15/F-22)",
           _served.status_code == 200 and "both_have" in _served.json(),
           f"{_served.status_code}: {list(_served.json())[:4]}")

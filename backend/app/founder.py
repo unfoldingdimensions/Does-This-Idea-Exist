@@ -32,8 +32,11 @@ Three input paths, one row shape:
     agent    the structured JSON from docs/teardown-spec.md §3, extended with
              the links block — unknown keys are rejected, never ignored
 """
+import hashlib
+import hmac
 import json
 import logging
+import secrets
 import sqlite3
 import time
 
@@ -55,6 +58,13 @@ FOUNDER_EXTRA_COLUMNS: tuple[tuple[str, str], ...] = (
     ("source_kind", "TEXT"),     # url | form | agent_json
     ("input_json", "TEXT"),      # what the founder actually submitted (audit)
     ("confirmed_at", "TEXT"),    # the confirm-before-diff gate (F-13)
+    # Per-draft access token (sha256 hex of a 256-bit secret). Stops sequential
+    # id enumeration of other founders' drafts on a hosted instance: every
+    # read/mutation of a draft requires its token (X-Founder-Token), which is
+    # returned ONCE at creation and never stored or returned again. Rows that
+    # predate this column (NULL) stay token-less — the documented local-upgrade
+    # path, not a bypass for new rows.
+    ("access_token_hash", "TEXT"),
 )
 _FOUNDER_COLUMNS = tuple(enrich.UPDATABLE) + tuple(name for name, _ in FOUNDER_EXTRA_COLUMNS)
 
@@ -103,8 +113,46 @@ def init_founder_db() -> None:
     try:
         conn.executescript(FOUNDER_SCHEMA)
         conn.commit()
+        # Additive migration for stores created before access_token_hash
+        # existed: fresh DBs already have it via FOUNDER_SCHEMA, so this is a
+        # no-op for them (PRAGMA decides, never DROP/RENAME).
+        cols = {row["name"] for row in conn.execute("PRAGMA table_info(founder_apps)")}
+        if "access_token_hash" not in cols:
+            conn.execute("ALTER TABLE founder_apps ADD COLUMN access_token_hash TEXT")
+            conn.commit()
     finally:
         conn.close()
+
+
+def mint_access_token() -> tuple[str, str]:
+    """A new per-draft secret and its stored hash.
+
+    Returns (plaintext, sha256-hex). The plaintext is returned to the founder
+    ONCE in the creation response; only the hash is stored and it is never
+    returned by any endpoint afterwards.
+    """
+    plaintext = secrets.token_urlsafe(32)
+    digest = hashlib.sha256(plaintext.encode("utf-8")).hexdigest()
+    return plaintext, digest
+
+
+def verify_access_token(row, supplied: str | None) -> bool:
+    """True when `supplied` matches the draft's stored token hash.
+
+    Rows with no stored hash predate per-draft tokens (local-upgrade path) and
+    are treated as public — see the column comment. A stored hash with a
+    missing or wrong token is a refusal, compared with hmac.compare_digest.
+    """
+    try:
+        expected = row["access_token_hash"]
+    except (KeyError, IndexError, TypeError):
+        return True
+    if not expected:
+        return True
+    if not supplied:
+        return False
+    actual = hashlib.sha256(supplied.encode("utf-8")).hexdigest()
+    return hmac.compare_digest(actual, expected)
 
 
 def _now() -> str:
@@ -202,6 +250,7 @@ def create_from_url(url: str, name_hint: str | None = None) -> dict:
     draft = enrich.draft_from_website(url, name_hint)  # raises ValueError/RuntimeError loudly
     profile = draft["profile"]
     founded, date_source = enrich._resolve_founded(draft["domain"], _text(profile.get("founded")))
+    founder_token, token_hash = mint_access_token()
     values = {
         "name": draft["name"],
         "tagline": _text(profile.get("tagline")),
@@ -218,9 +267,10 @@ def create_from_url(url: str, name_hint: str | None = None) -> dict:
         "provenance": MACHINE_DRAFTED,
         "source": "founder",
         "source_kind": "url",
+        "access_token_hash": token_hash,
         "input_json": json.dumps({"url": url, "name_hint": name_hint}),
     }
-    return _draft_response(_insert(values))
+    return _draft_response(_insert(values), founder_token=founder_token)
 
 
 def create_from_form(payload: dict) -> dict:
@@ -232,6 +282,7 @@ def create_from_form(payload: dict) -> dict:
     features = require_features(payload.get("features"))
     links = _links(payload, FORM_LINK_KEYS)
     pricing = td.clean_pricing(payload.get("pricing"))
+    founder_token, token_hash = mint_access_token()
     values = {
         "name": name[: enrich.NAME_MAX],
         "description": _text(payload.get("description"))[: enrich.DESCRIPTION_MAX],
@@ -244,11 +295,12 @@ def create_from_form(payload: dict) -> dict:
         "provenance": MACHINE_DRAFTED,
         "source": "founder",
         "source_kind": "form",
+        "access_token_hash": token_hash,
         "input_json": json.dumps({**{k: payload.get(k) for k in ("name", "description", "target_user", "category")},
                                   "features": features, "links": links}, ensure_ascii=False),
         **links,
     }
-    return _draft_response(_insert(values))
+    return _draft_response(_insert(values), founder_token=founder_token)
 
 
 def create_from_agent_json(payload) -> dict:
@@ -305,6 +357,7 @@ def create_from_agent_json(payload) -> dict:
         },
         FORM_LINK_KEYS,
     )
+    founder_token, token_hash = mint_access_token()
     values = {
         "name": name[: enrich.NAME_MAX],
         "description": _text(parsed.get("description"))[: enrich.DESCRIPTION_MAX],
@@ -317,10 +370,11 @@ def create_from_agent_json(payload) -> dict:
         "provenance": MACHINE_DRAFTED,
         "source": "founder",
         "source_kind": "agent_json",
+        "access_token_hash": token_hash,
         "input_json": json.dumps(parsed, ensure_ascii=False)[:20000],
         **links,
     }
-    return _draft_response(_insert(values))
+    return _draft_response(_insert(values), founder_token=founder_token)
 
 
 # --- gates ------------------------------------------------------------------
@@ -384,9 +438,9 @@ def profile_of(row) -> dict:
     return out
 
 
-def _draft_response(row: dict) -> dict:
+def _draft_response(row: dict, founder_token: str | None = None) -> dict:
     gates = eligibility(row)
-    return {
+    response = {
         "founder_app_id": row["id"],
         "profile": profile_of(row),
         "confirmed": bool(row.get("confirmed_at")),
@@ -398,6 +452,12 @@ def _draft_response(row: dict) -> dict:
         "archive_status": archive_status(row["id"]),
         "submission": newest_submission(row["id"]),
     }
+    # The per-draft secret, returned ONCE at creation. Reads, confirms and
+    # publishes never include it — the founder's client stores it and sends it
+    # back as X-Founder-Token.
+    if founder_token is not None:
+        response["founder_token"] = founder_token
+    return response
 
 
 def confirm(founder_app_id: int) -> dict:
