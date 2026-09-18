@@ -166,6 +166,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "premium domain", "register a new domain", "the domain you are looking for",
         "this domain name has been registered", "domain is available for purchase",
         "make an offer on this domain", "purchase this domain",
+        # Found by the pilot-50 run: healthiq.com renders "This domain name may be
+        # for sale" with a contact form and a captcha. The list had "domain is for
+        # sale" but not the "may be" phrasing, so a for-sale lander was admitted as
+        # LIVE. The domain word is required deliberately - a bare "may be for sale"
+        # would match any marketplace sentence about goods.
+        "domain name may be for sale", "this domain may be for sale",
+        "domain may be for sale",
     ],
     # hosts that are, by construction, a marketplace listing and not a company site
     "marketplace_hosts": [
@@ -1960,6 +1967,13 @@ def _fixtures() -> list[tuple[str, str, str, list[dict], str, str]]:
                     visible="We help members escape payday loans and build a safety "
                             "net.")],
               "LIVE", ""))
+
+    F.append(("domain-may-be-for-sale", "HealthIQ", "https://www.healthiq.com",
+              [_cap(status=200, bytes=3000,
+                    title="HealthIQ.com domain name may be for sale",
+                    visible="HealthIQ.com This domain name may be for sale Contact us "
+                            "I'm not a robot Protected by ALTCHA")],
+              "DEAD", ""))
 
     # --- hard 404 ------------------------------------------------------------
     F.append(("hard-404", "Datree", "https://datree.io",
