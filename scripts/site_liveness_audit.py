@@ -265,6 +265,42 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "kasino", "slot", "gacor", "jackpot",
     ],
     "spam_weak_min": 2,
+    # --- legal seizure / takedown: the domain is not the company's any more ----
+    # Nothing in the old vocabulary matched a seizure banner, so a confiscated
+    # domain read as LIVE. A seized domain is a machine-reject, not a queue item.
+    "seizure_phrases": [
+        "this domain has been seized", "domain has been seized",
+        "this website has been seized", "seized by the", "seized pursuant to",
+        "homeland security investigations", "immigration and customs enforcement",
+        "national intellectual property rights coordination",
+        "in accordance with a court order", "court-ordered seizure",
+        "this site has been taken down", "website taken down by court order",
+    ],
+    # --- banned category: a live business we choose not to list ----------------
+    # NOT a death (the site is up) and NOT repurposing (the company is real).
+    # Checked AFTER class A/B/C on purpose: a hijacked domain serving a casino
+    # should still be reported as REPURPOSED, because that is the more useful
+    # fact (your domain was taken) than (a casino lives here).
+    #
+    # These markers are commercial-OFFER phrasing, not topic vocabulary, and one
+    # only counts in the TITLE or as one of TWO distinct hits. The first draft of
+    # this rule scanned topic words ("casino", "gambling", "adult", "loan",
+    # "streaming", "pharmacy") and rejected SEVEN real companies on this very
+    # archive: Cockroach Labs (a database) on "gambling"+"streaming", Conduktor
+    # on "adult"+"streaming", PharmEasy and Pelago on "pharmacy"+"adult", Aura
+    # on "adult"+"loan", Brightside on one mention of the payday loans it exists
+    # to replace. A company site may name the industries it serves; only an offer
+    # is an offer.
+    "banned_markers": [
+        "casino bonus", "free spins", "no deposit bonus", "deposit bonus",
+        "welcome bonus", "poker room", "bookmaker", "betting odds",
+        "sports betting", "sportsbook", "live dealer",
+        "adult webcam", "escort service", "porn videos", "live sex",
+        "torrent download", "cracked software", "warez",
+        "payday loan", "payday loans", "cash advance loan",
+        "no credit check loan", "instant payday",
+    ],
+    "banned_min_text_hits": 2,
     # --- class B: stock CMS shell ------------------------------------------
     # "skip to content" is NOT one of these: it is an accessibility link on half
     # the WordPress sites on the internet, and treating it as a corpse filed
@@ -823,6 +859,24 @@ def signals(cap: dict[str, Any], name: str, cfg: dict[str, Any]) -> dict[str, An
                               or _phrase_hits(visible[:400], cfg["js_redirect_phrases"]))
     sig["empty_body"] = cap.get("bytes", 0) < 1024 and not title
 
+    # --- legal seizure, and banned-category content ---------------------------
+    sz = _phrase_hits(hay, cfg.get("seizure_phrases") or [])
+    sig["seizure_title"] = [p for p in sz if p in title.lower()]
+    sig["seizure_body"] = [] if sig["seizure_title"] else (
+        [p for p in sz if small or not title])
+    sig["seizure"] = sig["seizure_title"] or sig["seizure_body"]
+
+    bm = []
+    for phrase in cfg.get("banned_markers") or []:
+        rx = re.compile(r"\b" + re.escape(phrase).replace(r"\ ", r"\s+") + r"\b", re.I)
+        if rx.search(low):
+            bm.append(phrase)
+    bmin = int(cfg.get("banned_min_text_hits") or 2)
+    btitle = [p for p in bm if p in title.lower()]
+    sig["banned"] = btitle or (bm if len(bm) >= bmin else [])
+    sig["banned_tier"] = ("title" if btitle else
+                          ("marker-cluster" if len(bm) >= bmin else ""))
+
     # repurposing classes
     sig["generic_title"] = is_generic_title(title, cfg)
     sig["class_a"] = bool(sig["spam"])
@@ -918,6 +972,12 @@ def classify(name: str, url: str, caps: list[dict[str, Any]],
                        why=f"soft 404 on HTTP {best.get('status')} "
                            f"({', '.join(hits[:2])})")
             return res
+        # legal seizure / takedown: the domain is no longer the company's
+        if sig["seizure"]:
+            res.update(state="DEAD",
+                       why=f"legal seizure / takedown notice "
+                           f"({', '.join(sig['seizure'][:2])})")
+            return res
         if sig["class_a"]:
             res.update(state="REPURPOSED", evidence_class="A:spam-keyword",
                        why="domain now sells unrelated gambling/piracy/SEO spam "
@@ -941,6 +1001,23 @@ def classify(name: str, url: str, caps: list[dict[str, Any]],
                            f"{','.join(sig['shell_strong'])}, generic title "
                            f"{best.get('title','')[:40]!r}, no company token "
                            f"{sig['brand_tokens']} in title or visible text")
+            return res
+        # banned category: live, real, and not ours to list. Checked after the
+        # repurposing classes so a hijacked domain still reports as REPURPOSED.
+        if sig["banned"]:
+            res.update(state="BANNED", evidence_class="policy:banned-category",
+                       why="live site in a category the archive does not list "
+                           f"[{sig['banned_tier']}] ({'; '.join(sig['banned'][:5])})")
+            return res
+        # moved to a different owner: the stored domain now serves a live site
+        # that mentions the company nowhere. An acquisition that kept the brand
+        # (guildeducation.com -> guild.com) is NOT this; one that did not is a
+        # policy call, so it goes to a human rather than being admitted.
+        if res["redirected"] and not sig["title_has_brand"] and not sig["text_has_brand"]:
+            res.update(state="MOVED", evidence_class="policy:owner-changed",
+                       why=f"stored host {res['stored_host']} now serves "
+                           f"{res['final_host']}, and no token of "
+                           f"{sig['brand_tokens']} appears on the page")
             return res
         if sig["placeholder"]:
             res.update(state="UNKNOWN",
@@ -1311,7 +1388,8 @@ def write_run(out_dir: str, records: list[dict], provenance: str,
     return run_dir
 
 
-STATE_ORDER = ["LIVE", "DEAD", "REPURPOSED", "WALLED", "UNKNOWN", "NO_URL"]
+STATE_ORDER = ["LIVE", "DEAD", "REPURPOSED", "MOVED", "BANNED", "WALLED", "UNKNOWN",
+               "NO_URL"]
 
 
 def summarise(records: list[dict], log: Log) -> None:
@@ -1652,8 +1730,11 @@ def run_drop(args: argparse.Namespace, log: Log) -> int:
 # 7. Selftest - the fixtures are the real cases that taught us the rules.
 # ===========================================================================
 def _cap(**kw: Any) -> dict[str, Any]:
-    base = {"url": "https://example.com", "ua": DEFAULT_UAS[0], "status": 200,
-            "error": "", "error_class": "", "final_url": "https://example.com",
+    # url/final_url default to EMPTY on purpose: run_selftest fills them from the
+    # fixture's own URL unless the fixture names a different one. A hardcoded
+    # default here would silently assert a cross-domain move in every fixture.
+    base = {"url": "", "ua": DEFAULT_UAS[0], "status": 200,
+            "error": "", "error_class": "", "final_url": "",
             "chain": [], "content_type": "text/html", "server": "", "bytes": 5000,
             "truncated": False, "title": "", "meta_description": "", "h1": "",
             "visible": "", "html": "", "elapsed_ms": 10, "blocked_by_guard": ""}
@@ -1816,12 +1897,68 @@ def _fixtures() -> list[tuple[str, str, str, list[dict], str, str]]:
                     title="HeadlineLogic News Portal",
                     visible="News Entertainment Weather Sports Finance Top Stories")],
               "REPURPOSED", "C:monetised-redirect"))
-    # An acquisition that forwards to the acquirer's own site is NOT repurposing.
-    F.append(("acquirer-domain-is-not-spam", "Hysolate", "https://hysolate.com/",
+    # An acquisition that forwards to the acquirer's own site and KEEPS the brand
+    # is an ordinary redirect and stays LIVE (real: guildeducation.com ->
+    # guild.com, ninjacart.in -> ninjacart.com).
+    F.append(("acquirer-kept-brand-is-live", "Guild Education", "https://www.guildeducation.com",
+              [_cap(status=200, bytes=90000,
+                    final_url="https://guild.com/",
+                    title="Education Benefits That Power Workforce Strategy",
+                    visible="Guild helps employers attract and retain talent.")],
+              "LIVE", ""))
+    # ...but one that LOSES the brand is a policy call, so it queues for a human
+    # rather than being admitted (owner decision 2026-09-19). Real: Hysolate.
+    F.append(("acquirer-lost-brand-goes-to-admin", "Hysolate", "https://hysolate.com/",
               [_cap(status=200, bytes=90000,
                     final_url="https://www.fortinet.com/products/fortimail-workspace-security",
                     title="FortiMail Workspace Security | Fortinet",
                     visible="Fortinet Products Solutions Support Partners Company")],
+              "MOVED", "policy:owner-changed"))
+    # Legal seizure: nothing in the old vocabulary matched it, so a confiscated
+    # domain read as LIVE.
+    F.append(("seized-domain", "OldCo", "https://oldco.example",
+              [_cap(status=200, bytes=900,
+                    title="This domain has been seized",
+                    visible="This domain has been seized by Homeland Security "
+                            "Investigations in accordance with a court order.")],
+              "DEAD", ""))
+    # Banned category: the site is up and the business is real - we just do not
+    # list this kind. Rejected automatically, never queued for a human.
+    F.append(("banned-category", "LuckySpin", "https://luckyspin.example",
+              [_cap(status=200, bytes=70000,
+                    title="LuckySpin - Sports Betting and Poker Room",
+                    visible="Sports betting, poker room and casino bonus. "
+                            "Free spins for every new member.")],
+              "BANNED", "policy:banned-category"))
+    # ...and the false positive that keeps the two-tier rule honest: a payments
+    # company that mentions "casino" once is not a casino.
+    F.append(("mentions-casino-once", "PayFlow", "https://payflow.example",
+              [_cap(status=200, bytes=80000,
+                    title="PayFlow - Payments infrastructure for modern businesses",
+                    visible="PayFlow powers payments for marketplaces including one "
+                            "casino operator in Macau.")],
+              "LIVE", ""))
+
+    # ...and the false positives that shaped the rule. Every one of these was a
+    # real BANNED verdict on the live archive before the marker list was narrowed
+    # to commercial offers - a company may name the industries it serves.
+    F.append(("names-industry-database", "Cockroach Labs", "https://www.cockroachlabs.com/",
+              [_cap(status=200, bytes=120000,
+                    title="CockroachDB - the most highly evolved SQL database",
+                    visible="Trusted by gaming, streaming and gambling platforms "
+                            "worldwide.")],
+              "LIVE", ""))
+    F.append(("names-industry-pharmacy", "PharmEasy", "https://pharmeasy.in/",
+              [_cap(status=200, bytes=120000,
+                    title="PharmEasy - India's largest online pharmacy",
+                    visible="Order medicines online. Adult and paediatric care, health "
+                            "talks, insurance and loans.")],
+              "LIVE", ""))
+    F.append(("mentions-payday-loans-once", "Brightside", "https://www.gobrightside.com/",
+              [_cap(status=200, bytes=120000,
+                    title="Brightside - Financial care for working families",
+                    visible="We help members escape payday loans and build a safety "
+                            "net.")],
               "LIVE", ""))
 
     # --- hard 404 ------------------------------------------------------------
@@ -1850,6 +1987,9 @@ def run_selftest(args: argparse.Namespace, log: Log) -> int:
     fixtures = _fixtures()
     for label, name, url, caps, want_state, want_class in fixtures:
         for c in caps:
+            # a fixture only asserts a domain move when it says so explicitly
+            c["url"] = c.get("url") or url
+            c["final_url"] = c.get("final_url") or url
             c["_sig"] = signals(c, name, CFG)
         res = classify(name, url, caps, CFG)
         ok = res["state"] == want_state and (
