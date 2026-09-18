@@ -124,8 +124,12 @@ def main() -> int:
     expected = [name for name, _ in db.NEW_STARTUP_COLUMNS]
     missing = [c for c in expected if c not in after_cols]
     check(f"all {len(expected)} teardown columns added", not missing, f"missing: {missing}")
-    check("first migration run actually added columns", len(added_first) == len(expected),
-          f"added {len(added_first)}")
+    prov = [name for name, _ in db.NEW_APPROVAL_COLUMNS]
+    check(f"all {len(prov)} admission-provenance columns added (scale-to-10k)",
+          all(c in after_cols for c in prov),
+          f"missing: {[c for c in prov if c not in after_cols]}")
+    check("first migration run actually added columns",
+          len(added_first) == len(expected) + len(prov), f"added {len(added_first)}")
     check("re-running the migration is a no-op (idempotent)", added_second == [], str(added_second))
 
     conn = sqlite3.connect(str(COPY))
@@ -168,6 +172,11 @@ def main() -> int:
 
     missing_updatable = [c for c in expected if c not in enrich.UPDATABLE]
     check("every new column is in enrich.UPDATABLE", not missing_updatable, str(missing_updatable))
+    # The mirror invariant (scale-to-10k): approval provenance must NOT be
+    # enrichment-writable, or a re-seed could reset who admitted a row.
+    clash = [c for c in prov if c in enrich.UPDATABLE]
+    check("admission provenance is NOT enrichment-writable (scale-to-10k)",
+          not clash, str(clash))
 
     # --- 4. F-03: verify_log is permanent --------------------------------
     src = io.open(BACKEND / "app" / "verify.py", encoding="utf-8").read()

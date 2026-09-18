@@ -230,8 +230,9 @@ check("the migration knows exactly 22 new teardown columns (F-01)",
 db.init_db()
 _after = columns_of(config.DB_PATH)
 _expected = list(_before) + [name for name, _ in db.NEW_STARTUP_COLUMNS]
-check("the migration takes the archive 18 -> 40 columns (F-01)",
-      len(_after) == 40, f"{len(_before)} -> {len(_after)}")
+_expected += [name for name, _ in db.NEW_APPROVAL_COLUMNS]
+check("the migration takes the archive 18 -> 43 columns (F-01)",
+      len(_after) == 43, f"{len(_before)} -> {len(_after)}")
 check("no column is dropped or renamed by the migration (F-01)",
       all(col in _after for col in _before) and set(_after) == set(_expected),
       f"missing: {sorted(set(_before) - set(_after))}")
@@ -254,14 +255,14 @@ try:
     _trace_conn.set_trace_callback(None)
 finally:
     _trace_conn.close()
-check("the first migration run really adds all 22 columns (F-01)",
-      len(_trace_added) == 22, f"added {len(_trace_added)}")
+check("the first migration run really adds all 25 columns (22 teardown + 3 approval) (F-01)",
+      len(_trace_added) == 25, f"added {len(_trace_added)}")
 check("the migration executes only ADD COLUMN — no DROP, no RENAME (F-01)",
-      len(_trace_sql) == 23
+      len(_trace_sql) == 26
       and all(s.strip().upper().startswith("ALTER TABLE") and "ADD COLUMN" in s.upper()
               for s in _trace_sql if not s.strip().upper().startswith("PRAGMA"))
       and not any(("DROP" in s.upper() or "RENAME" in s.upper()) for s in _trace_sql),
-      f"{len(_trace_sql)} statement(s): 1 PRAGMA table_info + 22 ALTER, nothing destructive")
+      f"{len(_trace_sql)} statement(s): 1 PRAGMA table_info + 25 ALTER, nothing destructive")
 
 _conn = db.connect()
 try:
@@ -328,6 +329,17 @@ check("every new column is in enrich.UPDATABLE (F-01 — the silent-drop trap)",
 check("every UPDATABLE name is a real archive column (F-01)",
       all(c in _after for c in enrich.UPDATABLE),
       str([c for c in enrich.UPDATABLE if c not in _after]))
+
+# Admission provenance (scale-to-10k, 2026-09-18). This is the mirror of the
+# silent-drop trap: the columns MUST exist, and must NOT be enrichment-writable.
+# A re-seed that reset approval_source would turn a machine admission into an
+# apparent human one - the one claim compare.badges depends on being true.
+_prov = ("approval_source", "approved_by", "approval_note")
+check("the three admission-provenance columns are added (scale-to-10k)",
+      all(c in _after for c in _prov), str([c for c in _prov if c not in _after]))
+check("admission provenance is NOT enrichment-writable (scale-to-10k)",
+      [n for n, _ in db.NEW_APPROVAL_COLUMNS if n in enrich.UPDATABLE] == [],
+      str([n for n, _ in db.NEW_APPROVAL_COLUMNS if n in enrich.UPDATABLE]))
 
 # F-19 — both store links are writable through the normal writer.
 _conn = db.connect()
@@ -1207,6 +1219,50 @@ with TestClient(api) as client:
     _fresh = client.get("/api/startups/badge-fresh-co").json()
     check("a fresh check reads machine_verified=true (F-21)",
           _fresh["machine_verified"] is True, str(_fresh["machine_verified"]))
+
+    # --- admission provenance: machine vs human (scale-to-10k, 2026-09-18) ---
+    # The funnel admits rows no human has looked at. Marked with `verified` alone
+    # they would render Admin Verified - a claim about a human that never
+    # happened - so admission provenance is recorded and read back here.
+    check("a row with no approval_source reads as human (scale-to-10k, backwards compatible)",
+          _stale["approval_source"] is None and _stale["admin_verified"] is True,
+          f"source={_stale['approval_source']} admin={_stale['admin_verified']}")
+    _badge_machine = insert_startup("Badge Machine Co", "https://badge-machine.example")
+    _m_n = verify.approve_machine([_badge_machine], by="funnel:http")
+    check("approve_machine admits the row (scale-to-10k)", _m_n == 1, f"rowcount={_m_n}")
+    _m = client.get("/api/startups/badge-machine-co").json()
+    check("a machine admission is admitted but NOT Admin Verified (scale-to-10k)",
+          _m["admin_verified"] is False and _m["approval_source"] == "machine"
+          and _m["approved_by"] == "funnel:http",
+          f"admin={_m['admin_verified']} source={_m['approval_source']} by={_m['approved_by']}")
+    _m_again = verify.approve_machine([_badge_machine], by="funnel:render")
+    check("approve_machine cannot re-stamp an already-admitted row (scale-to-10k)",
+          _m_again == 0, f"rowcount={_m_again}")
+    try:
+        verify.approve_machine([_badge_stale], by="admin")
+        _stage_rejected = False
+    except ValueError:
+        _stage_rejected = True
+    check("approve_machine refuses a non-funnel stage name (scale-to-10k)",
+          _stage_rejected, "by must start with funnel:")
+    _badge_human = insert_startup("Badge Human Co", "https://badge-human.example")
+    _h_n = verify.approve_suggested(ids=[_badge_human])
+    _h = client.get("/api/startups/badge-human-co").json()
+    check("approve_suggested stamps a human admission (scale-to-10k)",
+          _h_n == 1 and _h["admin_verified"] is True and _h["approval_source"] == "human"
+          and _h["approved_by"] == "admin",
+          f"n={_h_n} admin={_h['admin_verified']} source={_h['approval_source']} "
+          f"by={_h['approved_by']}")
+    _dead_id = insert_startup("Badge Dead Co", "https://badge-dead.example")
+    _conn = db.connect()
+    try:
+        _conn.execute("UPDATE startups SET status = 'dead' WHERE id = ?", (_dead_id,))
+        _conn.commit()
+    finally:
+        _conn.close()
+    check("approve_machine cannot resurrect a dead row (scale-to-10k)",
+          verify.approve_machine([_dead_id], by="funnel:http") == 0,
+          "the dead-flip outranks the funnel")
     check("the badges are explicit fields, never inferred from a raw timestamp (F-21)",
           {"admin_verified", "admin_verified_at", "machine_verified", "machine_verified_at"}
           <= set(_fresh),
@@ -1604,8 +1660,11 @@ with TestClient(api) as client:
         verify.check_url_ok = _real_check_url
         gh_mod.fetch_repo = _real_fetch_repo
 
-    # The human stamp is the only bulk writer: a pass leaves verified untouched.
-    check("an automated pass never stamps verified=1 (the human gate is the only writer)",
+    # The liveness pass only observes - it never admits. Admission is a separate,
+    # explicit act: verify.approve_suggested for a human, verify.approve_machine
+    # for the funnel. Keeping them apart is what stops a pass from quietly
+    # admitting the whole archive on someone's behalf.
+    check("a liveness pass never admits - admission is a separate, explicit act (scale-to-10k)",
           row_of(_probe_id)["verified"] == 0, f"verified={row_of(_probe_id)['verified']}")
 
     # Rate limiting: flipped on for this one check (the suite pins it off so a

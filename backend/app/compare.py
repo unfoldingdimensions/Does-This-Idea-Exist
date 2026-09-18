@@ -1,4 +1,4 @@
-"""Comparison, the gap table and the three exports — Phase 3.
+"""Comparison, the gap table and the three exports - Phase 3.
 
 F-15 (`POST /api/compare`), F-16 (`GET /api/export/{markdown|json|csv}`),
 F-17 (`GET /api/startups/{slug}`) and F-21 (the two trust badges, explicit).
@@ -9,7 +9,7 @@ Four rules shape everything here, and they are the product rather than
 decoration (`docs/gap-table-format.md` §3):
 
   * **Every "they" cell carries a source.**  A competitor claim is taken at face
-    value *because* the link is right there — the product attributes, it does
+    value *because* the link is right there - the product attributes, it does
     not adjudicate.  Pricing cells carry their `captured_at` as well, because
     pricing decays.
   * **A negative is an observation about a page that enumerates**, never a
@@ -18,13 +18,13 @@ decoration (`docs/gap-table-format.md` §3):
     (which refuses a guessed URL and a page it could not read); a negative row
     here that somehow carries no source renders `unknown`.
   * **Every "you" cell comes from what the founder entered.**  This module never
-    invents the founder's features — the `you` side is `founder.profile_of`, full
+    invents the founder's features - the `you` side is `founder.profile_of`, full
     stop.
   * **No verdict line.**  The table ends at the facts; the product may invite the
     founder to read the gaps, never prints "you should build X".
 
 Two stores, one comparison.  The `you` record lives in the founder store
-(`FOUNDER_DB_PATH`) and the competitors in the archive — so the request names the
+(`FOUNDER_DB_PATH`) and the competitors in the archive - so the request names the
 sides (`{you: {...}, competitors: [...]}`) instead of passing one flat id list,
 where `id=7` would be ambiguous across two files.  The cross-store diff is done
 here, in Python: the band logic and the capability-level matching are not
@@ -32,7 +32,7 @@ expressible as SQL, and the two sides live in different files.
 
 **Statelessness (F-16).**  There are no accounts and no server-side sessions, so
 nothing here holds "the last comparison" in memory.  `/api/export` takes the same
-inputs as `/api/compare` and recomputes deterministically — which is also why one
+inputs as `/api/compare` and recomputes deterministically - which is also why one
 founder's comparison can never be read back by another request.  Exports are pure
 reads: they never trigger a capture, so re-running one with the same inputs
 yields the same bytes.
@@ -42,7 +42,7 @@ local-first, single-user product.  The founder store is a separate file and the
 archive endpoints (`/api/startups`, `/api/stats`, `/api/categories`) never read
 it; an export only ever exposes the founder record the caller named, and the
 "you" side of a comparison is read on the same machine by id.  That is
-acceptable *locally* — there are no accounts, so "the founder's own draft is
+acceptable *locally* - there are no accounts, so "the founder's own draft is
 readable by id on the same machine" is the whole threat model.  The hosted
 caveat is named in `docs/teardown-spec.md` §3.1: if an instance is hosted, the
 founder's app sits in that instance's founder DB, so hosting must exclude
@@ -51,7 +51,7 @@ true.  No endpoint here broadens that exposure.
 
 Slug rule (documented in one place, F-17): a slug is the name lowercased, with
 every run of non-alphanumeric characters replaced by a single hyphen and the
-resulting ends trimmed — "Stability AI" -> "stability-ai", "Cal.com" ->
+resulting ends trimmed - "Stability AI" -> "stability-ai", "Cal.com" ->
 "cal-com", "Bun" -> "bun".  Collisions are expected, not hypothetical (the
 archive already holds same-name groups for Stability AI, Motion, Fathom,
 Cal.com, Bun and Bird, deliberately not auto-merged), so resolution is
@@ -75,8 +75,8 @@ BAND_UNKNOWN = "unknown"
 BAND_ASKED_FOR = "asked_for"
 BANDS = (BAND_YOU_HAVE, BAND_THEY_HAVE, BAND_BOTH, BAND_UNKNOWN, BAND_ASKED_FOR)
 BAND_LABELS = {
-    BAND_YOU_HAVE: "You have — they don't",
-    BAND_THEY_HAVE: "They have — you don't",
+    BAND_YOU_HAVE: "You have - they don't",
+    BAND_THEY_HAVE: "They have - you don't",
     BAND_BOTH: "Both have",
     BAND_UNKNOWN: "Unknown",
     BAND_ASKED_FOR: "Their users ask for it",
@@ -100,7 +100,7 @@ DIMENSIONS = (DIM_PRICING, DIM_FREE_TIER, DIM_FEATURES, DIM_POSITIONING,
 # A small, explicit alias table.  Capabilities are compared at the level of what
 # they DO, not how they are spelled: reviewers asking for "offline mode", "work
 # without internet" and "local files" are one row.  Kept deliberately short and
-# reviewable rather than clever — an unlisted variant simply stays its own row,
+# reviewable rather than clever - an unlisted variant simply stays its own row,
 # which is the honest failure mode (a spurious merge would hide a real gap).
 CAPABILITY_ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("offline / local files", ("work without internet", "works without internet",
@@ -188,7 +188,7 @@ def parse_pricing(raw) -> dict:
 
 
 def free_tier_state(text) -> str:
-    """yes | no | unknown — the free-tier flag as a claim, never invented."""
+    """yes | no | unknown - the free-tier flag as a claim, never invented."""
     t = _norm(text)
     if not t:
         return "unknown"
@@ -210,7 +210,7 @@ def _field(row_obj, key, default=None):
 
 def _row(dimension: str, band: str, you: str, them: str,
               source: str = "", captured_at: str = "") -> dict:
-    """One gap-table row — exactly `{dimension, band, you, them, source,
+    """One gap-table row - exactly `{dimension, band, you, them, source,
     captured_at}` (`docs/gap-table-format.md` §5)."""
     return {
         "dimension": dimension,
@@ -250,8 +250,8 @@ def _as_int(value):
 def resolve_startup(conn, ref):
     """Resolve a competitor reference (id | numeric slug | name slug) to ONE row.
 
-    Returns the chosen row or None.  Collisions resolve deterministically — the
-    human-verified row first, then the lowest id — matching the slug endpoint so
+    Returns the chosen row or None.  Collisions resolve deterministically - the
+    human-verified row first, then the lowest id - matching the slug endpoint so
     a comparison and a `/products/<slug>` page agree on which duplicate they mean.
     """
     value = _ref_field(ref, "startup_id", "id", "slug", "name")
@@ -340,11 +340,19 @@ def badges(row) -> dict:
     """`admin_verified` / `machine_verified` as EXPLICIT fields, never inferred
     by a client from a raw timestamp (F-21, docs/teardown-spec.md §8.1).
 
-    No new columns: Admin Verified is `verified` + `verified_at` (the human
-    stamp, the archive's entry gate, never decays); Machine Verified is
-    `status` + `last_checked` + `check_failures` (the weekly pass, decays —
-    re-earned on every pass).  A stale `last_checked` reads
+    Admin Verified is `verified` + `verified_at` (the entry gate, never decays);
+    Machine Verified is `status` + `last_checked` + `check_failures` (the weekly
+    pass, decays - re-earned on every pass).  A stale `last_checked` reads
     `machine_verified=False` while `admin_verified` stays True.
+
+    approval_source (scale-to-10k, 2026-09-18): `verified` alone means "admitted",
+    not "a human looked at it".  The funnel admits the clean majority of rows
+    automatically, and those rows carry approval_source='machine'.  Rendering
+    Admin Verified for them would claim a human confirmation that never happened,
+    so Admin Verified now requires `verified` AND approval_source != 'machine'.
+    Legacy rows (NULL) stay Admin Verified, which is correct: everything admitted
+    before the funnel existed was admitted by a human, and no row was rewritten to
+    say so.
     """
     from . import config  # local import: avoids a config import cycle at module load
 
@@ -353,7 +361,13 @@ def badges(row) -> dict:
     status = _field(row, "status")
     last_checked = _field(row, "last_checked")
     failures = _field(row, "check_failures", 0) or 0
-    admin = bool(verified)
+    approval_source = _field(row, "approval_source")
+    approved_by = _field(row, "approved_by")
+    # NULL predates the column => human; only an explicit 'machine' withholds the
+    # human badge.  Anything else (a future source value) is treated as not-human
+    # rather than silently promoted to a human claim.
+    machine_admitted = approval_source == "machine"
+    admin = bool(verified) and not machine_admitted
     # The freshness window is the verify rhythm (7 days).  VERIFY_AUTO_STALE_DAYS
     # is 0 when auto-verify is switched off for a throwaway instance; falling
     # back to CAPTURE_STALE_DAYS there keeps the badge meaningful rather than
@@ -373,6 +387,9 @@ def badges(row) -> dict:
         "admin_verified_at": verified_at,
         "machine_verified": machine,
         "machine_verified_at": last_checked,
+        # who admitted the row, so a client never has to infer it from a badge
+        "approval_source": approval_source,
+        "approved_by": approved_by,
     }
 
 
@@ -398,7 +415,7 @@ def startup_payload(row, candidates=None) -> dict:
 def you_side(founder_row) -> dict:
     """The `you` record, read from the founder store in the shape the diff uses.
 
-    Only what the founder entered — the product does not invent the founder's
+    Only what the founder entered - the product does not invent the founder's
     features (cell rule 3).
     """
     profile = founder.profile_of(founder_row)
@@ -466,11 +483,11 @@ def them_side(conn, row) -> dict:
     # and the per-feature evidence rows together, so in the normal path they
     # agree and the evidence rows supply the better provenance (each capability
     # paired with the page it came from). They are still merged rather than
-    # swapped, because if they ever diverge — an interrupted capture between the
-    # column write and the evidence inserts, a manual edit, a future prune — a
+    # swapped, because if they ever diverge - an interrupted capture between the
+    # column write and the evidence inserts, a manual edit, a future prune - a
     # capability present in only ONE of them must still count as PRESENT.
     # Taking evidence alone would under-report the competitor's features, which
-    # flips a parity row into a "you have — they don't" edge: a false edge in
+    # flips a parity row into a "you have - they don't" edge: a false edge in
     # the founder's favour, the one failure this table must never produce. The
     # union fails toward parity/unknown instead, and evidence keeps its source
     # whenever both carry the same capability.
@@ -512,7 +529,7 @@ def _activity_text(row) -> dict:
     last_checked = _text(_field(row, "last_checked"))
     failures = _field(row, "check_failures", 0) or 0
     if status in ("dead", "pivoted"):
-        text = f"{status} — filed, never deleted"
+        text = f"{status} - filed, never deleted"
     elif not last_checked:
         text = "not yet checked"
     else:
@@ -525,7 +542,7 @@ def _activity_text(row) -> dict:
 
 def _asks_for(conn, startup_id: int) -> list[dict]:
     """Dimension 7's input: every ask, with the review it came from.  Read from
-    the review evidence rows — never re-fetched, never scored (F-23)."""
+    the review evidence rows - never re-fetched, never scored (F-23)."""
     out: list[dict] = []
     for ask in _asks_from_evidence(conn, startup_id):
         text = _text(ask.get("ask"))
@@ -675,7 +692,7 @@ def _free_tier_for_side(side: dict) -> str:
     """yes | no | unknown for one competitor.
 
     `no` is only claimed when the pricing page was read (the free-tier line is
-    part of that page) or a sourced "no free tier" negative exists — otherwise
+    part of that page) or a sourced "no free tier" negative exists - otherwise
     it is `unknown`, never "no".
     """
     state = free_tier_state(side["pricing"].get("free_tier"))
@@ -749,7 +766,7 @@ def _dimension_features(you: dict, sides) -> list[dict]:
 
 
 def _feature_you_only_row(cap: str, you_text: str, sides, neg_by_cap: dict) -> dict:
-    """A capability only `you` have — your edge, if the "they don't" half is
+    """A capability only `you` have - your edge, if the "they don't" half is
     sourced.  A sourced negative wins; otherwise the page their feature list was
     enumerated from is the source; with no teardown at all the row is `unknown`
     (missing data is never scored)."""
@@ -757,7 +774,7 @@ def _feature_you_only_row(cap: str, you_text: str, sides, neg_by_cap: dict) -> d
     if neg and not neg[0]["unknown"] and neg[0]["source"]:
         n, side = neg
         return _row(DIM_FEATURES, BAND_YOU_HAVE, you=you_text,
-                    them=f"no — {n['claim']} ({side['name']})",
+                    them=f"no - {n['claim']} ({side['name']})",
                     source=n["source"], captured_at=n["captured_at"])
     sourced = [s for s in sides if s["has_teardown"] and s["feature_source"]]
     if sourced:
@@ -765,7 +782,7 @@ def _feature_you_only_row(cap: str, you_text: str, sides, neg_by_cap: dict) -> d
                     them=_join([f"not in their feature list ({s['name']})" for s in sourced]),
                     source=_sources([s["feature_source"] for s in sourced]),
                     captured_at=_sources([s["feature_captured"] for s in sourced]))
-    return _row(DIM_FEATURES, BAND_UNKNOWN, you=you_text, them="unknown — no teardown captured",
+    return _row(DIM_FEATURES, BAND_UNKNOWN, you=you_text, them="unknown - no teardown captured",
                 source="")
 
 
@@ -793,12 +810,12 @@ def _dimension_positioning(you: dict, sides) -> list[dict]:
 
 
 def _dimension_doesnt_do(you: dict, sides) -> list[dict]:
-    """Dimension 5 — the competitor's negatives, as observations.
+    """Dimension 5 - the competitor's negatives, as observations.
 
     A sourced negative whose capability you DO cover is a real edge
     (`you_have_they_dont`).  A sourced negative neither side covers is parity of
     absence (`both_have`: no differentiation).  A negative with no source, or one
-    the capture marked `unknown`, is `unknown` — never "no" (cell rule 2).
+    the capture marked `unknown`, is `unknown` - never "no" (cell rule 2).
     """
     out: list[dict] = []
     for side in sides:
@@ -807,7 +824,7 @@ def _dimension_doesnt_do(you: dict, sides) -> list[dict]:
             if neg["unknown"] or not neg["source"]:
                 out.append(_row(DIM_DOESNT_DO, BAND_UNKNOWN,
                                 you=_you_cover_text(you, neg["canonical"]),
-                                them=f"unknown — could not read the page ({side['name']})",
+                                them=f"unknown - could not read the page ({side['name']})",
                                 source=neg["source"]))
                 continue
             covered = neg["canonical"] in you["features"]
@@ -821,12 +838,12 @@ def _dimension_doesnt_do(you: dict, sides) -> list[dict]:
 
 def _you_cover_text(you: dict, canonical: str) -> str:
     if canonical in you["features"]:
-        return f"yes — declared: {you['features'][canonical]}"
-    return "n/a — not in your declared features"
+        return f"yes - declared: {you['features'][canonical]}"
+    return "n/a - not in your declared features"
 
 
 def _dimension_activity(you: dict, sides) -> list[dict]:
-    """Dimension 6 — the competitor's liveness.  The `you` side has no liveness
+    """Dimension 6 - the competitor's liveness.  The `you` side has no liveness
     signal of its own (the spec marks it n/a), so the row is `unknown`: missing
     data on a side is shown, never scored."""
     them_text = _join([f"{s['activity']['text']} ({s['name']})" for s in sides])
@@ -837,7 +854,7 @@ def _dimension_activity(you: dict, sides) -> list[dict]:
 
 
 def _dimension_asks(you: dict, sides) -> list[dict]:
-    """Dimension 7 — what their users ask for (F-23 → gap table).
+    """Dimension 7 - what their users ask for (F-23 → gap table).
 
     Every ask links to the review it came from.  An ask your declared features
     already cover is your most valuable row (`you_have_they_dont`); an ask
@@ -859,12 +876,12 @@ def _dimension_asks(you: dict, sides) -> list[dict]:
     for cap, entry in grouped.items():
         covered = cap in you["features"]
         n = len(entry["reviewers"])
-        them = f"no — {n} reviewer(s) asked"
+        them = f"no - {n} reviewer(s) asked"
         source = _sources(entry["sources"])
         captured = _sources(entry["captured"])
         if covered:
             out.append(_row(DIM_ASKS, BAND_YOU_HAVE,
-                            you=f"yes — declared: {you['features'][cap]}",
+                            you=f"yes - declared: {you['features'][cap]}",
                             them=them, source=source, captured_at=captured))
         else:
             out.append(_row(DIM_ASKS, BAND_ASKED_FOR, you="no", them=them,
@@ -882,9 +899,9 @@ def render_markdown(table: dict, *, title: str | None = None) -> str:
     """The three comparison groups plus the demand group (F-16), with the
     unknown group shown too so missing data is visible rather than scored away."""
     you_name = table["you"]["name"]
-    them_names = ", ".join(c["name"] for c in table["competitors"]) or "—"
+    them_names = ", ".join(c["name"] for c in table["competitors"]) or "-"
     lines: list[str] = []
-    lines.append(f"# {title or 'Gap table'} — {you_name} vs {them_names}")
+    lines.append(f"# {title or 'Gap table'} - {you_name} vs {them_names}")
     lines.append("")
     lines.append(f"_You: {you_name}. Competitor(s): {them_names}._")
     for band in GROUP_ORDER:
@@ -910,7 +927,7 @@ def render_markdown(table: dict, *, title: str | None = None) -> str:
 
 
 def _export_rows(table: dict) -> list[dict]:
-    """The flat rows the JSON and CSV exports carry — exactly the five/six keys
+    """The flat rows the JSON and CSV exports carry - exactly the five/six keys
     §5 names, in dimension order, band included."""
     return [
         {
@@ -926,7 +943,7 @@ def _export_rows(table: dict) -> list[dict]:
 
 
 def render_json(table: dict) -> str:
-    """`{you, them, rows: [{dimension, you, them, source, band}]}` — re-processable."""
+    """`{you, them, rows: [{dimension, you, them, source, band}]}` - re-processable."""
     payload = {
         "you": table["you"],
         "them": table["them"],

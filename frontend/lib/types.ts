@@ -149,6 +149,14 @@ export interface BadgeFields {
   admin_verified_at: string | null;
   machine_verified: boolean;
   machine_verified_at: string | null;
+  /**
+   * Who admitted the row: 'human' | 'machine', or null for rows admitted before
+   * 2026-09-18 (all of which were human). `admin_verified` is false whenever this
+   * is 'machine', because a robot did not confirm the business - it reached it.
+   */
+  approval_source: "human" | "machine" | null;
+  /** Which gate admitted it: 'admin' | 'funnel:http' | 'funnel:render'. */
+  approved_by: string | null;
 }
 
 /** One pricing plan, as the founder or a capture entered it. */
