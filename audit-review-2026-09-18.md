@@ -312,3 +312,71 @@ reported by the "redirected off the stored domain" column.
 - The 18 UNKNOWN are dominated by client-rendered SPAs (empty body, no title) and JS redirect
   shells. An HTTP auditor cannot settle those; they need a browser pass. The tool reports them as
   UNKNOWN rather than guessing, which is the intended behaviour.
+
+---
+
+# Round 4 - the browser pass on the 18 UNKNOWN (23:02-23:15)
+
+## How
+
+Playwright is not installed, so this used the `puppeteer-core` already vendored in
+`.openclaw/tmp/browser/` plus the Chrome that is on the machine - no downloads, no project
+changes. Each URL was rendered (`networkidle` with a bounded wait, then read), capturing final URL,
+title, h1, visible text and the rendered DOM. The rendered captures were then judged by the same
+rules as the HTTP pass, so both passes have one source of truth.
+
+## Result
+
+| Result | HTTP pass | After the browser pass |
+|---|---|---|
+| LIVE | 1242 | 1251 |
+| DEAD | 1 | 6 |
+| REPURPOSED | 1 | 2 |
+| WALLED | 4 | 5 |
+| UNKNOWN | 18 | 2 |
+| **Total** | **1266** | **1266** |
+
+Nine of the eighteen are simply alive - client-rendered sites the HTTP client saw as an empty body
+(Chaldal, Ninjacart, Rupeek, Standard AI, Summersalt, Vivace Therapeutics) plus two acquisitions
+forwarding to the acquirer (Hysolate -> Fortinet, Guild Education -> guild.com) and Airbnb's geo
+redirect to its own `airbnb.co.in`.
+
+Newly confirmed dead or repurposed, all previously UNKNOWN:
+
+| # | Name | Stored URL | Rendered result |
+|---|---|---|---|
+| 1009 | goDutch | godutchpay.in | GoDaddy lander at `/lander`: "Related Searches ... Copyright (c) 1999-2026 GoDaddy, LLC" |
+| 1274 | Luminostics | cliphealth.com | `cgi-sys/defaultwebpage.cgi` - "Default Web Site Page" |
+| 1074 | Run The World | runtheworld.today | `/lander`: "runtheworld.today is parked free, courtesy of GoDaddy.com" |
+| 1139 | Tara Intelligence | tara.ai | `/lander`: "tara.ai is parked free, courtesy of GoDaddy.com" |
+| 1195 | Templarbit | templarbit.com | `/lander`: "templarbit.com is parked free, courtesy of GoDaddy.com" |
+| 923 | Behalf | behalf.com | forwards to headlinelogic.com `?d=behalf.com&pcid=56` - a parked-domain news portal |
+| 1038 | Magdrive | magdrive.space | 202 + "Robot Challenge Screen" at `/.well-known/sgcaptcha/` - a wall, not a corpse |
+
+Still UNKNOWN, honestly: **1233 GirnarSoft** (girnarsez.com is behind a Sucuri firewall returning
+502 - and that is not even the company's own domain) and **932 Zilingo** (renders `about:blank`).
+
+## Three rule gaps this pass exposed - now fixed and fixtured
+
+1. **Registrar landers that never say "parked".** godutchpay.in/lander carries no forbidden phrase
+   at all, only a GoDaddy copyright line. Added lander boilerplate (`courtesy of godaddy`,
+   `godaddy, llc`, `get this domain`) and the parking-only URL shapes (`/lander`,
+   `cgi-sys/defaultwebpage.cgi`).
+2. **SiteGround captcha.** magdrive.space answers 202 with an empty HTTP body, so the HTTP pass saw
+   a mysterious LIVE. The rendered page says "Robot Challenge Screen"; that phrase is now a wall
+   marker.
+3. **Parked-domain monetisation redirects.** behalf.com forwards to a portal with the requested
+   domain echoed in the query string. New evidence class **C: monetised-redirect** - parking-network
+   parameters (`pcid=`, `d=<domain>`, `brand=<domain>`) plus no token of the company anywhere.
+
+`selftest` is now **30/30**. The three new fixtures are `godaddy-lander`, `siteground-captcha`,
+`monetised-redirect`, plus `acquirer-domain-is-not-spam` to keep the acquisition case from being
+swept up with them.
+
+## Where the archive now stands (1,266 rows)
+
+LIVE 1251 | DEAD 6 | REPURPOSED 2 | WALLED 5 | UNKNOWN 2.
+
+Reported, not yet actioned: the six DEAD and two REPURPOSED rows above are still in the DB. They are
+now all rule-derived, so `drop` can take them with fresh evidence, a backup and a manifest whenever
+that decision is made.

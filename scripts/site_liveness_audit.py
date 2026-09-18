@@ -192,6 +192,27 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "website is currently not available",
         "please contact your service provider", "page cannot be displayed",
     ],
+    # Registrar-lander boilerplate. Found by the browser pass: the parked page for
+    # godutchpay.in says only "Related Searches ... Copyright (c) 1999-2026 GoDaddy,
+    # LLC" - no "parked", no "for sale". "related searches" alone is far too
+    # generic to flag, so it is deliberately absent; the copyright line and
+    # "get this domain" are specific to a lander.
+    "lander_phrases": [
+        "courtesy of godaddy", "godaddy, llc", "get this domain",
+        "this domain is parked", "this page is parked",
+    ],
+    # ...and the URL shapes only a parking service produces. A homepage served at
+    # /lander is a registrar landing page; no real company site does that.
+    "park_path_markers": [
+        "/lander", "cgi-sys/defaultwebpage.cgi", "/domain-parking",
+        "/parked-domain", "/cgi-sys/",
+    ],
+    # The parked-domain monetisation redirect: the query string echoes the domain
+    # the visitor asked for, plus the parking network's own ids. Seen on
+    # behalf.com, which now forwards to a news portal called HeadlineLogic.
+    "monetisation_params_regex": (
+        r"[?&](pcid=[0-9]+|d=[a-z0-9.-]+\.[a-z]{2,}|brand=[a-z0-9.-]+\.[a-z]{2,})"
+    ),
     # placeholder wording: "not finished yet". These are ordinary marketing words
     # (Deel's homepage says "stay tuned" in a footer block), so a hit only counts
     # when it is the page TITLE, or when the page is short and carries no brand
@@ -213,6 +234,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "cloudflare ray id", "verify you are human", "verifying you are human",
         "please wait while we verify", "are you a robot", "request blocked",
         "access denied",
+        # found by the browser pass: SiteGround's captcha interstitial returns 202
+        # with an empty HTTP body, so only a renderer ever sees it
+        "robot challenge screen", "sgcaptcha",
+        "checking the site connection security",
     ],
     # --- soft 404: 200 with a "not found" body ------------------------------
     "soft404_phrases": [
@@ -725,6 +750,15 @@ def signals(cap: dict[str, Any], name: str, cfg: dict[str, Any]) -> dict[str, An
     sig["text_has_brand"] = any(t in low for t in toks) if toks else None
 
     sig["park"] = _phrase_hits(hay, cfg["park_phrases"])
+    sig["lander"] = _phrase_hits(hay, cfg.get("lander_phrases") or [])
+    final_url = str(cap.get("final_url") or cap.get("url") or "")
+    try:
+        fpath = urlparse(final_url).path.lower()
+    except Exception:  # noqa: BLE001
+        fpath = ""
+    sig["park_path"] = [m for m in (cfg.get("park_path_markers") or []) if m in fpath]
+    sig["monetised_redirect"] = bool(re.search(
+        cfg.get("monetisation_params_regex") or "(?!)", final_url, re.I))
     # A default page / soft 404 only counts as death when it is the TITLE, or when
     # the page is short enough that the phrase is the whole content. Otherwise a
     # link reading "index of /" or "page not found" in a real page would kill it.
@@ -868,8 +902,9 @@ def classify(name: str, url: str, caps: list[dict[str, Any]],
                        why=f"soft wall on a {best.get('status')} response: "
                            f"{', '.join(sig['challenge'][:3])}")
             return res
-        if sig["park"] or sig["marketplace_host"]:
-            detail = ", ".join(sig["park"][:3]) or "marketplace host"
+        if sig["park"] or sig["park_path"] or sig["lander"] or sig["marketplace_host"]:
+            detail = (", ".join(sig["park"][:3]) or ", ".join(sig["lander"][:2])
+                      or ", ".join(sig["park_path"][:2]) or "marketplace host")
             res.update(state="DEAD", why=f"parked / for-sale page ({detail})")
             return res
         if sig["default_page_title"] or sig["default_page_body"]:
@@ -887,6 +922,18 @@ def classify(name: str, url: str, caps: list[dict[str, Any]],
             res.update(state="REPURPOSED", evidence_class="A:spam-keyword",
                        why="domain now sells unrelated gambling/piracy/SEO spam "
                            f"[{sig['spam_tier']}] ({'; '.join(sig['spam'][:5])})")
+            return res
+        # class C: the domain was parked and is now monetised. It forwards to a
+        # parking network with the requested domain echoed in the query string and
+        # says nothing about the company that used to be here. Found by the
+        # browser pass on behalf.com, which now serves a "news portal".
+        if (sig["monetised_redirect"] and not sig["title_has_brand"]
+                and not sig["text_has_brand"]):
+            res.update(state="REPURPOSED", evidence_class="C:monetised-redirect",
+                       why="domain parked and monetised: forwards to "
+                           f"{host_of(best.get('final_url'))} with the stored domain "
+                           "echoed in the query string; no company token "
+                           f"{sig['brand_tokens']} anywhere on the page")
             return res
         if sig["class_b"]:
             res.update(state="REPURPOSED", evidence_class="B:content-shell",
@@ -1728,6 +1775,36 @@ def _fixtures() -> list[tuple[str, str, str, list[dict], str, str]]:
               [_cap(title="Naked Labs - The World's First Home Body Scanner", bytes=9000,
                     visible="The Naked 3D Fitness Tracker is no longer available. "
                             "Read about what we built.")],
+              "LIVE", ""))
+
+    # --- the sixth, seventh and eighth precision regressions (browser pass) ---
+    # A registrar lander that never says "parked" or "for sale": the HTTP body is
+    # an empty shell, so only a renderer sees it. (Real: godutchpay.in, goDutch.)
+    F.append(("godaddy-lander", "goDutch", "http://godutchpay.in",
+              [_cap(status=200, final_url="https://godutchpay.in/lander", title="",
+                    bytes=30000,
+                    visible="Related Searches go dutch pay Copyright (c) 1999-2026 "
+                            "GoDaddy, LLC. All rights reserved.")],
+              "DEAD", ""))
+    # SiteGround's captcha returns 202 with an empty body. (Real: magdrive.space.)
+    F.append(("siteground-captcha", "Magdrive", "http://www.magdrive.space/",
+              [_cap(status=202, title="Robot Challenge Screen", bytes=40000,
+                    final_url="https://www.magdrive.space/.well-known/sgcaptcha/?r=%2F",
+                    visible="magdrive.space Checking the site connection security")],
+              "WALLED", ""))
+    # Parked-domain monetisation redirect. (Real: behalf.com -> HeadlineLogic.)
+    F.append(("monetised-redirect", "Behalf", "http://www.behalf.com",
+              [_cap(status=200, bytes=60000,
+                    final_url="https://headlinelogic.com/?d=behalf.com&pcid=56&brand=behalf.com",
+                    title="HeadlineLogic News Portal",
+                    visible="News Entertainment Weather Sports Finance Top Stories")],
+              "REPURPOSED", "C:monetised-redirect"))
+    # An acquisition that forwards to the acquirer's own site is NOT repurposing.
+    F.append(("acquirer-domain-is-not-spam", "Hysolate", "https://hysolate.com/",
+              [_cap(status=200, bytes=90000,
+                    final_url="https://www.fortinet.com/products/fortimail-workspace-security",
+                    title="FortiMail Workspace Security | Fortinet",
+                    visible="Fortinet Products Solutions Support Partners Company")],
               "LIVE", ""))
 
     # --- hard 404 ------------------------------------------------------------
