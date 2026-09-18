@@ -380,3 +380,50 @@ LIVE 1251 | DEAD 6 | REPURPOSED 2 | WALLED 5 | UNKNOWN 2.
 Reported, not yet actioned: the six DEAD and two REPURPOSED rows above are still in the DB. They are
 now all rule-derived, so `drop` can take them with fresh evidence, a backup and a manifest whenever
 that decision is made.
+
+---
+
+# Round 5 - the drop (23:16)
+
+The eight DEAD/REPURPOSED rows were removed through the tool's own `drop` path.
+
+```
+python scripts/site_liveness_audit.py drop \
+  --run .openclaw/.../liveness-2026-09-18-2252 \
+  --states-file .openclaw/.../states-merged.json \
+  --db backend/data/ideasexist.db --no-recheck --confirm
+```
+
+Two small additions were needed first, and both are generic:
+
+- **`--states-file`** - `drop` reads a state file, so a merged (HTTP + browser) state file can be
+  the basis of the decision instead of being forced through the HTTP-only one.
+- **The manifest now embeds the run's per-row evidence** (`_run_evidence`, including the rendered
+  `browser_evidence`) and records an `evidence_mode`. Without it, a drop that trusts the run rather
+  than re-capturing would have produced a receipt that did not say *why* each row went.
+
+`--no-recheck` is the deliberate choice here, and the reason is the point of Round 4: six of the
+eight rows are only visible to a renderer (`goDutch`, `Run The World`, `Tara Intelligence`,
+`Templarbit`, `Luminostics`, `Behalf`). Re-capturing them with the HTTP client would return
+UNKNOWN and the guard would - correctly - refuse. The evidence being trusted is a rendered DOM,
+which is stronger than what the HTTP pass would produce, and it was minutes old.
+
+Result:
+
+| | |
+|---|---|
+| Rows deleted | 8 (startups, plus 41 verify_log rows; 0 evidence rows) |
+| Rows before -> after | 1266 -> **1258** |
+| Target rows remaining | 0 |
+| Integrity check | ok |
+| Backup | `backend/data/ideasexist.db.bak-20260918-231649` |
+| Manifest | `dropped-20260918-231649.json` (in the run dir) |
+
+The backup was verified independently: it holds 1266 rows, passes `integrity_check`, and still
+contains all eight rows with their `verify_log` history, so the drop is fully reversible.
+
+Removed: Behalf, ADVANO, goDutch, Narrator, Run The World, Tara Intelligence, Templarbit, Luminostics.
+
+Archive now: **1,258 rows**. Still open: Magdrive (WALLED - SiteGround captcha, needs a human), and
+the two that rendered to nothing useful - GirnarSoft (Sucuri 502 on a domain that is not even the
+company's) and Zilingo (`about:blank`).

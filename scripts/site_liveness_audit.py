@@ -1493,7 +1493,9 @@ def run_drop(args: argparse.Namespace, log: Log) -> int:
         log("drop requires --db")
         return 2
     run_dir = os.path.abspath(args.run)
-    states = json.load(open(os.path.join(run_dir, "states.json"), encoding="utf-8"))
+    states_path = os.path.abspath(args.states_file or
+                                 os.path.join(run_dir, "states.json"))
+    states = json.load(open(states_path, encoding="utf-8"))
     targets = [s for s in states
                if s["state"] in (args.states.split(",") if args.states
                                  else ("DEAD", "REPURPOSED"))]
@@ -1518,6 +1520,11 @@ def run_drop(args: argparse.Namespace, log: Log) -> int:
     # 1. fresh evidence at drop time (doctrine 8)
     if not args.no_recheck:
         log("re-capturing fresh evidence before deleting")
+    else:
+        log("WARNING: --no-recheck - trusting the evidence recorded in "
+            f"{os.path.relpath(states_path)} without re-capturing it. The manifest "
+            "will carry whatever that file recorded per row.")
+    if not args.no_recheck:
         for s in targets:
             caps = []
             with cf.ThreadPoolExecutor(max_workers=min(4, len(uas) or 1)) as ex:
@@ -1578,6 +1585,9 @@ def run_drop(args: argparse.Namespace, log: Log) -> int:
         "tool": f"{TOOL} {VERSION}", "config_hash": _CFG_HASH,
         "run": run_dir, "db": os.path.abspath(args.db), "table": table,
         "states_dropped": args.states or "DEAD,REPURPOSED",
+        "states_file": states_path,
+        "evidence_mode": ("trusted-run (no re-capture)" if args.no_recheck
+                          else "fresh re-capture at drop time"),
         "instruction": "Rows a prior run filed DEAD/REPURPOSED. Fresh evidence was "
                        "re-captured at drop time unless --no-recheck. Child-table "
                        "history is included below.",
@@ -1587,6 +1597,13 @@ def run_drop(args: argparse.Namespace, log: Log) -> int:
                   "_fresh_why": s.get("fresh_why"),
                   "_evidence_class": s.get("fresh_evidence_class") or s.get("evidence_class"),
                   "_url": s["url"], "_name": s["name"],
+                  # whatever the run recorded for this row, including rendered
+                  # (browser) evidence when the row was only visible to a renderer
+                  "_run_evidence": {k: s.get(k) for k in
+                                    ("source", "http_state", "http_why", "state", "why",
+                                     "evidence_class", "title", "final_url", "spam", "shell",
+                                     "browser_evidence", "verdicts", "moved_domain")
+                                    if s.get(k) is not None},
                   "_fresh_captures": s.get("fresh_captures", [])} for s in targets],
         "children": {},
     }
@@ -1935,6 +1952,9 @@ def build_parser() -> argparse.ArgumentParser:
     d = sub.add_parser("drop", help="delete DEAD/REPURPOSED rows (dry-run by default)",
                        parents=[common])
     d.add_argument("--run", required=True, help="run directory with states.json")
+    d.add_argument("--states-file",
+                   help="state file to read (default <run>/states.json). Point this at a "
+                        "merged state file when rows were settled by the browser pass.")
     d.add_argument("--db", required=True)
     d.add_argument("--table", default="startups")
     d.add_argument("--id-col", default="id")
