@@ -308,6 +308,49 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "no credit check loan", "instant payday",
     ],
     "banned_min_text_hits": 2,
+    # --- company gate: is this candidate a company, or a project page? --------
+    # The liveness funnel answers "is this link alive, and whose is it". It cannot
+    # answer "is this a company" - and the pilot showed why that matters: a
+    # GitHub-homepage channel yields reactnative.dev, d3js.org, pptr.dev, an
+    # awesome-list and a Telegram channel, all of which the funnel correctly
+    # called LIVE. This gate runs BEFORE admission and before enrichment, so a
+    # docs page never costs 3 fetches and 2 LLM calls.
+    #
+    # Precision-first, exactly like every other rule here: reject only on
+    # high-confidence evidence, accept on commercial intent, and send the rest to
+    # REVIEW rather than guessing. REVIEW is not "publish".
+    "project_hosts": [
+        "github.io", "gitlab.io", "readthedocs.io", "t.me", "telegram.me",
+        "discord.gg", "npmjs.com", "pypi.org", "crates.io", "packagist.org",
+        "rubygems.org", "sourceforge.net", "hub.docker.com",
+    ],
+    # Free hosts: a real company may use one, and so does every side project.
+    # REVIEW, never a silent drop.
+    "review_hosts": [
+        "netlify.app", "vercel.app", "pages.dev", "web.app", "firebaseapp.com",
+        "herokuapp.com", "glitch.me", "replit.app", "notion.site", "medium.com",
+        "wordpress.com", "blogspot.com",
+    ],
+    # Commercial intent. One hit is enough - these are things a documentation
+    # site does not say.
+    "commercial_signals": [
+        "pricing", "book a demo", "request a demo", "get a demo",
+        "request a meeting", "contact sales", "talk to sales", "start free trial",
+        "free trial", "trusted by", "case studies", "our customers",
+        "we're hiring", "careers", "buy now", "add to cart", "shop now",
+        "request a quote", "get a quote", "get started free",
+    ],
+    # Project / docs / community vocabulary. Needs project_marker_min DISTINCT hits
+    # AND no commercial signal before it means anything - a real company has a docs
+    # section, so "docs" alone must never be enough.
+    "project_markers": [
+        "open source", "open-source", "contributing", "fork me on github",
+        "pull request", "stargazers", "donations", "community-driven",
+        "documentation", "api reference", "guides", "tutorial", "cheat sheet",
+        "wiki", "changelog", "release notes", "downloads", "releases", "sponsor",
+        "docs", "forum", "issues", "download",
+    ],
+    "project_marker_min": 3,
     # --- class B: stock CMS shell ------------------------------------------
     # "skip to content" is NOT one of these: it is an accessibility link on half
     # the WordPress sites on the internet, and treating it as a corpse filed
@@ -884,6 +927,10 @@ def signals(cap: dict[str, Any], name: str, cfg: dict[str, Any]) -> dict[str, An
     sig["banned_tier"] = ("title" if btitle else
                           ("marker-cluster" if len(bm) >= bmin else ""))
 
+    # company-gate signals (see company_gate below)
+    sig["commercial"] = _phrase_hits(hay, cfg.get("commercial_signals") or [])
+    sig["project_markers"] = _phrase_hits(hay, cfg.get("project_markers") or [])
+
     # repurposing classes
     sig["generic_title"] = is_generic_title(title, cfg)
     sig["class_a"] = bool(sig["spam"])
@@ -898,6 +945,64 @@ def signals(cap: dict[str, Any], name: str, cfg: dict[str, Any]) -> dict[str, An
         and sig["generic_title"]
     )
     return sig
+
+
+COMPANY = "company"
+UNVERIFIED = "unverified"
+NOT_COMPANY = "not_company"
+REVIEW_GATE = "review"
+
+
+def company_gate(url: str, sig: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
+    """Is this candidate a company/product, or a project / docs / community page?
+
+    Runs BEFORE admission and BEFORE enrichment (docs/scale-to-10000-plan.md §3.5).
+    The liveness pass cannot answer this: the pilot-50 run admitted reactnative.dev,
+    d3js.org, ohmyz.sh, an awesome-list and a Telegram channel, all correctly LIVE.
+
+    Order matters, and it is the opposite of intuition:
+      1. a project-hosting host is a reject on its own (github.io, t.me, pypi.org);
+      2. a free host is REVIEW, never a drop - real companies use them too;
+      3. COMMERCIAL INTENT WINS: pricing/signup/demo/careers make it a company even
+         if the page also has a docs section, which is why this is checked before
+         the project markers;
+      4. a cluster of project markers with no commercial signal is a reject;
+      5. everything else is UNVERIFIED - admit-eligible, but carrying no positive
+         evidence that a company lives there.
+
+    UNVERIFIED is deliberately NOT a human queue. The first draft of this gate
+    sent every row without commercial vocabulary to REVIEW, which on the pilot's
+    50 candidates meant 23 review items - more than the 17 the liveness funnel was
+    already escalating - because "we could not read the page" and "we read a
+    personal project" are different things, and only the second is the gate's
+    business. The gate REMOVES obvious non-companies; the liveness/admin path
+    still decides everything else. A channel is judged by how many of its rows
+    come back COMPANY rather than by how many queue for a human.
+
+    Returns {"verdict": company|unverified|not_company|review, "why": str}.
+    """
+    host = host_of(url)
+    for h in cfg.get("project_hosts") or []:
+        if host == h or host.endswith("." + h):
+            return {"verdict": NOT_COMPANY,
+                    "why": f"host {host} is a project/community platform"}
+    for h in cfg.get("review_hosts") or []:
+        if host == h or host.endswith("." + h):
+            return {"verdict": REVIEW_GATE,
+                    "why": f"host {host} is free hosting - a company may use it, "
+                           "or a side project may"}
+    commercial = sig.get("commercial") or []
+    markers = sig.get("project_markers") or []
+    if commercial:
+        return {"verdict": COMPANY,
+                "why": f"commercial intent: {', '.join(commercial[:4])}"}
+    if len(markers) >= int(cfg.get("project_marker_min") or 3):
+        return {"verdict": NOT_COMPANY,
+                "why": f"project/docs/community page ({', '.join(markers[:5])}) "
+                       "with no commercial signal"}
+    return {"verdict": UNVERIFIED,
+            "why": "no project markers found, but no commercial evidence either "
+                   f"(markers: {markers[:3] or 'none'})"}
 
 
 def verdict_of(cap: dict[str, Any]) -> str:
@@ -1336,6 +1441,11 @@ def run_audit(args: argparse.Namespace, log: Log) -> int:
             if "_sig" not in c:
                 c["_sig"] = signals(c, r["name"], CFG)
         r["result"] = classify(r["name"], r["url"], r.get("caps") or [], CFG)
+        # the company gate judges the fullest evidence we have, and runs on the
+        # same captures so a run carries both verdicts (see company_gate)
+        best_cap = max(r.get("caps") or [{}],
+                       key=lambda c: len(c.get("visible") or ""), default={})
+        r["gate"] = company_gate(r["url"], best_cap.get("_sig") or {}, CFG)
 
     write_run(out_dir, records, provenance, args, uas, log)
     summarise(records, log)
@@ -1383,6 +1493,8 @@ def write_run(out_dir: str, records: list[dict], provenance: str,
             "final_host": res.get("final_host", ""),
             "redirected": res.get("redirected", False),
             "verdicts": res.get("verdicts", {}),
+            "company_gate": (r.get("gate") or {}).get("verdict", ""),
+            "company_gate_why": (r.get("gate") or {}).get("why", ""),
             "server": primary.get("server", ""),
             "bytes": primary.get("bytes", 0),
             "elapsed_ms": primary.get("elapsed_ms", 0),
@@ -1469,6 +1581,29 @@ def write_report(run_dir: str, states: list[dict], meta: dict, log: Log) -> None
             A(f'| {esc(s["id"], 12)} | {esc(s["name"], 50)} | {esc(s["url"], 70)} | '
               f'{esc(s["final_url"], 60)} | {esc(s["why"], 130)} |')
         A("")
+    gate_counts = collections.Counter(s.get("company_gate") or "-" for s in states)
+    not_company = [s for s in states if s.get("company_gate") == NOT_COMPANY]
+    if any(gate_counts.values()):
+        A("## Company gate - is this a company, or a project page?")
+        A("")
+        A("Runs on the same captures, before admission and before enrichment. It "
+          "rejects only high-confidence non-companies (a project-hosting host, or a "
+          "cluster of project/docs markers with no commercial signal). UNVERIFIED is "
+          "not a queue: it means no positive evidence either way, and the admin path "
+          "already handles unreadable rows.")
+        A("")
+        for k in (COMPANY, UNVERIFIED, NOT_COMPANY, REVIEW_GATE):
+            A(f"- **{k}**: {gate_counts.get(k, 0)}")
+        A("")
+        if not_company:
+            A(f"### Rejected as non-company ({len(not_company)})")
+            A("")
+            A("| # | Name | URL | Why |")
+            A("|---|---|---|---|")
+            for s in sorted(not_company, key=lambda x: str(x["name"]).lower()):
+                A(f'| {esc(s["id"], 12)} | {esc(s["name"], 40)} | {esc(s["url"], 60)} | '
+                  f'{esc(s.get("company_gate_why"), 90)} |')
+            A("")
     if redirects:
         A(f"## Redirected off the stored domain ({len(redirects)})")
         A("")
@@ -1538,6 +1673,8 @@ def run_verify(args: argparse.Namespace, log: Log) -> int:
         for c in caps:
             c["_sig"] = signals(c, names.get(rid, ""), CFG)
         res = classify(names.get(rid, ""), urls.get(rid, ""), caps, CFG)
+        best_cap = max(caps, key=lambda c: len(c.get("visible") or ""), default={})
+        gate = company_gate(urls.get(rid, ""), best_cap.get("_sig") or {}, CFG)
         states.append({"id": rid, "name": names.get(rid, ""), "url": urls.get(rid, ""),
                        "state": res["state"], "why": res["why"],
                        "evidence_class": res.get("evidence_class", ""),
@@ -1547,7 +1684,8 @@ def run_verify(args: argparse.Namespace, log: Log) -> int:
                        "stored_host": res.get("stored_host", ""),
                        "final_host": res.get("final_host", ""),
                        "redirected": res.get("redirected", False),
-                       "verdicts": res.get("verdicts", {})})
+                       "verdicts": res.get("verdicts", {}),
+                       "company_gate": gate["verdict"], "company_gate_why": gate["why"]})
     states.sort(key=lambda s: (str(s["name"]).lower(), str(s["id"])))
     meta = {"tool": TOOL, "version": VERSION, "generated_at": now(), "source": run_dir,
             "config_hash": _CFG_HASH}
@@ -1996,8 +2134,58 @@ def _fixtures() -> list[tuple[str, str, str, list[dict], str, str]]:
     return F
 
 
+def _gate_fixtures() -> list[tuple[str, str, dict[str, Any], str]]:
+    """(label, url, cap kwargs, expected verdict). Every case is a real page from
+    the pilot-50 run, so the gate is pinned against what the web actually served."""
+    return [
+        ("company-pricing", "https://atoms.dev",
+         {"status": 200, "bytes": 60000,
+          "title": "Atoms: Build websites & apps with AI, no code needed",
+          "visible": "Resources Community About Pricing Log in Sign up Trusted by "
+                     "builders from Turn ideas into products that sell"}, COMPANY),
+        # A company whose site also has a docs section: commercial intent wins.
+        ("company-with-docs", "https://daytona.io",
+         {"status": 200, "bytes": 70000,
+          "title": "Daytona - Secure Infrastructure for Running AI-Generated Code",
+          "visible": "Docs Customers Pricing Startups Blog Sign in Contact us Run "
+                     "AI Code. Secure and Elastic Infrastructure"}, COMPANY),
+        ("docs-site", "https://reactnative.dev",
+         {"status": 200, "bytes": 90000,
+          "title": "React Native - Learn once, write anywhere",
+          "visible": "Skip to main content React Native Docs Guides Components "
+                     "APIs Architecture Releases Contributing Community Blog"},
+         NOT_COMPANY),
+        ("community-project", "https://syncthing.net",
+         {"status": 200, "bytes": 50000, "title": "Syncthing",
+          "visible": "Syncthing Project Downloads Security Foundation Docs Forum "
+                     "Code Donations continuous file synchronization program"},
+         NOT_COMPANY),
+        # The host alone decides: a GitHub Pages path is not a company site.
+        ("project-host-github-pages", "https://iptv-org.github.io",
+         {"status": 200, "bytes": 3000, "title": "iptv-org",
+          "visible": "iptv-org Search Found channel(s) Search syntax"}, NOT_COMPANY),
+        ("project-host-telegram", "https://t.me/g4f_channel",
+         {"status": 200, "bytes": 3000, "title": "", "visible": ""}, NOT_COMPANY),
+        # Free hosting: a company may use it, or a side project may. REVIEW.
+        ("free-host-review", "https://my-thing.netlify.app",
+         {"status": 200, "bytes": 3000, "title": "My Thing",
+          "visible": "A thing I made on a weekend"}, REVIEW_GATE),
+        # A JS shell that shows only the brand name: no evidence either way, but
+        # not a project page either, so it passes without a human.
+        ("brand-only-shell", "https://fontawesome.com",
+         {"status": 200, "bytes": 4000, "title": "Font Awesome",
+          "visible": "Font Awesome"}, UNVERIFIED),
+        # A real biotech with a brochure site and no commercial vocabulary.
+        ("brochure-site-unverified", "https://fountaintx.com",
+         {"status": 200, "bytes": 30000, "title": "Fountain Therapeutics",
+          "visible": "Home Pipeline About Platform Our lead programs first-in-class "
+                     "therapies"}, UNVERIFIED),
+    ]
+
+
 def run_selftest(args: argparse.Namespace, log: Log) -> int:
     fails = 0
+    total = 0
     fixtures = _fixtures()
     for label, name, url, caps, want_state, want_class in fixtures:
         for c in caps:
@@ -2011,9 +2199,24 @@ def run_selftest(args: argparse.Namespace, log: Log) -> int:
         mark = "ok  " if ok else "FAIL"
         if not ok:
             fails += 1
+        total += 1
         log(f"  [{mark}] {label:<32} {res['state']:<11} "
             f"{res.get('evidence_class') or '-':<16} {res['why'][:64]}")
-    log(f"selftest: {len(fixtures) - fails}/{len(fixtures)} fixtures pass")
+    log("")
+    log("  --- company gate (is this a company, or a project page?) ---")
+    for label, url, kw, want in _gate_fixtures():
+        cap = _cap(**kw)
+        cap["url"] = cap.get("url") or url
+        cap["final_url"] = cap.get("final_url") or url
+        sig = signals(cap, kw.get("name", ""), CFG)
+        res = company_gate(url, sig, CFG)
+        ok = res["verdict"] == want
+        if not ok:
+            fails += 1
+        total += 1
+        log(f"  [{'ok  ' if ok else 'FAIL'}] {label:<32} {res['verdict']:<11} "
+            f"{res['why'][:64]}")
+    log(f"selftest: {total - fails}/{total} fixtures pass")
     if fails:
         log("selftest FAILED - a rule is not behaving as the doctrine says")
         return 4
