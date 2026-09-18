@@ -52,6 +52,33 @@ NEW_STARTUP_COLUMNS: tuple[tuple[str, str], ...] = (
     ("date_source", "TEXT DEFAULT 'unknown'"),  # llm | wayback | rdap | human | unknown
 )
 
+# --- approval provenance (scale-to-10k, 2026-09-18) -------------------------
+# `verified` answers "is this row admitted to the archive".  It does NOT answer
+# "who admitted it" - and until now the only answer was "a human", so the two
+# questions collapsed into one flag and the Admin Verified badge could infer it.
+#
+# The funnel changes that: rows that pass the automated liveness gate are now
+# admitted without a human seeing them.  If they were marked with `verified`
+# alone they would each render "Admin Verified" - a badge claiming a human
+# confirmed a business no human has ever looked at.  Badges must not lie
+# (docs/teardown-spec.md §8.1), so admission provenance is recorded explicitly
+# instead:
+#
+#   approval_source  'human' | 'machine'  (NULL = predates this column, i.e. human)
+#   approved_by      'admin' | 'funnel:http' | 'funnel:render'
+#   approval_note    optional free text for a rejection or re-check reason
+#
+# These are DELIBERATELY NOT in NEW_STARTUP_COLUMNS.  That tuple feeds
+# enrich.UPDATABLE, so anything in it can be written by a seed/teardown upsert -
+# and a re-seed silently resetting `approval_source` would turn a machine
+# admission into an apparently human one.  Approval state is written only by
+# verify.approve_suggested / verify.approve_machine, never by enrichment.
+NEW_APPROVAL_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("approval_source", "TEXT"),        # human | machine | NULL (legacy => human)
+    ("approved_by", "TEXT"),            # admin | funnel:http | funnel:render
+    ("approval_note", "TEXT"),
+)
+
 _STARTUPS_BASE = """CREATE TABLE IF NOT EXISTS startups (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
@@ -181,10 +208,23 @@ def migrate(conn: sqlite3.Connection) -> list[str]:
 
     Returns the names of the columns actually added, so a caller (or a test)
     can prove the first run was not a no-op and the second run was.
+
+    Two lists are applied, and the split is load-bearing:
+
+    * NEW_STARTUP_COLUMNS - the teardown/enrichment fields. Every one of them is
+      also in enrich.UPDATABLE, and tests assert that parity (the silent-drop
+      trap: a column in the schema but missing from UPDATABLE is dropped by
+      _upsert with no error).
+    * NEW_APPROVAL_COLUMNS - who admitted the row. These are deliberately NOT in
+      UPDATABLE, so a re-seed can never overwrite an admission's provenance.
+
+    Legacy rows keep approval_source NULL. That is not a gap to backfill: every
+    row admitted before the funnel existed was admitted by a human, and NULL is
+    read as exactly that (compare.badges), so no existing row is rewritten.
     """
     present = {row["name"] for row in conn.execute("PRAGMA table_info(startups)")}
     added: list[str] = []
-    for name, decl in NEW_STARTUP_COLUMNS:
+    for name, decl in NEW_STARTUP_COLUMNS + NEW_APPROVAL_COLUMNS:
         if name in present:
             continue
         conn.execute(f"ALTER TABLE startups ADD COLUMN {name} {decl}")

@@ -152,11 +152,16 @@ function UnknownSection({ what, note }: { what: string; note: string }) {
 
 /**
  * The two badges, as two visibly different signals (`docs/teardown-spec.md`
- * §8.1). Admin Verified is the admission ticket and does not decay; Machine
+ * §8.1). Admin Verified means a human admitted the row (a funnel admission says
+ * "Machine Approved" instead); Machine
  * Verified is re-earned on every weekly pass, so it is the one the reader
  * should see varying. Neither says anything about the truth of a claim.
  */
 function TrustBadges({ record }: { record: StartupRecord | null }) {
+  // A row can be admitted by the funnel rather than by a human. `admin_verified`
+  // is already false for those, but "not admin verified" would hide WHICH gate
+  // let it in - so the badge names the actual gate instead.
+  const machineAdmitted = record?.approval_source === "machine";
   if (!record) {
     return (
       <div className="flex flex-wrap gap-2" aria-busy="true" aria-label="Loading trust signals">
@@ -173,17 +178,25 @@ function TrustBadges({ record }: { record: StartupRecord | null }) {
             "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium",
             record.admin_verified
               ? "border-success/25 bg-success/12 text-success dark:bg-success/15"
-              : "text-muted-foreground",
+              : machineAdmitted
+                ? "border-primary/25 bg-primary/10 text-primary"
+                : "text-muted-foreground",
           )}
         >
-          <BadgeCheck className="h-3 w-3" />
-          Admin Verified
+          {machineAdmitted ? <Bot className="h-3 w-3" /> : <BadgeCheck className="h-3 w-3" />}
+          {machineAdmitted ? "Machine Approved" : "Admin Verified"}
           <span className="font-mono text-[10px] font-normal opacity-80">
-            {record.admin_verified
-              ? record.admin_verified_at
-                ? shortDate(record.admin_verified_at)
-                : "date not recorded"
-              : "not admin verified"}
+            {machineAdmitted
+              ? `${record.approved_by ?? "funnel"} - ${
+                  record.admin_verified_at
+                    ? shortDate(record.admin_verified_at)
+                    : "date not recorded"
+                }`
+              : record.admin_verified
+                ? record.admin_verified_at
+                  ? shortDate(record.admin_verified_at)
+                  : "date not recorded"
+                : "not admin verified"}
           </span>
         </span>
         <span
@@ -207,7 +220,7 @@ function TrustBadges({ record }: { record: StartupRecord | null }) {
       </div>
       <p className="text-[10px] leading-relaxed text-muted-foreground/80">
         These two describe the <strong className="font-semibold">record</strong> — that a human
-        confirmed the business exists online, and whether automation last reached the link. They say
+        admitted the business, and whether automation last reached the link. They say
         nothing about the truth of any claim below; each claim carries its own source instead.
       </p>
     </div>

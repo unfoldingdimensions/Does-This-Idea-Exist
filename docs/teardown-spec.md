@@ -217,10 +217,11 @@ Two badges, two different claims, and they must never be rendered as one:
 
 | Badge | Backed by (existing data) | What it attests | Decays? |
 |---|---|---|---|
-| **Admin Verified** | `verified` + `verified_at` — the human stamp; the only bulk writer is `verify.approve_suggested()` | a human confirmed this is a real business that exists online | no — it is the admission ticket to the archive |
+| **Admin Verified** | `verified` + `verified_at` — the human stamp; stamped by `verify.approve_suggested()`, the single-row /verify endpoint and the bulk admin route | a human confirmed this is a real business that exists online | no — it is the admission ticket to the archive |
 | **Machine Verified** | `status` + `last_checked` + `check_failures` — the weekly pass | automation confirmed the link was reachable at that date | yes — re-earned on every pass |
 
-Because admin approval is the entry gate, every archive row is Admin Verified — so **Machine Verified is the badge that actually moves**, and it is the one the founder should see varying.
+Human admission is the entry gate for every row a human has looked at; the automated funnel also
+admits rows, and those are NOT Admin Verified (see 8.4) — so **Machine Verified is the badge that actually moves**, and it is the one the founder should see varying.
 
 Neither badge says anything about the truth of a claim. We cannot verify what a competitor says; we can only verify **that the business exists online** and **that every fetched item carries the link it came from**. The product's contract is therefore: *every row is a quotation with a citation.*
 
@@ -245,6 +246,44 @@ Consequence: no per-negative curator queue is needed. The review burden sits on 
 - We never score, rank or grade a competitor.
 - We never print a generated "you will beat them because…" line.
 - We never present a marketing claim as our own finding — it is always "they say X, per this page, captured on this date".
+
+### 8.4 Admission provenance (Round 6, 2026-09-18 - the funnel decision)
+
+Owner decision: at archive scale a human cannot be the gate for every row. The liveness funnel admits
+the clean majority automatically and routes only the walled, repurposed, notorious or unresolved rows
+to the admin queue (`docs/scale-to-10000-plan.md` §3).
+
+That splits one question into two - "is this row admitted" and "who admitted it" - and they must not
+collapse back into one flag. `verified=1` alone would render Admin Verified on a row no human ever
+looked at, which is exactly the badge-lies failure this trust model cannot survive. Admission
+provenance is therefore recorded explicitly:
+
+| Column | Values | Meaning |
+|---|---|---|
+| `approval_source` | `human` · `machine` · NULL | who admitted the row. NULL predates this column and reads as human; no existing row was rewritten to say so |
+| `approved_by` | `admin` · `funnel:http` · `funnel:render` | which gate admitted it |
+| `approval_note` | text | optional reason / re-check note |
+
+Rules:
+
+1. **`verified` keeps its meaning** - "admitted to the archive". Every existing filter, count and
+   listing keeps working unchanged.
+2. **Admin Verified requires `approval_source != 'machine'`.** A machine-admitted row renders
+   **Machine Approved**, naming the stage that admitted it, and never Admin Verified.
+3. **Three writers of `verified=1`, and only these**: `verify.approve_suggested()` (bulk, human), the
+   single-row `/api/startups/{id}/verify` route (human), and `verify.approve_machine()` (funnel). The
+   first two stamp `approval_source='human'`; only the third stamps `'machine'`, and it rejects any
+   `by` value that does not name a funnel stage.
+4. **The same base guard on both paths**: `verified = 0 AND status = 'active' AND check_failures = 0`.
+   A machine can never re-stamp an admitted row, resurrect a `dead` one, or admit a row sitting on a
+   failure strike - the dead-flip outranks the funnel.
+5. **Provenance can never be clobbered by enrichment.** These columns are deliberately NOT in
+   `enrich.UPDATABLE`, so a re-seed or teardown upsert cannot overwrite them.
+6. **Un-verifying clears the provenance**, rather than leaving a stale stamp for the badges to read.
+
+Consequence for the funnel: the admin queue is defined by what is *not* machine-approvable, not by
+what is unverified. `list_suggested()` already excludes `verified = 1`, so machine-admitted rows never
+appear in it.
 
 ---
 

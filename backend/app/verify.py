@@ -162,10 +162,18 @@ def approve_suggested(
 ) -> int:
     """Human gate, in bulk: stamp verified=1 + verified_at on the given rows
     (or every suggested row, or every suggested row in a created_at window —
-    the batch boundary for "approve this seed run"). The ONLY writers of
-    verified=1 are this function and the single-row /verify endpoint —
-    automation never stamps."""
+    the batch boundary for "approve this seed run"). Writers of
+    verified=1 are this function, the single-row /verify endpoint, and
+    approve_machine —
+    only this path stamps
+    approval_source='human', so an automated admission can never present itself as
+    a human one (compare.badges)."""
     conn = db.connect()
+    # The human stamp is recorded as such. Without approval_source a machine
+    # admission and a human one are indistinguishable, and the Admin Verified
+    # badge (compare.badges) would have to guess.
+    stamp = ("UPDATE startups SET verified = 1, verified_at = datetime('now'), "
+             "approval_source = 'human', approved_by = 'admin' ")
     try:
         base = "verified = 0 AND status = 'active' AND check_failures = 0"
         if created_after or created_before:
@@ -177,15 +185,11 @@ def approve_suggested(
                 conds.append("created_at < ?")
                 params.append(created_before)
             cur = conn.execute(
-                f"UPDATE startups SET verified = 1, verified_at = datetime('now') "
-                f"WHERE {' AND '.join(conds)}",
+                f"{stamp}WHERE {' AND '.join(conds)}",
                 params,
             )
         elif approve_all:
-            cur = conn.execute(
-                f"UPDATE startups SET verified = 1, verified_at = datetime('now') "
-                f"WHERE {base}"
-            )
+            cur = conn.execute(f"{stamp}WHERE {base}")
         else:
             ids = [int(i) for i in (ids or [])]
             if not ids:
@@ -195,10 +199,58 @@ def approve_suggested(
             # id of a dead or already-verified row stamps verified=1 while its
             # status stays 'dead' (a state no other writer can produce).
             cur = conn.execute(
-                f"UPDATE startups SET verified = 1, verified_at = datetime('now') "
-                f"WHERE id IN ({placeholders}) AND {base}",
+                f"{stamp}WHERE id IN ({placeholders}) AND {base}",
                 ids,
             )
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
+def approve_machine(
+    ids: list[int] | None = None,
+    *,
+    by: str = "funnel:http",
+    note: str | None = None,
+) -> int:
+    """Machine admission: the automated liveness gate stamps a row as admitted.
+
+    This is the second - and only other - writer of `verified = 1`, alongside
+    approve_suggested (human). It exists because at archive scale a human cannot
+    be the admission gate for every row: the funnel admits the clean majority and
+    routes only the walled / notorious / unresolved rows to the admin queue
+    (docs/scale-to-10000-plan.md §3).
+
+    What it deliberately does NOT do:
+
+    * It keeps the SAME base guard as the human path - `verified = 0 AND
+      status = 'active' AND check_failures = 0`. A machine can therefore never
+      re-stamp an admitted row, resurrect a `dead` one, or admit a row that is
+      sitting on a failure strike. The dead-flip still outranks the funnel.
+    * It writes approval_source='machine', so the record says a robot let it in.
+      Admin Verified is reserved for rows a human actually confirmed, and
+      compare.badges reads approval_source to keep that distinction honest.
+
+    `by` records WHICH stage admitted the row - a clean HTTP pass or a render that
+    resolved a client-side shell - because those carry different confidence and a
+    later audit needs to be able to tell them apart.
+    """
+    if not ids:
+        return 0
+    by = (by or "funnel:http").strip()
+    if not by.startswith("funnel:"):
+        raise ValueError(f"machine approval must name a funnel stage, got {by!r}")
+    placeholders = ",".join("?" * len(ids))
+    conn = db.connect()
+    try:
+        cur = conn.execute(
+            "UPDATE startups SET verified = 1, verified_at = datetime('now'), "
+            "approval_source = 'machine', approved_by = ?, approval_note = ? "
+            "WHERE id IN (%s) AND verified = 0 AND status = 'active' "
+            "AND check_failures = 0" % placeholders,
+            [by, note] + [int(i) for i in ids],
+        )
         conn.commit()
         return cur.rowcount
     finally:

@@ -460,8 +460,11 @@ def admin_suggested() -> list[dict]:
 def admin_approve(body: ApproveIn) -> dict:
     """Bulk human gate: stamp verified=1 on the given ids, every suggested
     row, or every suggested row in a created_at window (the batch boundary
-    for "approve this seed run"). The ONLY bulk writer of verified=1 —
-    automation never stamps."""
+    for "approve this seed run"). One of three writers of verified=1 (this, the single-row
+    /verify endpoint, and verify.approve_machine) —
+    only this path and the single-row
+    endpoint stamp approval_source='human'; a machine admission is stamped
+    'machine' and compare.badges withholds Admin Verified from it."""
     if body.approve_all:
         n = verify.approve_suggested(approve_all=True)
     elif body.ids:
@@ -903,7 +906,8 @@ def mark_verified(startup_id: int) -> dict:
     try:
         cur = conn.execute(
             "UPDATE startups SET verified = 1, verified_at = datetime('now'), "
-            "status = 'active', check_failures = 0 WHERE id = ?",
+            "status = 'active', check_failures = 0, "
+            "approval_source = 'human', approved_by = 'admin' WHERE id = ?",
             (startup_id,),
         )
         if cur.rowcount == 0:
@@ -921,7 +925,10 @@ def mark_unverified(startup_id: int) -> dict:
     conn = db.connect()
     try:
         cur = conn.execute(
-            "UPDATE startups SET verified = 0, verified_at = NULL, status = 'active' WHERE id = ?",
+            # Clear the provenance with the stamp: a withdrawn admission must not
+            # leave a stale 'human'/'machine' marker behind for the badges to read.
+            "UPDATE startups SET verified = 0, verified_at = NULL, status = 'active', "
+            "approval_source = NULL, approved_by = NULL WHERE id = ?",
             (startup_id,),
         )
         if cur.rowcount == 0:
