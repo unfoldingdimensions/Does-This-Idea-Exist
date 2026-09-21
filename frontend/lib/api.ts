@@ -134,6 +134,31 @@ export function markVerified(id: number): Promise<Startup> {
   return adminJson<Startup>(`${API_BASE}/api/startups/${id}/verify`, { method: "POST" });
 }
 
+/** Decide a FOUNDER publish request (kind "founder_submission" in the
+ * suggested queue). Never call approveSuggested for these rows: the id is a
+ * submissions-table id, and the archive approve would silently update a
+ * completely different startups row (or nothing). */
+export function approveSubmission(submissionId: number): Promise<Record<string, unknown>> {
+  return adminJson<Record<string, unknown>>(
+    `${API_BASE}/api/admin/founder/submissions/${submissionId}/approve`,
+    { method: "POST" },
+  );
+}
+
+export function rejectSubmission(
+  submissionId: number,
+  note: string,
+): Promise<Record<string, unknown>> {
+  return adminJson<Record<string, unknown>>(
+    `${API_BASE}/api/admin/founder/submissions/${submissionId}/reject`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ note }),
+    },
+  );
+}
+
 export function markUnverified(id: number): Promise<Startup> {
   return adminJson<Startup>(`${API_BASE}/api/startups/${id}/unverify`, { method: "POST" });
 }

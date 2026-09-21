@@ -59,6 +59,15 @@ export interface SuggestedStartup {
   category: string;
   last_checked: string | null;
   created_at: string;
+  /** Which store the row came from: an archive entry, or a founder's pending
+   * publish request riding the same queue (F-24). The two MUST be decided
+   * through different endpoints — an archive approve posts to
+   * /api/admin/verify/approve (startups table), a submission to
+   * /api/admin/founder/submissions/{id}/approve|reject. Default "archive"
+   * because rows from an older backend carry no tag. */
+  kind?: "archive" | "founder_submission";
+  submission_id?: number;
+  founder_app_id?: number;
 }
 
 export interface VerifyJob {

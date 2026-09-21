@@ -119,12 +119,15 @@ export function BucketItem({
   reason,
   onApprove,
   approving,
+  approveLabel,
 }: {
   name: string;
   url: string;
   reason?: string;
   onApprove?: () => void;
   approving?: boolean;
+  /** Override the button copy — e.g. "Approve publish" for a founder request. */
+  approveLabel?: string;
 }) {
   return (
     <li className="flex items-center gap-1.5 rounded-md bg-background/60 px-2 py-1 text-[11px]">
@@ -150,7 +153,7 @@ export function BucketItem({
           disabled={approving}
           className="shrink-0 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success transition-colors hover:bg-success/25 disabled:opacity-50"
         >
-          {approving ? "…" : "Mark verified"}
+          {approving ? "…" : approveLabel ?? "Mark verified"}
         </button>
       )}
     </li>

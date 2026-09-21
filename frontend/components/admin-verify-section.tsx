@@ -16,6 +16,7 @@ import {
 import {
   AdminUnauthorized,
   approveSuggested,
+  approveSubmission,
   fetchStats,
   fetchSuggested,
 } from "@/lib/api";
@@ -71,7 +72,7 @@ export function VerificationSection({
   const [confirm, setConfirm] = React.useState<
     | { kind: "all" }
     | { kind: "batch"; day: string; count: number }
-    | { kind: "one"; id: number; name: string }
+    | { kind: "one"; id: number; name: string; founder?: boolean }
     | null
   >(null);
 
@@ -94,19 +95,33 @@ export function VerificationSection({
     return () => window.clearTimeout(t);
   }, [refresh]);
 
-  const afterApprove = (n: number) => {
+  const afterApprove = (n: number, what = "filing") => {
     setConfirm(null);
     setApprovingId(null);
     setApprovingAll(false);
-    toast.success(`${n} filing${n === 1 ? "" : "s"} stamped`);
+    toast.success(`${n} ${what}${n === 1 ? "" : "s"} stamped`);
     onSeeded(); // refresh archive + jobs
     void refresh(); // refresh the queue
   };
 
-  const approveOne = async (id: number) => {
-    setApprovingId(id);
+  const afterDecision = (what: string) => {
+    setConfirm(null);
+    setApprovingId(null);
+    setApprovingAll(false);
+    toast.success(what);
+    onSeeded(); // refresh archive + jobs
+    void refresh(); // refresh the queue
+  };
+
+  const approveOne = async (s: SuggestedStartup) => {
+    setApprovingId(s.id);
     try {
-      const r = await approveSuggested([id]);
+      if (s.kind === "founder_submission") {
+        await approveSubmission(s.submission_id ?? s.id);
+        afterDecision("Publish request approved — the archive row is created");
+        return;
+      }
+      const r = await approveSuggested([s.id]);
       afterApprove(r.approved);
     } catch (err) {
       setApprovingId(null);
@@ -159,10 +174,13 @@ export function VerificationSection({
     }
   };
 
-  // Suggested rows grouped by created day (UTC) — one batch per seed run day.
+  // Suggested ARCHIVE rows grouped by created day (UTC) — one batch per seed
+  // run day. Founder publish requests are a different store and a different
+  // decision: they are split out below, never batched, never archive-approved.
   const groups = React.useMemo(() => {
     const byDay = new Map<string, SuggestedStartup[]>();
     for (const s of suggested) {
+      if (s.kind === "founder_submission") continue;
       const day = (s.created_at ?? "").slice(0, 10);
       if (!day) continue;
       const arr = byDay.get(day) ?? [];
@@ -171,6 +189,12 @@ export function VerificationSection({
     }
     return [...byDay.entries()].sort((a, b) => b[0].localeCompare(a[0]));
   }, [suggested]);
+
+  const submissions = React.useMemo(
+    () => suggested.filter((s) => s.kind === "founder_submission"),
+    [suggested],
+  );
+  const archiveCount = suggested.length - submissions.length;
 
   const verifyJobs = React.useMemo(() => jobs.filter((j) => j.kind === "verify"), [jobs]);
   const lastVerified = stats?.last_checked ?? null;
@@ -201,7 +225,7 @@ export function VerificationSection({
             <p className="text-xs text-muted-foreground">
               The automated check found these alive but no human has stamped them yet.
             </p>
-            {suggested.length > 0 && (
+            {archiveCount > 0 && (
               <Button
                 variant="outline"
                 size="sm"
@@ -225,6 +249,34 @@ export function VerificationSection({
             </p>
           ) : (
             <div className="max-h-72 space-y-3 overflow-y-auto pr-1">
+              {submissions.length > 0 && (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between pt-0.5">
+                    <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                      Founder publish requests · {submissions.length}
+                    </span>
+                  </div>
+                  <ul className="space-y-1">
+                    {submissions.map((s) => (
+                      <BucketItem
+                        key={`sub-${s.submission_id ?? s.id}`}
+                        name={s.name}
+                        url={s.website_url ?? s.github_url ?? ""}
+                        approveLabel="Approve publish"
+                        onApprove={() =>
+                          setConfirm({
+                            kind: "one",
+                            id: s.submission_id ?? s.id,
+                            name: s.name,
+                            founder: true,
+                          })
+                        }
+                        approving={approvingId === s.id}
+                      />
+                    ))}
+                  </ul>
+                </div>
+              )}
               {groups.map(([day, items]) => (
                 <div key={day} className="space-y-1">
                   <div className="flex items-center justify-between pt-0.5">
@@ -247,7 +299,9 @@ export function VerificationSection({
                         key={s.id}
                         name={s.name}
                         url={s.website_url ?? s.github_url ?? ""}
-                        onApprove={() => setConfirm({ kind: "one", id: s.id, name: s.name })}
+                        onApprove={() =>
+                          setConfirm({ kind: "one", id: s.id, name: s.name })
+                        }
                         approving={approvingId === s.id}
                       />
                     ))}
@@ -329,17 +383,21 @@ export function VerificationSection({
           <DialogHeader>
             <DialogTitle>
               {confirm?.kind === "all"
-                ? `Approve all ${suggested.length} suggested?`
+                ? `Approve all ${archiveCount} suggested?`
                 : confirm?.kind === "batch"
                   ? `Approve ${confirm.count} from ${dayLabel(confirm.day)}?`
-                  : `Mark ${confirm?.kind === "one" ? confirm.name : ""} as verified?`}
+                  : confirm?.founder
+                    ? `Approve ${confirm.name}'s publish request?`
+                    : `Mark ${confirm?.kind === "one" ? confirm.name : ""} as verified?`}
             </DialogTitle>
             <DialogDescription>
               {confirm?.kind === "all"
                 ? "Every entry the automated check found alive gets the human-verified stamp. This is a human decision — you can still unverify any of them from the status pill."
                 : confirm?.kind === "batch"
                   ? `Every suggested entry created on ${dayLabel(confirm.day)} gets the human-verified stamp — one action per seed batch. Reversible from the status pill.`
-                  : "Confirm this startup actually exists — the verified badge is the human-gate stamp."}
+                  : confirm?.founder
+                    ? "The founder's app becomes an archive row through the normal seed writer, linked to their submission. This does not stamp it Admin Verified."
+                    : "Confirm this startup actually exists — the verified badge is the human-gate stamp."}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:justify-end">
@@ -355,7 +413,7 @@ export function VerificationSection({
                 if (!confirm) return;
                 if (confirm.kind === "all") void approveAll();
                 else if (confirm.kind === "batch") void approveBatch(confirm.day);
-                else void approveOne(confirm.id);
+                else void approveOne({ id: confirm.id, name: confirm.name, kind: confirm.founder ? "founder_submission" : "archive" } as SuggestedStartup);
               }}
               disabled={approvingAll || approvingId !== null}
             >
