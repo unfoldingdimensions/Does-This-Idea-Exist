@@ -1667,6 +1667,41 @@ with TestClient(api) as client:
     check("a liveness pass never admits - admission is a separate, explicit act (scale-to-10k)",
           row_of(_probe_id)["verified"] == 0, f"verified={row_of(_probe_id)['verified']}")
 
+    # The three-strike contract splits by WHO admitted the row: a human stamp
+    # protects the row from automation forever (re-check items only), a machine
+    # stamp protects nothing — three consecutive genuine failures dead-flip a
+    # machine-admitted row exactly as they do an unverified one.
+    # (Regression: the strike test used verified==1, so a funnel import silently
+    # disabled death detection for the whole machine-admitted majority.)
+    _mach_id = insert_startup("MachineStruck", "https://machinestruck.example")
+    _hum_id = insert_startup("HumanStruck", "https://humanstruck.example")
+    verify.approve_machine([_mach_id], by="funnel:http", note="strike-contract test")
+    verify.approve_suggested(ids=[_hum_id])
+    gh_mod.fetch_repo = _gh_404
+    _real_check_url2 = verify.check_url_ok
+    try:
+        verify.check_url_ok = lambda *a, **k: (False, "HTTP 200; content: DEAD (parked / for-sale page)", False)
+        for _ in range(3):
+            _j = client.post("/api/verify/run", headers=MUT).json()
+            wait_job(client, _j["job_id"])
+        _m, _h = row_of(_mach_id), row_of(_hum_id)
+        check("a machine-admitted row accumulates strikes and dead-flips on 3 genuine failures",
+              _m["check_failures"] == 3 and _m["status"] == "dead",
+              f"cf={_m['check_failures']} status={_m['status']}")
+        check("a human-admitted row never strikes (the human gate still outranks automation)",
+              _h["check_failures"] == 0 and _h["status"] == "active" and _h["verified"] == 1,
+              f"cf={_h['check_failures']} status={_h['status']}")
+        verify.check_url_ok = lambda *a, **k: (True, "HTTP 200", False)
+        _j = client.post("/api/verify/run", headers=MUT).json()
+        _jstat = wait_job(client, _j["job_id"])
+        check("a healthy machine-admitted row stays admitted and lands in no human bucket",
+              row_of(_mach_id)["verified"] == 1
+              and all(x["id"] != _mach_id for x in _jstat["result"]["suggested"]),
+              f"verified={row_of(_mach_id)['verified']}")
+    finally:
+        verify.check_url_ok = _real_check_url2
+        gh_mod.fetch_repo = _real_fetch_repo
+
     # Rate limiting: flipped on for this one check (the suite pins it off so a
     # fast run cannot trip it), then restored.
     _real_rate = config.RATE_LIMIT_ENABLED

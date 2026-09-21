@@ -336,7 +336,13 @@ def run_verify_job(job: dict) -> None:
             # Human-stamped rows never accumulate auto-strikes and never
             # auto-flip — the human gate outranks robot checks. They surface
             # in failed_list as re-check items for the curator instead.
-            human_owned = row["verified"] == 1
+            # Machine-admitted rows (approval_source='machine') are DIFFERENT:
+            # their whole contract is "needs three consecutive genuine
+            # failures" (docs/liveness-funnel-plan.md, Sequence 1) — a robot
+            # stamp protects nothing. Treating verified=1 as human-owned here
+            # silently disabled the dead-flip for exactly the majority the
+            # funnel admits, so the strike test is on approval_source.
+            human_owned = row["verified"] == 1 and row["approval_source"] != "machine"
 
             if failed:
                 job["failed"] += 1
@@ -371,6 +377,13 @@ def run_verify_job(job: dict) -> None:
                 job["already_verified"].append(
                     {"id": row["id"], "name": row["name"], "url": row["website_url"] or row["github_url"] or ""}
                 )
+                job["ok"] += 1
+                new_failures = 0
+                status = row["status"]
+            elif row["verified"] == 1:
+                # Machine-admitted and healthy: the pass keeps it fresh
+                # (last_checked, cleared streak) without re-suggesting it —
+                # it is already admitted; it just earns no human protections.
                 job["ok"] += 1
                 new_failures = 0
                 status = row["status"]
