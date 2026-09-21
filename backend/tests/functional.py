@@ -2136,6 +2136,20 @@ try:
         _r = verify.check_url_ok("https://gone.example", "Gone Co")
         check("check_url_ok hard-404 semantics unchanged",
               _r == (False, "HTTP 404", False), str(_r))
+        # Hostile-size body: the rules' tag/title regexes are superlinear on
+        # adversarial markup (~6s at 280 KB of "<script" measured), so an
+        # unbounded body would wedge the serial verify pass for minutes per
+        # URL. The check must bound the text it analyzes — cheap AND honest.
+        # The redirect target differs from the stored host, so the bound
+        # 400 KB window is exactly what a real run would classify.
+        _hostile = "<script" * 300_000  # ~2.1 MB of adversarial markup
+        netguard_mod.safe_get = lambda url, **k: _StubResp(200, _hostile, final=url)
+        _t0 = time.monotonic()
+        _r = verify.check_url_ok("https://hostile.example", "Hostile Co")
+        _cost = time.monotonic() - _t0
+        check("a hostile multi-MB page cannot wedge the content check (bounded analysis)",
+              _cost < 2.0 and _r[0] is True and _r[2] is False,
+              f"{_cost:.2f}s for {len(_hostile)} bytes -> {_r[:2]}")
     finally:
         netguard_mod.safe_get = _real_safe_get
 

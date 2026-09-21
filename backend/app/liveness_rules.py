@@ -389,9 +389,62 @@ def decode_body(body: bytes, charset: str | None) -> str:
     return body.decode("utf-8", "ignore")
 
 
+TAG_OLD = re.compile(r"<(script|style|noscript|template|svg)[^>]*>.*?</\1>|<[^>]+>",
+                     re.I | re.S)
+TAG_PLAIN = re.compile(r"<[^>]{0,4000}>")
+_BLOCK_TAGS = ("script", "style", "noscript", "template", "svg")
+_TAG_DELIM = "\x3e\x09\x0a\x0d "
+
+
+
+def _strip_block_elements(html: str) -> str:
+    """Remove <script>/<style>/... blocks in worst-case LINEAR time.
+
+    The old one-regex form `<(script|style|…)[^>]*>.*?</\\1>|<[^>]+>` is
+    superlinear on adversarial markup: measured, 280 KB of repeated `<script`
+    costs ~6 s and 400 KB ~36 s (the `[^>]*>` scans re-walk the same text for
+    every candidate opener). A remote page must never cost the verify pass
+    that much, so the block pass is done with C-speed `str.find` calls instead:
+    locate the next block opener, find its closer, continue. Output is
+    byte-identical with the regex on well-formed pages (pinned by the selftest
+    fixtures, which carry script/style blocks); on malformed input the
+    difference is dropping an unterminated block's remainder, which is what a
+    browser does anyway. The remaining plain tags are stripped by a regex with
+    a bounded token (`<[^>]{0,4000}>`) — linear, no backtracking.
+    """
+    out: list[str] = []
+    i = 0
+    low = html.lower()
+    n = len(html)
+    pos = {t: low.find("<" + t) for t in _BLOCK_TAGS}
+    while True:
+        nxt, tag = n, None
+        for t, j in pos.items():
+            if j != -1 and j < nxt:
+                if j < i:  # stale — re-anchor this tag from the scan position
+                    j = pos[t] = low.find("<" + t, i)
+                    if j == -1:
+                        continue
+                k = j + 1 + len(t)
+                if k < n and low[k] in _TAG_DELIM:
+                    nxt, tag = j, t
+        if tag is None:
+            out.append(html[i:])
+            break
+        out.append(html[i:nxt])
+        close = low.find("</" + tag, nxt)
+        if close == -1:
+            i = n  # unterminated block: a browser treats the rest as code
+            break
+        i = close
+        pos[tag] = low.find("<" + tag, i)
+    return "".join(out)
+
+
 def visible_text(html: str, cap: int = 60000) -> str:
     """Entity-decoded, script-stripped page text. Rules run over THIS."""
-    t = TAG_RE.sub(" ", html or "")
+    t = _strip_block_elements(html or "")
+    t = TAG_PLAIN.sub(" ", t)
     t = ENT_RE.sub(" ", t)
     try:
         t = _html.unescape(t)

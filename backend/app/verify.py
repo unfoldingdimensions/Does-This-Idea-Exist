@@ -72,12 +72,27 @@ def check_url_ok(url: str, name: str = "") -> tuple[bool, str, bool]:
         return False, f"HTTP {status}", True  # wall / rate limit / transient — skip
     if not config.VERIFY_CONTENT_CHECK:
         return True, f"HTTP {status}", False
+    # Bound the text BEFORE any rule runs. The rules module's tag/title/h1
+    # regexes are superlinear on adversarial markup (measured: `TAG_RE.sub`
+    # costs ~6s at 280 KB of `<script` and ~4x per doubling beyond), so a
+    # hostile page could otherwise wedge the serial verify pass for minutes
+    # per URL — no exception raised, nothing the fail-open below could catch.
+    # 400 KB matches the audit CLI's per-page body cap: the classifier's
+    # verdicts are defined (and fixtured) at that size, not above it.
+    _MAX_ANALYZE_BYTES = 400_000
     try:
+        _content = getattr(r, "content", b"") or b""
+        _text = getattr(r, "text", "") or ""
+        if len(_content) > _MAX_ANALYZE_BYTES or len(_text) > _MAX_ANALYZE_BYTES:
+            _text = _text[:_MAX_ANALYZE_BYTES]
+            _content_len = min(len(_content), _MAX_ANALYZE_BYTES)
+        else:
+            _content_len = len(_content)
         request = getattr(r, "request", None)
         final_url = str(getattr(request, "url", "") or "") if request is not None else ""
         res = liveness.classify_homepage(
-            name, url, status=status, text=getattr(r, "text", "") or "",
-            final_url=final_url, nbytes=len(getattr(r, "content", b"") or b""))
+            name, url, status=status, text=_text,
+            final_url=final_url, nbytes=_content_len)
         state = res.get("state", "")
         why = (res.get("why") or "")[:70]
         if state in liveness.STRIKE_STATES:
