@@ -2304,6 +2304,62 @@ try:
           json.dumps({"admitted": _again["admitted"],
                       "already_admitted": _again["already_admitted"]}))
 
+    # --- scale ceilings: >32766 ids, JSON type noise, oversized file ---------
+    # A 40k-row run is legitimate at the plan's scale, but SQLite's default
+    # bind-variable limit is 32766: the unchunked IN (...) died with "too many
+    # SQL variables" (uncaught -> HTTP 500). JSON also types freely: `true`
+    # isinstance-checks as int (and binds as rowid 1), 10**30 overflows.
+    _big_dir = Path(_tmp.name) / "funnel-run-big"
+    _big_dir.mkdir(exist_ok=True)
+    # 40k REAL ids: insert a small base of archive rows, then extend the id
+    # space by direct INSERTs with explicit ids (the ids past the real rows
+    # legitimately don't exist in the DB — they're reported as unknown_ids,
+    # which is exactly the path that must survive >32766 placeholders).
+    _base_ids = [insert_startup(f"Scale Co {i}", f"https://scale-{i}.example")
+                 for i in range(1, 33)]
+    _conn = db.connect()
+    try:
+        _max_existing = _conn.execute(
+            "SELECT COALESCE(MAX(id), 0) AS m FROM startups").fetchone()["m"]
+        _fake_ids = list(range(_max_existing + 1, _max_existing + 40_001))
+    finally:
+        _conn.close()
+    _big_rows = [
+        {**_state(i, f"Scale Co {i}", f"https://scale-{i}.example",
+                  "LIVE", "company"),
+         # type noise on the two base rows: must be skipped, not bound
+         **({"id": True} if i == _base_ids[0] else {}),
+         **({"id": 10**30} if i == _base_ids[1] else {})}
+        for i in _base_ids + _fake_ids
+    ]
+    (_big_dir / "states.json").write_text(json.dumps(_big_rows), encoding="utf-8")
+    _t0 = time.monotonic()
+    _big = funnel_mod.import_run(str(_big_dir), dry_run=True)
+    _big_cost = time.monotonic() - _t0
+    _expected_known = 30  # 32 real ids, 2 poisoned by type noise
+    check("a 40k-row run imports past SQLite's 32766 bind-variable ceiling",
+          _big["total_rows"] == 40_032
+          and len([i for i in _big["admitted"] if i in _base_ids]) == 0
+          and _big["admit_eligible"] >= _expected_known
+          and len(_big["unknown_ids"]) == len(_fake_ids) + 2,
+          f"rows={_big['total_rows']} eligible={_big['admit_eligible']} "
+          f"unknown={len(_big['unknown_ids'])} in {_big_cost:.2f}s (dry-run)")
+
+    _oversize = Path(_tmp.name) / "funnel-run-huge"
+    _oversize.mkdir(exist_ok=True)
+    # >MAX_FILE_BYTES of JSON: refused on SIZE, before json.load materialises it
+    _frag = b' {"id": 1},'
+    with open(_oversize / "states.json", "wb") as fh:
+        fh.write(b"[" + _frag * (funnel_mod.MAX_FILE_BYTES // len(_frag) + 1_000)
+                 + b" {\"id\": 2}]")
+    try:
+        funnel_mod.import_run(str(_oversize), dry_run=True)
+        _refused = False
+    except ValueError as exc:
+        _refused = "MB" in str(exc)
+    check("an oversized states file is refused on size, before parsing",
+          _refused, "ValueError naming the size")
+
     # --- the politeness gate (Sequence 3, docs/liveness-funnel-plan.md) ------
     # Pure logic over real threads: at most `concurrency` starts per `delay`
     # window on one host; one host's delay never blocks another host; pushback

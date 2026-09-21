@@ -47,6 +47,14 @@ QUEUE_GATES = frozenset({"not_company", "review"})
 # path, not a big archive (the tool refuses drops past 25% — this is the same
 # instinct on the admission side).
 MAX_ROWS = 100_000
+# A bound on the FILE, before json.load ever sees it: 100k rows of the real
+# writer's output is ~60 MB, so 128 MB rejects a wrong/huge file on size
+# instead of parsing an attacker-supplied multi-gigabyte one first.
+MAX_FILE_BYTES = 128_000_000
+# SQLite's default bind-variable limit is 32766; chunked reads stay far under
+# it so a full-archive run (100k rows) works in three queries instead of
+# dying with "too many SQL variables" past the limit.
+_CHUNK = 10_000
 
 
 def import_run(run_dir: str, *, dry_run: bool = True) -> dict[str, Any]:
@@ -72,6 +80,13 @@ def import_run(run_dir: str, *, dry_run: bool = True) -> dict[str, Any]:
         states_path = merged_path
     if not os.path.isfile(states_path):
         raise FileNotFoundError(f"no states.json under {run_dir}")
+    # Parse defensively and bound the row count BEFORE materialising: a
+    # multi-GB file is rejected on size, not after a full json.load of it.
+    file_size = os.path.getsize(states_path)
+    if file_size > MAX_FILE_BYTES:
+        raise ValueError(
+            f"states file is {file_size / 1e6:.0f} MB (cap {MAX_FILE_BYTES // 1_000_000} "
+            f"MB) — that is not a funnel run, it is the wrong file")
     with open(states_path, encoding="utf-8") as fh:
         states = json.load(fh)
     if not isinstance(states, list) or not states:
@@ -89,20 +104,35 @@ def import_run(run_dir: str, *, dry_run: bool = True) -> dict[str, Any]:
     if os.path.isfile(run_json):
         with open(run_json, encoding="utf-8") as fh:
             run_meta = json.load(fh)
+        if not isinstance(run_meta, dict):
+            run_meta = {}
 
-    # Current DB state per id — read-only. Ids from a since-changed archive are
-    # normal (rows dropped, ids re-used never happens with AUTOINCREMENT but a
-    # smaller archive than the run is expected) and reported, not errors.
-    ids = [s["id"] for s in states if isinstance(s.get("id"), int)]
+    # Current DB state per id — read-only, in chunks. Two ceilings bite at
+    # scale: SQLite's bind-variable limit (32766 by default — a 100k-row run
+    # would otherwise die with "too many SQL variables"), and untyped JSON
+    # (a `true` id is an int in Python; a 10**30 id overflows the binding).
+    # Both are handled here so a big-but-legitimate run simply works and a
+    # malformed one fails with a named error.
+    ids: list[int] = []
+    for s in states:
+        sid = s.get("id")
+        if isinstance(sid, bool):  # bool IS int in Python — exclude explicitly
+            continue
+        if isinstance(sid, int) and 0 < sid < 2**62:
+            ids.append(sid)
+    dbstate: dict[int, dict[str, Any]] = {}
     conn = db.connect()
     try:
-        placeholders = ",".join("?" * len(ids)) if ids else "NULL"
-        rows = conn.execute(
-            f"SELECT id, verified, status, check_failures FROM startups "
-            f"WHERE id IN ({placeholders})", ids).fetchall()
+        for start in range(0, len(ids), _CHUNK):
+            chunk = ids[start:start + _CHUNK]
+            placeholders = ",".join("?" * len(chunk))
+            rows = conn.execute(
+                f"SELECT id, verified, status, check_failures FROM startups "
+                f"WHERE id IN ({placeholders})", chunk).fetchall()
+            for r in rows:
+                dbstate[r["id"]] = dict(r)
     finally:
         conn.close()
-    dbstate = {r["id"]: dict(r) for r in rows}
 
     admits: list[dict[str, Any]] = []
     queued: list[dict[str, Any]] = []
