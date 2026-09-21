@@ -2154,7 +2154,12 @@ try:
         netguard_mod.safe_get = _real_safe_get
 
     # --- funnel.import_run: admit / queue / ignore / never delete ------------
-    _run_dir = Path(_tmp.name) / "funnel-run"
+    # Run directories must sit inside the repo (the tool writes them there:
+    # default --out is ./liveness-out at the repo root), so the fixtures use
+    # the same layout and the path gate accepts them.
+    _runs_root = BACKEND / "liveness-test-runs"  # inside the gate's root (backend/)
+    _runs_root.mkdir(exist_ok=True)
+    _run_dir = _runs_root / "funnel-run"
     _run_dir.mkdir(exist_ok=True)
 
     def _state(sid, name, url, state, gate, why="because the run said so"):
@@ -2254,17 +2259,45 @@ try:
     check("the endpoint's default is dry-run", _ep_default.status_code == 200
           and _ep_default.json()["dry_run"] is True, _ep_default.text[:120])
     _ep404 = client.post("/api/admin/funnel/import",
-                         json={"run": str(Path(_tmp.name) / "no-such-run")}, headers=MUT)
+                         json={"run": "liveness-test-runs/no-such-run"}, headers=MUT)
     check("a missing run is a 404 naming the path", _ep404.status_code == 404,
           _ep404.text[:120])
-    _bad = Path(_tmp.name) / "bad-run"
+    _bad = _runs_root / "bad-run"
     _bad.mkdir(exist_ok=True)
     (_bad / "states.json").write_text(json.dumps([{"id": 1, "state": "LIVE"}]),
                                       encoding="utf-8")
-    _ep422 = client.post("/api/admin/funnel/import", json={"run": str(_bad)}, headers=MUT)
+    _ep422 = client.post("/api/admin/funnel/import",
+                         json={"run": "liveness-test-runs/bad-run"}, headers=MUT)
     check("a pre-gate run is refused with the re-run instruction (422)",
           _ep422.status_code == 422 and "company gate" in _ep422.json()["detail"],
           _ep422.text[:160])
+
+    # --- the run-path gate: local repo directories only ----------------------
+    # `run` used to be an arbitrary server path: an absolute path outside the
+    # repo made the endpoint probe any location for states.json, and on
+    # Windows a UNC path (backslash-backslash host) made the server
+    # authenticate to a remote host (NTLM leak) and could block the worker on
+    # an SMB timeout.
+    _unc = ("\\" * 2) + "evil.example\share\run"
+    _dev = "\\?\C:\elsewhere\run"
+    for _bad_run, _why in (
+        (_unc, "UNC path (SMB coercion)"),
+        (_dev, "device path"),
+        (str(Path(_tmp.name) / "funnel-run"), "absolute path outside the repo"),
+        ("../../../../etc", ".. climb"),
+    ):
+        _gate = client.post("/api/admin/funnel/import",
+                            json={"run": _bad_run}, headers=MUT)
+        check(f"run path refused before any filesystem probe: {_why}",
+              _gate.status_code == 422 and "company gate" not in _gate.text,
+              f"{_gate.status_code} {_gate.text[:110]}")
+    # a relative run INSIDE the repo resolves against the repo root and works
+    _rel = client.post("/api/admin/funnel/import",
+                       json={"run": "liveness-test-runs/funnel-run",
+                             "dry_run": True}, headers=MUT)
+    check("a repo-relative run is accepted (resolved against the repo root)",
+          _rel.status_code == 200 and _rel.json()["states_file"] == "states-merged.json",
+          _rel.text[:120])
 
     _res = funnel_mod.import_run(str(_run_dir), dry_run=False)
     check("real import admits exactly the clean LIVE rows, incl. the one only "

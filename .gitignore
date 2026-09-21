@@ -78,3 +78,7 @@ memory/
 
 # Command Code tool state (machine-local)
 .commandcode/
+
+# funnel-import test runs (suite fixtures, recreated per run)
+liveness-test-runs/
+backend/liveness-test-runs/

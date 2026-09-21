@@ -425,8 +425,30 @@ class ApproveIn(BaseModel):
 
 
 class FunnelImportIn(BaseModel):
+    """The `run` field is a server-local directory produced by the audit tool.
+
+    Deliberately NOT an arbitrary path: funnel runs are directories the tool
+    writes beside the repo (default `./liveness-out`, or the operator's
+    --out root), and this API is how the operator hands one to the app. The
+    validators refuse anything else — absolute paths outside the repo, `..`
+    escapes, and Windows UNC device/`\\host\share` paths — because an
+    unconstrained path would let the server probe arbitrary filesystem
+    locations and, on Windows, authenticate to an attacker-chosen SMB host
+    (NetNTLMv2 coercion). Import by copying the run under the repo first.
+    """
+
     run: str = Field(min_length=1, max_length=1000)
     dry_run: bool = True
+
+    @model_validator(mode="after")
+    def _run_must_be_local(self) -> "FunnelImportIn":
+        from .funnel import run_dir_is_importable  # local import, no cycle
+
+        problems = run_dir_is_importable(self.run)
+        if problems:
+            raise ValueError("; ".join(problems))
+        return self
+
 
 
 @admin.post("/funnel/import", dependencies=[Depends(rate_limited("funnel_import", 10, 60))])

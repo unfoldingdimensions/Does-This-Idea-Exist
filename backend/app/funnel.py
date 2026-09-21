@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from typing import Any
 
 from . import db, verify
@@ -55,6 +56,59 @@ MAX_FILE_BYTES = 128_000_000
 # it so a full-archive run (100k rows) works in three queries instead of
 # dying with "too many SQL variables" past the limit.
 _CHUNK = 10_000
+
+# The run directory must live inside the deployable backend tree (the tool's
+# default `--out` is `./liveness-out` at the repo root; the operator copies or
+# points the run under here). Everything the API accepts is checked against
+# this root — see run_dir_is_importable.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def run_dir_is_importable(run: str) -> list[str]:
+    """Validate a requested run directory WITHOUT touching the filesystem.
+
+    Returns a list of problems (empty = acceptable). The API layer turns a
+    non-empty list into a 422. Pure path reasoning on purpose: a probe of
+    arbitrary locations (does X exist? is Y a file?) is exactly what this
+    gate exists to prevent.
+
+    Refused, in order of the checks:
+
+    * UNC/device paths (`\\\\host\\share\\run`, `\\\\.\\C:\\...`, `\\\\?\\...`):
+      on Windows, an isfile() probe of an attacker-chosen UNC path makes the
+      server authenticate to that host (NTLM leak) and can block the worker
+      on an SMB timeout.
+    * absolute paths outside the repo, and any `..` segment that would climb
+      out of it: the endpoint must not become an arbitrary-file oracle for
+      "is there a states.json there".
+    * a `run` that resolves to the repo root itself.
+    """
+    problems: list[str] = []
+    if not run or not run.strip():
+        return ["run is empty"]
+    if run.startswith("\\\\"):  # UNC (\\host\share) and device (\\.\, \\?\) forms
+        problems.append(
+            "run must be a local directory inside the repository — UNC/network "
+            "paths are refused (a Windows server would authenticate to the "
+            "remote host); copy the run under the repo first")
+        return problems
+    candidate = Path(run)
+    if candidate.is_absolute():
+        resolved = Path(os.path.abspath(run))
+    else:
+        # relative: resolve against the repo root, NOT the process CWD, so the
+        # accepted set does not depend on how the server happens to be started
+        resolved = (_REPO_ROOT / candidate)
+        resolved = Path(os.path.abspath(resolved))
+    try:
+        resolved.relative_to(_REPO_ROOT)
+    except ValueError:
+        problems.append(
+            "run must be inside the repository (the tool's default is "
+            "./liveness-out); points outside the repo are refused")
+    if ".." in candidate.parts:
+        problems.append("run must not contain '..' segments")
+    return problems
 
 
 def import_run(run_dir: str, *, dry_run: bool = True) -> dict[str, Any]:
