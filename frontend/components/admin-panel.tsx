@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { HeartPulse, KeyRound, Loader2, Settings2, Sprout, Stamp } from "lucide-react";
+import { HeartPulse, KeyRound, Loader2, Settings2, Sprout, Stamp, Waypoints } from "lucide-react";
 import { toast } from "sonner";
 import { SPRING_SETTLE } from "@/lib/motion";
 import { Button } from "@/components/ui/button";
@@ -29,9 +29,10 @@ import { ACTIVE, SectionHeader } from "@/components/admin-shared";
 import { SeedSection } from "@/components/admin-seed-section";
 import { VerificationSection } from "@/components/admin-verify-section";
 import { HealthCheckSection } from "@/components/admin-health-section";
+import { FunnelImportSection } from "@/components/admin-funnel-section";
 import { LlmGatewaysSection, useLlmGatewayBadge } from "@/components/admin-llm-section";
 
-export type AdminSection = "seed" | "verify" | "health" | "llm";
+export type AdminSection = "seed" | "verify" | "funnel" | "health" | "llm";
 
 /** Owner-only admin: vertical settings surface with four collapsible sections
  * — Seeding (serial queue + seed summary), Verification (human gate: suggested
@@ -169,6 +170,7 @@ export function AdminPanel({
   const sections: { key: AdminSection; icon: React.ReactNode; title: string }[] = [
     { key: "seed", icon: <Sprout className="h-4 w-4" />, title: "Seeding" },
     { key: "verify", icon: <Stamp className="h-4 w-4" />, title: "Verification" },
+    { key: "funnel", icon: <Waypoints className="h-4 w-4" />, title: "Funnel import" },
     { key: "health", icon: <HeartPulse className="h-4 w-4" />, title: "Website Health Check" },
     { key: "llm", icon: <KeyRound className="h-4 w-4" />, title: "LLM gateways" },
   ];
@@ -267,6 +269,12 @@ export function AdminPanel({
                             jobs={jobs}
                             expanded={expanded}
                             onToggle={toggle}
+                            onSeeded={refreshAndSync}
+                            onLocked={handleLocked}
+                          />
+                        )}
+                        {s.key === "funnel" && (
+                          <FunnelImportSection
                             onSeeded={refreshAndSync}
                             onLocked={handleLocked}
                           />

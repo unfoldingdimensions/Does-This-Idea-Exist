@@ -159,6 +159,35 @@ export function rejectSubmission(
   );
 }
 
+// --- Funnel import: apply a completed audit run (curl-free path) ---
+
+export interface FunnelImportPlan {
+  run: string;
+  states_file: string;
+  total_rows: number;
+  dry_run: boolean;
+  admit_eligible: number;
+  already_admitted: number;
+  admitted: number[];
+  queued: { id: number; name: string; state: string; gate: string; why: string }[];
+  ignored: { id: number; name: string; state: string; why: string }[];
+  unknown_ids: number[];
+}
+
+/** Plan (dry_run default) or apply a funnel run's admission decisions.
+ * `run` is a repo-local directory the audit tool wrote (relative to the
+ * backend root, e.g. "liveness-out/liveness-2026-09-19-0013"). */
+export function importFunnelRun(
+  run: string,
+  dryRun: boolean,
+): Promise<FunnelImportPlan> {
+  return adminJson<FunnelImportPlan>(`${API_BASE}/api/admin/funnel/import`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ run, dry_run: dryRun }),
+  });
+}
+
 export function markUnverified(id: number): Promise<Startup> {
   return adminJson<Startup>(`${API_BASE}/api/startups/${id}/unverify`, { method: "POST" });
 }
