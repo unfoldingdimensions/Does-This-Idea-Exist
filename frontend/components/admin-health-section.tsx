@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { AdminUnauthorized, approveSuggested, currentVerification, runVerification, verificationStatus } from "@/lib/api";
+import { AdminUnauthorized, currentVerification, markVerified, runVerification, verificationStatus } from "@/lib/api";
 import type { VerifyJob } from "@/lib/types";
 import { BucketItem, SummaryRow } from "@/components/admin-shared";
 import { cn } from "@/lib/utils";
@@ -147,12 +147,18 @@ export function HealthCheckSection({
     if (!confirm) return;
     setApproving(true);
     try {
-      const r = await approveSuggested([confirm.id]);
-      toast.success(`${r.approved} filing${r.approved === 1 ? "" : "s"} stamped`);
+      // A Failed row violates the archive-approve guard by construction
+      // (it either carries strikes or is human-stamped), so the bulk
+      // approve endpoint stored nothing here and the row just vanished
+      // from local state — a no-op dressed as success. The single-row
+      // verify endpoint is the correct call: it resets the strike
+      // counter and revives a dead row (POST /api/startups/{id}/verify).
+      await markVerified(confirm.id);
+      toast.success("Verified — strikes reset");
       onSeeded();
       // Drop the stamped row from the local buckets immediately — the job's
       // result is a terminal snapshot the server won't update, and leaving
-      // the row there invited a re-approve that just returned "0 stamped".
+      // the row there invited a re-approve that did nothing.
       const stampedId = confirm.id;
       setJob((j) =>
         j && j.result
@@ -353,8 +359,8 @@ export function HealthCheckSection({
           <DialogHeader>
             <DialogTitle>Mark {confirm?.name ?? ""} as verified?</DialogTitle>
             <DialogDescription>
-              The automated check flagged this entry, but the verified stamp is a human
-              decision — confirm this startup actually exists.
+              This re-check failed — the entry gets a verified stamp, its strike counter is
+              reset and a dead filing is revived. Reversible from the status pill.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:justify-end">
