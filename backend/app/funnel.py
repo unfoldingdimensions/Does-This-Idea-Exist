@@ -56,9 +56,20 @@ def import_run(run_dir: str, *, dry_run: bool = True) -> dict[str, Any]:
     the end of every audit; this is an admin-tokened endpoint for exactly that
     path. Raises FileNotFoundError for a missing run, ValueError for a run the
     funnel rules refuse.
+
+    State file selection mirrors the tool's own `drop` command: when a render
+    pass has run, states-merged.json is the better basis — its rows carry the
+    rendered capture that settled the row (browser_evidence / evidence_mode)
+    and the pre-render verdict (http_state / http_why). Importing states.json
+    would ignore the renderer entirely: rows only visible to a browser land in
+    the queue instead of being admitted, and every admission reads funnel:http.
+    An explicit states.json is still honoured when it is all there is.
     """
     run_dir = os.path.abspath(run_dir)
+    merged_path = os.path.join(run_dir, "states-merged.json")
     states_path = os.path.join(run_dir, "states.json")
+    if os.path.isfile(merged_path):
+        states_path = merged_path
     if not os.path.isfile(states_path):
         raise FileNotFoundError(f"no states.json under {run_dir}")
     with open(states_path, encoding="utf-8") as fh:
@@ -144,6 +155,7 @@ def import_run(run_dir: str, *, dry_run: bool = True) -> dict[str, Any]:
         "tool": run_meta.get("tool"),
         "run_generated_at": run_meta.get("generated_at"),
         "config_hash": run_meta.get("config_hash"),
+        "states_file": os.path.basename(states_path),
         "total_rows": len(states),
         "dry_run": dry_run,
         "admit_eligible": len(admits),

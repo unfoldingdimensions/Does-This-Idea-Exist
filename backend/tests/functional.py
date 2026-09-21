@@ -2153,6 +2153,7 @@ try:
     _fd = insert_startup("Funnel Dead Co", "https://funnel-dead.example")
     _fe = insert_startup("Funnel Already Co", "https://funnel-already.example")
     _ff = insert_startup("Funnel Render Co", "https://funnel-render.example")
+    _fg = insert_startup("Funnel HttpUnknown Co", "https://funnel-httpunknown.example")
     verify.approve_suggested(ids=[_fe])  # a human already admitted this one
     (_run_dir / "states.json").write_text(json.dumps([
         _state(_fa, "Funnel Admit Co", "https://funnel-admit.example", "LIVE", "company"),
@@ -2170,13 +2171,48 @@ try:
                               "rendered_at": "2026-09-19T00:00:00"}},
         _state(999991, "Ghost Row", "https://ghost.example", "LIVE", "company"),
     ]), encoding="utf-8")
-    (_run_dir / "run.json").write_text(json.dumps(
-        {"tool": "site_liveness_audit 1.0.0", "generated_at": "2026-09-19T00:00:00",
-         "config_hash": liveness_mod.config_hash()}), encoding="utf-8")
+    # The MERGED state file (what a render pass produces) is the same run plus
+    # one row the renderer settled: HTTP could not read it (UNKNOWN), the
+    # browser could (LIVE). Import must prefer this file — importing the plain
+    # states.json queues the row and stamps every admission funnel:http.
+    # Shape matches the tool's merge writer: http_state/http_why carry the
+    # pre-render verdict, evidence_mode/browser_evidence the render receipt.
+    (_run_dir / "states-merged.json").write_text(json.dumps([
+        {**_state(_fa, "Funnel Admit Co", "https://funnel-admit.example", "LIVE", "company"),
+         "http_state": "LIVE", "http_why": "HTTP 200", "evidence_mode": "http"},
+        {**_state(_fb, "Funnel Project Co", "https://funnel-project.example", "LIVE", "not_company"),
+         "http_state": "LIVE", "http_why": "HTTP 200", "evidence_mode": "http"},
+        {**_state(_fc, "Funnel Walled Co", "https://funnel-walled.example", "WALLED", "unverified"),
+         "http_state": "WALLED", "http_why": "HTTP 403", "evidence_mode": "http"},
+        {**_state(_fd, "Funnel Dead Co", "https://funnel-dead.example", "DEAD", "company"),
+         "http_state": "DEAD", "http_why": "HTTP 404", "evidence_mode": "http"},
+        {**_state(_fe, "Funnel Already Co", "https://funnel-already.example", "LIVE", "company"),
+         "http_state": "LIVE", "http_why": "HTTP 200", "evidence_mode": "http"},
+        {**_state(_ff, "Funnel Render Co", "https://funnel-render.example", "LIVE", "company"),
+         "http_state": "UNKNOWN", "http_why": "HTTP 200 with an empty/short body",
+         "evidence_mode": "http+render",
+         "browser_evidence": {"status": 200,
+                              "final_url": "https://funnel-render.example/",
+                              "title": "Funnel Render Co",
+                              "rendered_at": "2026-09-19T00:00:00"}},
+        # the render-settled row itself: UNKNOWN over HTTP, LIVE after render
+        {**_state(_fg, "Funnel HttpUnknown Co", "https://funnel-httpunknown.example",
+                  "LIVE", "company"),
+         "http_state": "UNKNOWN", "http_why": "HTTP 200 with an empty/short body",
+         "evidence_mode": "http+render",
+         "browser_evidence": {"status": 200,
+                              "final_url": "https://funnel-httpunknown.example/",
+                              "title": "Funnel HttpUnknown Co",
+                              "rendered_at": "2026-09-19T00:00:00"}},
+        {**_state(999991, "Ghost Row", "https://ghost.example", "LIVE", "company"),
+         "http_state": "LIVE", "http_why": "HTTP 200", "evidence_mode": "http"},
+    ]), encoding="utf-8")
 
     _plan = funnel_mod.import_run(str(_run_dir), dry_run=True)
+    check("import prefers states-merged.json when a render pass has run",
+          _plan["states_file"] == "states-merged.json", _plan["states_file"])
     check("dry-run import plans the admissions, counts the human row and the ghost",
-          _plan["dry_run"] is True and _plan["admit_eligible"] == 2
+          _plan["dry_run"] is True and _plan["admit_eligible"] == 3
           and _plan["admitted"] == [] and _plan["already_admitted"] == 1
           and _plan["unknown_ids"] == [999991],
           json.dumps({k: _plan[k] for k in
@@ -2197,7 +2233,7 @@ try:
     _ep = client.post("/api/admin/funnel/import",
                       json={"run": str(_run_dir), "dry_run": True}, headers=MUT)
     check("POST /api/admin/funnel/import plans without writing",
-          _ep.status_code == 200 and _ep.json()["admit_eligible"] == 2
+          _ep.status_code == 200 and _ep.json()["admit_eligible"] == 3
           and _ep.json()["admitted"] == [], _ep.text[:160])
     _ep_default = client.post("/api/admin/funnel/import",
                               json={"run": str(_run_dir)}, headers=MUT)
@@ -2217,8 +2253,9 @@ try:
           _ep422.text[:160])
 
     _res = funnel_mod.import_run(str(_run_dir), dry_run=False)
-    check("real import admits exactly the clean LIVE rows",
-          _res["admitted"] == sorted([_fa, _ff]), json.dumps(_res["admitted"]))
+    check("real import admits exactly the clean LIVE rows, incl. the one only "
+          "the renderer could settle",
+          _res["admitted"] == sorted([_fa, _ff, _fg]), json.dumps(_res["admitted"]))
     _conn = db.connect()
     try:
         _row = _conn.execute(
@@ -2228,6 +2265,8 @@ try:
             "SELECT verified, status FROM startups WHERE id=?", (_fd,)).fetchone()
         _ff_row = _conn.execute(
             "SELECT approved_by FROM startups WHERE id=?", (_ff,)).fetchone()
+        _fg_row = _conn.execute(
+            "SELECT approved_by FROM startups WHERE id=?", (_fg,)).fetchone()
     finally:
         _conn.close()
     check("the admission receipt: machine, funnel:http, the run named in the note",
@@ -2236,8 +2275,9 @@ try:
           and "funnel-run" in (_row["approval_note"] or ""),
           str(dict(_row)))
     check("a render-settled row is admitted under the stage that settled it "
-          "(funnel:render)", _ff_row["approved_by"] == "funnel:render",
-          str(dict(_ff_row)))
+          "(funnel:render)", _ff_row["approved_by"] == "funnel:render"
+          and _fg_row["approved_by"] == "funnel:render",
+          f"ff={dict(_ff_row)} fg={dict(_fg_row)}")
     check("the DEAD row is untouched — removal stays with the drop tool",
           _fd_status["verified"] == 0 and _fd_status["status"] == "active",
           str(dict(_fd_status)))
@@ -2246,7 +2286,7 @@ try:
           _fp["admin_verified"] is False, str(_fp["admin_verified"]))
     _again = funnel_mod.import_run(str(_run_dir), dry_run=False)
     check("re-import is a no-op: nothing new to admit, all admitted rows counted",
-          _again["admitted"] == [] and _again["already_admitted"] == 3,
+          _again["admitted"] == [] and _again["already_admitted"] == 4,
           json.dumps({"admitted": _again["admitted"],
                       "already_admitted": _again["already_admitted"]}))
 
