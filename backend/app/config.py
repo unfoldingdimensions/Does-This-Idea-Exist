@@ -51,6 +51,16 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "") or None
 # than this many days (0 disables). Set-and-forget for a local-first app.
 VERIFY_AUTO_STALE_DAYS = int(os.getenv("VERIFY_AUTO_STALE_DAYS", "7"))
 
+# Content-aware website checks: the verify pass runs the SAME liveness rules as
+# the audit CLI (scripts/liveness_rules.py) over every 2xx body it fetches, so a
+# parked or repurposed page is a strike, not a live signal. This is the check
+# that would have caught the four gambling/repurposed domains the 2026-09-18
+# review found sitting at verified=1 on a bare "HTTP 200". Safe by architecture:
+# human-verified rows never auto-dead-flip (they surface as re-check items), and
+# a classifier crash fails open to the plain HTTP verdict.
+VERIFY_CONTENT_CHECK = os.getenv("VERIFY_CONTENT_CHECK", "1").strip().lower() in (
+    "1", "true", "yes", "on")
+
 # F-22: a cached teardown is re-capturable after this many days. Deliberately the
 # same number and the same clock as VERIFY_AUTO_STALE_DAYS — the product has ONE
 # staleness rhythm, not two. Capture itself is just-in-time (first founder

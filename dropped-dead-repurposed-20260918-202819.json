@@ -1,0 +1,100 @@
+{
+  "dropped_at": "2026-09-18T20:28:19",
+  "reason": "manual second pass - audit filed as WALLED, but weave.works + stored URL both redirect to ambking1234.dev (gambling signup): repurposed",
+  "db_backup": "ideasexist.db.bak-drop-20260918-202819",
+  "startups": [
+    {
+      "id": 965,
+      "name": "Weaveworks",
+      "tagline": "Thai online slots and casino platform with auto deposits",
+      "description": "Weaveworks operates the AMBKING1234 website, a Thai online gambling platform offering slots, casino, sports, lottery, and other games. It features an auto deposit-withdrawal system, supports TrueWallet and major banks, and provides promotions like 50% bonus for new members.",
+      "category": "other",
+      "website_url": "https://ambking1234.limo/?action=register&marketingRef=6788b227da9499f55f6ea745",
+      "github_url": null,
+      "founded": "2026-06-27",
+      "stars": null,
+      "language": null,
+      "status": "active",
+      "verified": 1,
+      "verified_at": "2026-08-11 18:25:11",
+      "last_checked": "2026-09-17 06:33:04",
+      "check_failures": 0,
+      "source": "website",
+      "created_at": "2026-08-10 17:49:34",
+      "updated_at": "2026-08-10 17:49:34",
+      "entity_type": null,
+      "canonical_domain": null,
+      "aliases": null,
+      "problem_statement": null,
+      "target_users": null,
+      "product_url": null,
+      "docs_url": null,
+      "demo_url": null,
+      "app_store_url": null,
+      "play_store_url": null,
+      "pricing_json": null,
+      "pricing_captured_at": null,
+      "pricing_source_url": null,
+      "features_json": null,
+      "positioning": null,
+      "content_notes": null,
+      "activity_checked_at": null,
+      "activity_summary": null,
+      "last_human_reviewed_at": null,
+      "review_notes": null,
+      "provenance": null,
+      "date_source": "unknown"
+    }
+  ],
+  "evidence": [],
+  "verify_log": [
+    {
+      "id": 2566,
+      "startup_id": 965,
+      "checked_at": "2026-08-11 05:05:28",
+      "website_ok": 1,
+      "github_ok": null,
+      "notes": "website: HTTP 200"
+    },
+    {
+      "id": 3676,
+      "startup_id": 965,
+      "checked_at": "2026-08-11 07:04:00",
+      "website_ok": 1,
+      "github_ok": null,
+      "notes": "website: HTTP 200"
+    },
+    {
+      "id": 5659,
+      "startup_id": 965,
+      "checked_at": "2026-09-04 14:54:40",
+      "website_ok": 0,
+      "github_ok": null,
+      "notes": "website: HTTP 403"
+    },
+    {
+      "id": 6941,
+      "startup_id": 965,
+      "checked_at": "2026-09-16 13:26:29",
+      "website_ok": 0,
+      "github_ok": null,
+      "notes": "website: HTTP 403"
+    },
+    {
+      "id": 7950,
+      "startup_id": 965,
+      "checked_at": "2026-09-16 13:41:25",
+      "website_ok": 0,
+      "github_ok": null,
+      "notes": "website: HTTP 403"
+    },
+    {
+      "id": 9232,
+      "startup_id": 965,
+      "checked_at": "2026-09-17 06:33:04",
+      "website_ok": 0,
+      "github_ok": null,
+      "notes": "website: HTTP 403"
+    }
+  ]
+}

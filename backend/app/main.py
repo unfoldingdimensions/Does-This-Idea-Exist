@@ -34,7 +34,7 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 
-from . import capture, compare as compare_mod, db, enrich, evidence as evidence_mod, founder, gateways, search as search_mod, seeder, verify  # noqa: E402
+from . import capture, compare as compare_mod, db, enrich, evidence as evidence_mod, founder, funnel, gateways, search as search_mod, seeder, verify  # noqa: E402
 
 log = logging.getLogger("ideasexist")
 
@@ -422,6 +422,33 @@ class ApproveIn(BaseModel):
     approve_all: bool = False
     created_after: str | None = Field(default=None, max_length=32)
     created_before: str | None = Field(default=None, max_length=32)
+
+
+class FunnelImportIn(BaseModel):
+    run: str = Field(min_length=1, max_length=1000)
+    dry_run: bool = True
+
+
+@admin.post("/funnel/import", dependencies=[Depends(rate_limited("funnel_import", 10, 60))])
+def admin_funnel_import(body: FunnelImportIn) -> dict:
+    """Apply a completed liveness-funnel run (`scripts/site_liveness_audit.py
+    audit --out ...`): ADMIT the clean LIVE majority via the machine stamp
+    (verify.approve_machine — approval_source='machine', the stage that admitted
+    it in approved_by, and the run + reason as the approval_note receipt), QUEUE
+    the exception rows (walled / unknown / moved / banned / non-company / free
+    host) for the human path, and IGNORE dead/repurposed rows — removal stays
+    with the tool's own `drop` command and its brakes.
+
+    Admission only: this endpoint never deletes and never dead-flips. Dry-run is
+    the default and reports what WOULD match the admission guard. Re-importing a
+    run is a no-op (the guard only stamps verified=0 rows).
+    """
+    try:
+        return funnel.import_run(body.run, dry_run=body.dry_run)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 @admin.get("/verify/suggested")

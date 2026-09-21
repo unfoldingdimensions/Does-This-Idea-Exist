@@ -168,6 +168,7 @@ Admin routes are prefixed `/api/admin` and require the `X-Admin-Token` header:
 | `GET /api/admin/verify/current` | the active pass, or `null` |
 | `GET /api/admin/verify/suggested` | human-approval queue |
 | `POST /api/admin/verify/approve` | stamp verified: `{ids}` · `{approve_all: true}` · `{created_after, created_before}` (per-batch) |
+| `POST /api/admin/funnel/import` | apply a completed liveness-funnel run (`{run, dry_run}`): admit the clean LIVE majority under the machine stamp, queue the exceptions for the human path. Admission only — it never deletes (dry-run is the default) |
 | `POST /api/admin/capture/{startup_id}` | capture a teardown by hand (the panel's button) |
 | `GET /api/admin/capture/status/{job_id}` | capture progress |
 | `GET /api/admin/founder/submissions` | the publish queue (founder submissions and archive rows) |
@@ -245,7 +246,9 @@ Five steps, in order:
    SQLite DB: no live server, no network.
 2. **backend functional** (`backend/tests/functional.py` — the gate) —
    `F-01`–`F-24` plus the trust and store-separation invariants, with the fetcher,
-   both LLM prompts and both date sources stubbed: **234 checks**.
+   both LLM prompts and both date sources stubbed: **270 checks** (now including
+   the liveness-funnel contract: the shared rules module, the content-aware
+   website check, and run import — admit / queue / never delete).
 3. **frontend sort check** (`scripts/sort-check.ts`) — runs the real frontend
    module for all five sort keys.
 4. **frontend lint + production build**.

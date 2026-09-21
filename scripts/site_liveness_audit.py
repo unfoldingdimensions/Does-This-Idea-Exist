@@ -79,6 +79,16 @@ THE DOCTRINE (read this before changing a rule)
    console. Reports are transliterated to ASCII; CSVs are utf-8-sig so Excel
    reads the accents correctly.
 
+10. One host, one conversation.
+   A worker pool pointed at a corpus where one host appears many times would
+   hammer it concurrently - hostile crawling, and ban risk against the sources
+   we depend on. The HostGate (liveness_rules.py) spaces requests per
+   registrable domain, caps per-host concurrency, reads robots.txt once per
+   host (RFC 9309: no robots -> allowed; 4xx -> allowed; 5xx/429 -> disallowed
+   for the run, conservative), and grows a host's interval when it pushes back
+   (429/403). Defaults on; --per-host-delay 0 --ignore-robots is the rollback.
+   Volume never outranks being welcome back tomorrow.
+
 USAGE
 -----
   # offline proof that the classifier rules behave
@@ -94,6 +104,12 @@ USAGE
 
   # re-classify a previous run without touching the network
   python site_liveness_audit.py verify --run ./audit-out/liveness-2026-09-18-2010
+
+  # settle rows the HTTP pass could not, with the machine's own Chrome
+  # (writes states-merged.json; drop prefers it automatically; needs
+  #  `cd scripts/render && npm install` once - puppeteer-core, no browser
+  #  downloads; Chrome found via --chrome or CHROME_PATH)
+  python site_liveness_audit.py render --run ./audit-out/liveness-2026-09-18-2010
 
   # rebuild the report from a run
   python site_liveness_audit.py report --run ./audit-out/liveness-2026-09-18-2010
@@ -129,10 +145,22 @@ import sys
 import threading
 import time
 import unicodedata
+
+# The vocabulary and the classifier are ONE canonical rule set, shared with the
+# backend: backend/app/liveness.py loads scripts/liveness_rules.py (the module
+# below) by path, and this CLI imports the same module. Capture stays here;
+# deciding lives there. `selftest` pins the shared module with its fixtures.
+import liveness_rules as LR
+from liveness_rules import (COMPANY, DEFAULT_CONFIG, H1_RE, JS_LOC_RE,
+                            META_DESC_RE, META_REFRESH_RE, NOT_COMPANY,
+                            REVIEW_GATE, TITLE_RE, UNVERIFIED, HostGate,
+                            classify, company_gate, decode_body, first_match,
+                            host_of, load_config, regdom, signals, verdict_of,
+                            visible_text)
 from typing import Any, Iterable, Optional
 from urllib.parse import urlparse, urljoin
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 TOOL = "site_liveness_audit"
 
 # ---------------------------------------------------------------------------
@@ -149,269 +177,18 @@ except Exception:  # noqa: BLE001
 
 import urllib.error
 import urllib.request
-import html as _html
+import urllib.robotparser
 
 
 # ===========================================================================
-# 1. Vocabulary. Everything a rule looks at lives here so another corpus can be
-#    handled with --config instead of a code edit.
+# 1. Vocabulary -> scripts/liveness_rules.py
+#
+#    The vocabulary, the signal rules and the classifier moved to
+#    liveness_rules.py (2026-09-19) so the backend can consult the SAME rules
+#    the CLI self-tests. `--config` still overrides the built-in vocabulary
+#    through load_config, imported above. CFG below is this process's copy.
 # ===========================================================================
-DEFAULT_CONFIG: dict[str, Any] = {
-    # --- 200-but-dead: domain is parked / for sale / expired -----------------
-    "park_phrases": [
-        "buy this domain", "this domain is for sale", "the domain name is for sale",
-        "domain is for sale", "domain for sale", "this website is for sale",
-        "domain has expired", "this domain has expired", "renew your domain",
-        "parked free", "domain parking", "inquire about this domain",
-        "premium domain", "register a new domain", "the domain you are looking for",
-        "this domain name has been registered", "domain is available for purchase",
-        "make an offer on this domain", "purchase this domain",
-        # Found by the pilot-50 run: healthiq.com renders "This domain name may be
-        # for sale" with a contact form and a captcha. The list had "domain is for
-        # sale" but not the "may be" phrasing, so a for-sale lander was admitted as
-        # LIVE. The domain word is required deliberately - a bare "may be for sale"
-        # would match any marketplace sentence about goods.
-        "domain name may be for sale", "this domain may be for sale",
-        "domain may be for sale",
-    ],
-    # hosts that are, by construction, a marketplace listing and not a company site
-    "marketplace_hosts": [
-        "hugedomains.com", "sedo.com", "sedoparking.com", "afternic.com",
-        "dan.com", "undeveloped.com", "atom.com", "brandbucket.com",
-        "squadhelp.com", "namecheap.com", "spaceship.com", "dynadot.com",
-        "sav.com", "bodis.com", "parkingcrew.net", "above.com", "fabulous.com",
-    ],
-    # A bare server default page is a corpse, not a website. These only count
-    # when they are the page TITLE, or the body of a short/titleless page:
-    # "index of /" inside a long real page is just a link. Bare vocabulary like
-    # "web hosting" is deliberately absent - real sites say that. Placeholder
-    # wording is handled separately below and never means death.
-    "default_page_phrases": [
-        "welcome to nginx", "welcome to nginx!",
-        "apache2 ubuntu default page", "apache2 debian default page",
-        "apache http server test page", "iis windows server", "it works!",
-        "index of /", "default web site page",
-        "this is the default web page for this server",
-        "web server is successfully installed", "site not configured",
-        "no site configured at this address", "account suspended",
-        "website is suspended", "this site has been suspended",
-        "this account has been suspended", "this site is currently unavailable",
-        "website is currently not available",
-        "please contact your service provider", "page cannot be displayed",
-    ],
-    # Registrar-lander boilerplate. Found by the browser pass: the parked page for
-    # godutchpay.in says only "Related Searches ... Copyright (c) 1999-2026 GoDaddy,
-    # LLC" - no "parked", no "for sale". "related searches" alone is far too
-    # generic to flag, so it is deliberately absent; the copyright line and
-    # "get this domain" are specific to a lander.
-    "lander_phrases": [
-        "courtesy of godaddy", "godaddy, llc", "get this domain",
-        "this domain is parked", "this page is parked",
-    ],
-    # ...and the URL shapes only a parking service produces. A homepage served at
-    # /lander is a registrar landing page; no real company site does that.
-    "park_path_markers": [
-        "/lander", "cgi-sys/defaultwebpage.cgi", "/domain-parking",
-        "/parked-domain", "/cgi-sys/",
-    ],
-    # The parked-domain monetisation redirect: the query string echoes the domain
-    # the visitor asked for, plus the parking network's own ids. Seen on
-    # behalf.com, which now forwards to a news portal called HeadlineLogic.
-    "monetisation_params_regex": (
-        r"[?&](pcid=[0-9]+|d=[a-z0-9.-]+\.[a-z]{2,}|brand=[a-z0-9.-]+\.[a-z]{2,})"
-    ),
-    # placeholder wording: "not finished yet". These are ordinary marketing words
-    # (Deel's homepage says "stay tuned" in a footer block), so a hit only counts
-    # when it is the page TITLE, or when the page is short and carries no brand
-    # token. It is never a death sentence - worst case the row is UNKNOWN.
-    "placeholder_phrases": [
-        "coming soon", "under construction", "site is being built",
-        "this site is under construction", "launching soon",
-    ],
-    # --- walls: matched against VISIBLE TEXT + title, never raw HTML ---------
-    # Bare "cloudflare" is deliberately NOT here. It is the CDN mentioned in the
-    # footer of half the internet (Astro's and CodeCrafters' own sites tripped it),
-    # and the original audit filed Cloudflare's own homepage as a wall because of
-    # it. The precise interstitial phrases below cover the real case; "cloudflare
-    # ray id" is specific to a Cloudflare error page. "bot detection" and "ddos
-    # protection" are out for the same reason - Castle and Clerk *sell* those.
-    "challenge_phrases": [
-        "just a moment", "checking your browser", "attention required",
-        "enable javascript and cookies to continue", "cf-chl",
-        "cloudflare ray id", "verify you are human", "verifying you are human",
-        "please wait while we verify", "are you a robot", "request blocked",
-        "access denied",
-        # found by the browser pass: SiteGround's captcha interstitial returns 202
-        # with an empty HTTP body, so only a renderer ever sees it
-        "robot challenge screen", "sgcaptcha",
-        "checking the site connection security",
-    ],
-    # --- soft 404: 200 with a "not found" body ------------------------------
-    "soft404_phrases": [
-        "404 not found", "page not found", "this page is not available",
-        "page you are looking for", "no longer available", "page doesn't exist",
-        "the page you requested could not be found", "we couldn't find that page",
-        "error 404", "nothing found at this address",
-    ],
-    # --- class A: the page trades in gambling / piracy / SEO spam -----------
-    # tier 1 - one hit is enough
-    "spam_strong": [
-        "agen togel", "bandar togel", "situs togel", "togel online", "toto slot",
-        "slot gacor", "rtp slot", "daftar situs", "link alternatif", "situs slot",
-        "judi online", "bandar judi", "casino online", "online casino",
-        "best online casinos", "maxwin", "sbobet", "xoilac", "cakhia",
-        "bong da", "truc tiep", "keo nha cai", "bongda", "fun88", "m88",
-        "188bet", "789bet", "jun88", "shbet", "go88", "hit club", "togel",
-        "slot online", "judi bola", "sportsbook bonus",
-    ],
-    # tier 2 - needs --spam-weak-min distinct hits (short/ordinary words that are
-    # legitimate vocabulary elsewhere: "situs" = Indonesian for "site",
-    # "judi" sits inside "judicial"; word-bounded below, never bare substrings)
-    "spam_weak": [
-        "judi", "bandar", "situs", "prediksi", "bocoran", "parlay", "taruhan",
-        "kasino", "slot", "gacor", "jackpot",
-    ],
-    "spam_weak_min": 2,
-    # --- legal seizure / takedown: the domain is not the company's any more ----
-    # Nothing in the old vocabulary matched a seizure banner, so a confiscated
-    # domain read as LIVE. A seized domain is a machine-reject, not a queue item.
-    "seizure_phrases": [
-        "this domain has been seized", "domain has been seized",
-        "this website has been seized", "seized by the", "seized pursuant to",
-        "homeland security investigations", "immigration and customs enforcement",
-        "national intellectual property rights coordination",
-        "in accordance with a court order", "court-ordered seizure",
-        "this site has been taken down", "website taken down by court order",
-    ],
-    # --- banned category: a live business we choose not to list ----------------
-    # NOT a death (the site is up) and NOT repurposing (the company is real).
-    # Checked AFTER class A/B/C on purpose: a hijacked domain serving a casino
-    # should still be reported as REPURPOSED, because that is the more useful
-    # fact (your domain was taken) than (a casino lives here).
-    #
-    # These markers are commercial-OFFER phrasing, not topic vocabulary, and one
-    # only counts in the TITLE or as one of TWO distinct hits. The first draft of
-    # this rule scanned topic words ("casino", "gambling", "adult", "loan",
-    # "streaming", "pharmacy") and rejected SEVEN real companies on this very
-    # archive: Cockroach Labs (a database) on "gambling"+"streaming", Conduktor
-    # on "adult"+"streaming", PharmEasy and Pelago on "pharmacy"+"adult", Aura
-    # on "adult"+"loan", Brightside on one mention of the payday loans it exists
-    # to replace. A company site may name the industries it serves; only an offer
-    # is an offer.
-    "banned_markers": [
-        "casino bonus", "free spins", "no deposit bonus", "deposit bonus",
-        "welcome bonus", "poker room", "bookmaker", "betting odds",
-        "sports betting", "sportsbook", "live dealer",
-        "adult webcam", "escort service", "porn videos", "live sex",
-        "torrent download", "cracked software", "warez",
-        "payday loan", "payday loans", "cash advance loan",
-        "no credit check loan", "instant payday",
-    ],
-    "banned_min_text_hits": 2,
-    # --- company gate: is this candidate a company, or a project page? --------
-    # The liveness funnel answers "is this link alive, and whose is it". It cannot
-    # answer "is this a company" - and the pilot showed why that matters: a
-    # GitHub-homepage channel yields reactnative.dev, d3js.org, pptr.dev, an
-    # awesome-list and a Telegram channel, all of which the funnel correctly
-    # called LIVE. This gate runs BEFORE admission and before enrichment, so a
-    # docs page never costs 3 fetches and 2 LLM calls.
-    #
-    # Precision-first, exactly like every other rule here: reject only on
-    # high-confidence evidence, accept on commercial intent, and send the rest to
-    # REVIEW rather than guessing. REVIEW is not "publish".
-    "project_hosts": [
-        "github.io", "gitlab.io", "readthedocs.io", "t.me", "telegram.me",
-        "discord.gg", "npmjs.com", "pypi.org", "crates.io", "packagist.org",
-        "rubygems.org", "sourceforge.net", "hub.docker.com",
-    ],
-    # Free hosts: a real company may use one, and so does every side project.
-    # REVIEW, never a silent drop.
-    "review_hosts": [
-        "netlify.app", "vercel.app", "pages.dev", "web.app", "firebaseapp.com",
-        "herokuapp.com", "glitch.me", "replit.app", "notion.site", "medium.com",
-        "wordpress.com", "blogspot.com",
-    ],
-    # Commercial intent. One hit is enough - these are things a documentation
-    # site does not say.
-    "commercial_signals": [
-        "pricing", "book a demo", "request a demo", "get a demo",
-        "request a meeting", "contact sales", "talk to sales", "start free trial",
-        "free trial", "trusted by", "case studies", "our customers",
-        "we're hiring", "careers", "buy now", "add to cart", "shop now",
-        "request a quote", "get a quote", "get started free",
-    ],
-    # Project / docs / community vocabulary. Needs project_marker_min DISTINCT hits
-    # AND no commercial signal before it means anything - a real company has a docs
-    # section, so "docs" alone must never be enough.
-    "project_markers": [
-        "open source", "open-source", "contributing", "fork me on github",
-        "pull request", "stargazers", "donations", "community-driven",
-        "documentation", "api reference", "guides", "tutorial", "cheat sheet",
-        "wiki", "changelog", "release notes", "downloads", "releases", "sponsor",
-        "docs", "forum", "issues", "download",
-    ],
-    "project_marker_min": 3,
-    # --- class B: stock CMS shell ------------------------------------------
-    # "skip to content" is NOT one of these: it is an accessibility link on half
-    # the WordPress sites on the internet, and treating it as a corpse filed
-    # Cambridge Epigenetix->Biomodal, Neural Magic->Red Hat and Fond->Reward
-    # Gateway as repurposed spam when they are ordinary acquisitions. The strong
-    # marker is the literal "Sample Page" that ships in every fresh WordPress
-    # install, and it only counts together with a generic title and zero brand
-    # tokens (see shell_class_b_* below).
-    "shell_markers_any": ["wp-content", "sample page", "skip to content",
-                          "just another wordpress site",
-                          "proudly powered by wordpress", "duda", "squarespace",
-                          "wix.com", "weebly"],
-    "shell_markers_strong": ["sample page", "just another wordpress site"],
-    "shell_class_b_required": ["sample page"],
-    "shell_class_b_support": ["wp-content", "skip to content"],
-    # a title built only from these words is a default title, not a brand
-    "generic_title_words": [
-        "home", "homepage", "page", "my", "site", "website", "web", "wordpress",
-        "wp", "sample", "hello", "world", "welcome", "untitled", "just", "another",
-        "blog", "news", "index", "test", "demo", "coming", "soon", "under",
-        "construction", "default", "title", "menu", "main",
-    ],
-    # --- misc ---------------------------------------------------------------
-    "js_redirect_phrases": ["redirecting", "you are being redirected",
-                            "redirecting you now", "you will be redirected"],
-    "gone_phrases": ["this page is not available", "404 not found", "page not found"],
-    # words stripped from a company name before it is used as a brand fingerprint
-    "stop_tokens": ["formerly", "former", "the", "and", "group", "inc", "inc.",
-                    "ltd", "llc", "corp", "corporation", "technologies", "labs",
-                    "company", "co", "plc", "gmbh", "software", "systems"],
-    # second-level labels that are part of a public suffix (approximate eTLD+1)
-    "regdom_suffixes": ["co.uk", "org.uk", "gov.uk", "ac.uk", "me.uk", "co.nz",
-                        "net.nz", "org.nz", "com.au", "net.au", "org.au", "edu.au",
-                        "co.jp", "or.jp", "ne.jp", "com.br", "com.cn", "com.hk",
-                        "com.sg", "com.tw", "com.tr", "com.mx", "com.ar", "com.co",
-                        "com.my", "com.ph", "com.vn", "co.kr", "or.kr", "co.id",
-                        "co.in", "net.in", "org.in", "co.za", "co.il", "com.pk",
-                        "com.ng", "com.eg", "com.sa", "com.ua", "co.th", "or.th"],
-}
-
 CFG: dict[str, Any] = {}
-_CFG_HASH = ""
-
-
-def load_config(path: Optional[str]) -> dict[str, Any]:
-    """Deep-merge the built-in vocabulary with an optional JSON override.
-
-    Keys given in the file replace the built-in value for that key. This is the
-    escape hatch for other corpora: a piracy-heavy or cyrillic-spam-heavy list
-    should not force a code edit.
-    """
-    cfg = json.loads(json.dumps(DEFAULT_CONFIG))  # deep copy
-    if path:
-        with open(path, encoding="utf-8") as fh:
-            override = json.load(fh)
-        for k, v in override.items():
-            cfg[k] = v
-    global _CFG_HASH
-    _CFG_HASH = hashlib.sha256(
-        json.dumps(cfg, sort_keys=True).encode("utf-8")).hexdigest()[:12]
-    return cfg
 
 
 # ===========================================================================
@@ -466,78 +243,6 @@ class Log:
             if self.path:
                 with open(self.path, "a", encoding="utf-8") as fh:
                     fh.write(ascii_safe(line) + "\n")
-
-
-def host_of(url: Any) -> str:
-    try:
-        return (urlparse(str(url)).hostname or "").lower().removeprefix("www.")
-    except Exception:  # noqa: BLE001
-        return ""
-
-
-def regdom(h: str, cfg: dict[str, Any]) -> str:
-    """Approximate registrable domain (no public-suffix list dependency).
-
-    Good enough for "did this URL leave the stored domain": carrd.co vs carrd.com
-    differ, docs.foo.com vs foo.com do not.
-    """
-    h = (h or "").lower().removeprefix("www.")
-    if not h or re.fullmatch(r"[0-9.]+", h):
-        return h
-    parts = h.split(".")
-    if len(parts) <= 2:
-        return h
-    if ".".join(parts[-2:]) in cfg["regdom_suffixes"]:
-        return ".".join(parts[-3:])
-    return ".".join(parts[-2:])
-
-
-def brand_tokens(name: str, cfg: dict[str, Any]) -> list[str]:
-    stop = {s.lower() for s in cfg["stop_tokens"]}
-    toks = re.findall(r"[a-z0-9]+", (name or "").lower())
-    return [t for t in toks if len(t) >= 4 and t not in stop]
-
-
-TAG_RE = re.compile(r"<(script|style|noscript|template|svg)[^>]*>.*?</\1>|<[^>]+>",
-                    re.I | re.S)
-TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
-META_DESC_RE = re.compile(
-    r"<meta[^>]+name=[\"']description[\"'][^>]+content=[\"']([^\"']*)[\"']", re.I)
-H1_RE = re.compile(r"<h1[^>]*>(.*?)</h1>", re.I | re.S)
-META_REFRESH_RE = re.compile(
-    r"<meta[^>]+http-equiv=[\"']refresh[\"'][^>]+url=([^\"'>\s]+)", re.I)
-JS_LOC_RE = re.compile(r"(?:location|window\.location)(?:\.href)?\s*=\s*[\"']([^\"']+)[\"']",
-                       re.I)
-ENT_RE = re.compile(r"&[a-z]{2,8};|&#\d{1,6};")
-WS_RE = re.compile(r"\s+")
-
-
-def decode_body(body: bytes, charset: Optional[str]) -> str:
-    for enc in ([charset] if charset else []) + ["utf-8", "cp1252", "latin-1"]:
-        try:
-            return body.decode(enc or "utf-8", "strict")
-        except Exception:  # noqa: BLE001
-            continue
-    return body.decode("utf-8", "ignore")
-
-
-def visible_text(html: str, cap: int = 60000) -> str:
-    """Entity-decoded, script-stripped page text. Rules run over THIS."""
-    t = TAG_RE.sub(" ", html or "")
-    t = ENT_RE.sub(" ", t)
-    try:
-        t = _html.unescape(t)
-    except Exception:  # noqa: BLE001
-        pass
-    return WS_RE.sub(" ", t).strip()[:cap]
-
-
-def first_match(pattern: re.Pattern, html: str, cap: int = 300) -> str:
-    m = pattern.search(html or "")
-    if not m:
-        return ""
-    inner = m.group(1) if m.groups() else m.group(0)
-    return WS_RE.sub(" ", TAG_RE.sub(" ", inner)).strip()[:cap]
 
 
 # ===========================================================================
@@ -627,6 +332,10 @@ class HttpCfg:
     max_retry_wait: float = 8.0
     allow_private: bool = False
     politerelay: float = 0.0
+    # --- politeness (doctrine 10) -------------------------------------------
+    per_host_delay: float = 0.0        # min seconds between starts to one host
+    per_host_concurrency: int = 1      # max in-flight requests to one host
+    respect_robots: bool = True        # RFC 9309; the gate fetches robots once
 
 
 def _httpx_client(timeout: float, max_redirects: int):
@@ -802,375 +511,12 @@ def _extract(out: dict[str, Any], body: bytes, ctype: str, hcfg: HttpCfg) -> Non
 
 
 # ===========================================================================
-# 4. Signal extraction + classification (pure functions; offline-testable)
+# 4. Signal extraction + classification -> scripts/liveness_rules.py
+#
+#    signals / classify / company_gate / verdict_of and the verdict constants
+#    moved to liveness_rules.py (2026-09-19) and are imported above. They are
+#    pure functions over capture dicts - nothing here needed the network.
 # ===========================================================================
-def _phrase_hits(text: str, phrases: Iterable[str]) -> list[str]:
-    low = (text or "").lower()
-    return sorted({p for p in phrases if p in low})
-
-
-def is_generic_title(title: str, cfg: dict[str, Any]) -> bool:
-    """True when the page title is a CMS default rather than a brand.
-
-    "Home | My Site" and "Hello World" are defaults. "Biomodal | Multiomic
-    sequencing" is a brand, even when the company used to be called something
-    else, and even though it carries no token of the old name.
-    """
-    t = (title or "").strip().lower()
-    if not t:
-        return True
-    words = set(re.findall(r"[a-z]+", t))
-    allowed = {w.lower() for w in cfg.get("generic_title_words") or []}
-    return bool(words) and words <= allowed
-
-
-def signals(cap: dict[str, Any], name: str, cfg: dict[str, Any]) -> dict[str, Any]:
-    """All content rules for one capture. Visible text + title only (doctrine 7)."""
-    visible = cap.get("visible") or ""
-    title = cap.get("title") or ""
-    hay = f"{title} \n {visible}"
-    low = hay.lower()
-    toks = brand_tokens(name, cfg)
-    sig: dict[str, Any] = {"brand_tokens": toks}
-    sig["title_has_brand"] = any(t in title.lower() for t in toks) if toks else None
-    sig["text_has_brand"] = any(t in low for t in toks) if toks else None
-
-    sig["park"] = _phrase_hits(hay, cfg["park_phrases"])
-    sig["lander"] = _phrase_hits(hay, cfg.get("lander_phrases") or [])
-    final_url = str(cap.get("final_url") or cap.get("url") or "")
-    try:
-        fpath = urlparse(final_url).path.lower()
-    except Exception:  # noqa: BLE001
-        fpath = ""
-    sig["park_path"] = [m for m in (cfg.get("park_path_markers") or []) if m in fpath]
-    sig["monetised_redirect"] = bool(re.search(
-        cfg.get("monetisation_params_regex") or "(?!)", final_url, re.I))
-    # A default page / soft 404 only counts as death when it is the TITLE, or when
-    # the page is short enough that the phrase is the whole content. Otherwise a
-    # link reading "index of /" or "page not found" in a real page would kill it.
-    small = int(cap.get("bytes") or 0) < 20000
-    branded_title = bool(sig["title_has_brand"])
-    dp = _phrase_hits(hay, cfg["default_page_phrases"])
-    sig["default_page_title"] = [p for p in dp if p in title.lower()]
-    sig["default_page_body"] = [] if sig["default_page_title"] else (
-        [p for p in dp if (small or not title) and not branded_title])
-    s4 = _phrase_hits(hay, cfg["soft404_phrases"])
-    sig["soft404_title"] = [p for p in s4 if p in title.lower()]
-    sig["soft404_body"] = [] if sig["soft404_title"] else (
-        [p for p in s4 if (small or not title) and not branded_title])
-    ph = _phrase_hits(hay, cfg.get("placeholder_phrases") or [])
-    sig["placeholder"] = ([p for p in ph if p in title.lower()]
-                          or [p for p in ph
-                              if small and not sig["title_has_brand"]])
-    sig["marketplace_host"] = host_of(cap.get("final_url")) in cfg["marketplace_hosts"]
-
-    # challenge: visible text + title, then discard any hit that is the company's
-    # own name (doctrine 6 - Cloudflare's homepage is not a bot wall). A wall also
-    # has to LOOK like a wall: the phrase in the title, or on a short page. A
-    # 60KB marketing page that mentions "access denied" in a blog post is a site.
-    ch = [p for p in _phrase_hits(hay, cfg["challenge_phrases"])
-          if not any(p == t or p in t or t in p for t in toks)]
-    sig["challenge_title"] = [p for p in ch if p in title.lower()]
-    sig["challenge_body"] = [] if sig["challenge_title"] else [p for p in ch if small]
-    sig["challenge"] = sig["challenge_title"] or sig["challenge_body"]
-
-    # spam: two tiers, word-bounded, brand-guarded (doctrines 5 and 6)
-    def _guard(hits: list[str]) -> list[str]:
-        return [h for h in hits
-                if not any(h == t or (len(h) >= 4 and h in t) for t in toks)]
-    strong = []
-    for phrase in cfg["spam_strong"]:
-        rx = re.compile(r"\b" + re.escape(phrase).replace(r"\ ", r"\s+") + r"\b", re.I)
-        if rx.search(low):
-            strong.append(phrase)
-    strong = _guard(sorted(set(strong)))
-    weak = []
-    for phrase in cfg["spam_weak"]:
-        rx = re.compile(r"\b" + re.escape(phrase).replace(r"\ ", r"\s+") + r"\b", re.I)
-        if rx.search(low):
-            weak.append(phrase)
-    weak = _guard(sorted(set(weak)))
-    sig["spam_strong"] = strong
-    sig["spam_weak"] = weak
-    sig["spam"] = (strong or
-                   (weak if len(weak) >= int(cfg["spam_weak_min"]) else []))
-    sig["spam_tier"] = "strong" if strong else ("weak-cluster" if len(weak) >=
-                                                int(cfg["spam_weak_min"]) else "")
-
-    low_body = (cap.get("html") or "").lower()
-    raw_any = set(cap.get("shell_raw") or [])
-    raw_strong = set(cap.get("shell_strong_raw") or [])
-    markers = sorted(raw_any | {m for m in cfg["shell_markers_any"] if m in low_body})
-    strong_markers = sorted(raw_strong | {m for m in cfg["shell_markers_strong"]
-                                          if m in low_body})
-    sig["shell_markers"] = markers
-    sig["shell_strong"] = strong_markers
-    sig["js_redirect"] = bool(_phrase_hits(title, cfg["js_redirect_phrases"])
-                              or _phrase_hits(visible[:400], cfg["js_redirect_phrases"]))
-    sig["empty_body"] = cap.get("bytes", 0) < 1024 and not title
-
-    # --- legal seizure, and banned-category content ---------------------------
-    sz = _phrase_hits(hay, cfg.get("seizure_phrases") or [])
-    sig["seizure_title"] = [p for p in sz if p in title.lower()]
-    sig["seizure_body"] = [] if sig["seizure_title"] else (
-        [p for p in sz if small or not title])
-    sig["seizure"] = sig["seizure_title"] or sig["seizure_body"]
-
-    bm = []
-    for phrase in cfg.get("banned_markers") or []:
-        rx = re.compile(r"\b" + re.escape(phrase).replace(r"\ ", r"\s+") + r"\b", re.I)
-        if rx.search(low):
-            bm.append(phrase)
-    bmin = int(cfg.get("banned_min_text_hits") or 2)
-    btitle = [p for p in bm if p in title.lower()]
-    sig["banned"] = btitle or (bm if len(bm) >= bmin else [])
-    sig["banned_tier"] = ("title" if btitle else
-                          ("marker-cluster" if len(bm) >= bmin else ""))
-
-    # company-gate signals (see company_gate below)
-    sig["commercial"] = _phrase_hits(hay, cfg.get("commercial_signals") or [])
-    sig["project_markers"] = _phrase_hits(hay, cfg.get("project_markers") or [])
-
-    # repurposing classes
-    sig["generic_title"] = is_generic_title(title, cfg)
-    sig["class_a"] = bool(sig["spam"])
-    required = set(cfg.get("shell_class_b_required") or ["sample page"])
-    support = set(cfg.get("shell_class_b_support") or ["wp-content", "skip to content"])
-    sig["class_b"] = bool(
-        required <= set(strong_markers)
-        and (markers and (support & set(markers)))
-        and toks
-        and sig["title_has_brand"] is False
-        and sig["text_has_brand"] is False
-        and sig["generic_title"]
-    )
-    return sig
-
-
-COMPANY = "company"
-UNVERIFIED = "unverified"
-NOT_COMPANY = "not_company"
-REVIEW_GATE = "review"
-
-
-def company_gate(url: str, sig: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
-    """Is this candidate a company/product, or a project / docs / community page?
-
-    Runs BEFORE admission and BEFORE enrichment (docs/scale-to-10000-plan.md §3.5).
-    The liveness pass cannot answer this: the pilot-50 run admitted reactnative.dev,
-    d3js.org, ohmyz.sh, an awesome-list and a Telegram channel, all correctly LIVE.
-
-    Order matters, and it is the opposite of intuition:
-      1. a project-hosting host is a reject on its own (github.io, t.me, pypi.org);
-      2. a free host is REVIEW, never a drop - real companies use them too;
-      3. COMMERCIAL INTENT WINS: pricing/signup/demo/careers make it a company even
-         if the page also has a docs section, which is why this is checked before
-         the project markers;
-      4. a cluster of project markers with no commercial signal is a reject;
-      5. everything else is UNVERIFIED - admit-eligible, but carrying no positive
-         evidence that a company lives there.
-
-    UNVERIFIED is deliberately NOT a human queue. The first draft of this gate
-    sent every row without commercial vocabulary to REVIEW, which on the pilot's
-    50 candidates meant 23 review items - more than the 17 the liveness funnel was
-    already escalating - because "we could not read the page" and "we read a
-    personal project" are different things, and only the second is the gate's
-    business. The gate REMOVES obvious non-companies; the liveness/admin path
-    still decides everything else. A channel is judged by how many of its rows
-    come back COMPANY rather than by how many queue for a human.
-
-    Returns {"verdict": company|unverified|not_company|review, "why": str}.
-    """
-    host = host_of(url)
-    for h in cfg.get("project_hosts") or []:
-        if host == h or host.endswith("." + h):
-            return {"verdict": NOT_COMPANY,
-                    "why": f"host {host} is a project/community platform"}
-    for h in cfg.get("review_hosts") or []:
-        if host == h or host.endswith("." + h):
-            return {"verdict": REVIEW_GATE,
-                    "why": f"host {host} is free hosting - a company may use it, "
-                           "or a side project may"}
-    commercial = sig.get("commercial") or []
-    markers = sig.get("project_markers") or []
-    if commercial:
-        return {"verdict": COMPANY,
-                "why": f"commercial intent: {', '.join(commercial[:4])}"}
-    if len(markers) >= int(cfg.get("project_marker_min") or 3):
-        return {"verdict": NOT_COMPANY,
-                "why": f"project/docs/community page ({', '.join(markers[:5])}) "
-                       "with no commercial signal"}
-    return {"verdict": UNVERIFIED,
-            "why": "no project markers found, but no commercial evidence either "
-                   f"(markers: {markers[:3] or 'none'})"}
-
-
-def verdict_of(cap: dict[str, Any]) -> str:
-    """Reachability verdict for one capture (before any content rules)."""
-    if cap.get("blocked_by_guard"):
-        return "guard"
-    if cap.get("error"):
-        return cap.get("error_class") or "other_error"
-    st = cap.get("status")
-    if st is None:
-        return "other_error"
-    if st in (404, 410):
-        return "gone"
-    if st in (401, 402, 403, 405, 406, 429, 451, 503):
-        return "blocked"
-    if 500 <= st < 600:
-        return "server_error"
-    if 200 <= st < 400:
-        return "alive"
-    return f"http_{st}"
-
-
-def classify(name: str, url: str, caps: list[dict[str, Any]],
-             cfg: dict[str, Any]) -> dict[str, Any]:
-    """Decide one row from all its captures. Pure: no network, no IO.
-
-    Order of resolution (documented so it can be argued with):
-      1. no url                       -> NO_URL
-      2. a healthy 2xx whose body is not a wall / park / default page
-                                      -> LIVE, or DEAD / REPURPOSED by content
-      3. every capture walled         -> WALLED
-      4. every capture gone           -> DEAD
-      5. otherwise                    -> UNKNOWN (with the strongest reason)
-    """
-    res: dict[str, Any] = {
-        "state": "UNKNOWN", "why": "", "evidence_class": "", "http_status": None,
-        "final_url": "", "title": "", "spam": "", "shell": "", "verdicts": {},
-        "redirected": False, "stored_host": host_of(url), "final_host": "",
-    }
-    if not (url or "").strip():
-        res.update(state="NO_URL", why="entry carries no website_url")
-        return res
-
-    res["verdicts"] = {c.get("ua", "")[:24]: verdict_of(c) for c in caps}
-    alive_caps = [c for c in caps if verdict_of(c) == "alive"]
-
-    # pick the best body: prefer the alive capture with the most visible text
-    best = max(alive_caps, key=lambda c: len(c.get("visible") or ""), default=None)
-
-    if best is not None:
-        sig = best["_sig"]
-        res.update(http_status=best.get("status"), final_url=best.get("final_url") or "",
-                   title=best.get("title") or "",
-                   spam="; ".join(sig["spam"][:6]),
-                   shell=",".join(sig["shell_strong"]))
-        res["final_host"] = host_of(best.get("final_url"))
-        res["redirected"] = bool(res["stored_host"] and res["final_host"]
-                                 and regdom(res["stored_host"], cfg) !=
-                                 regdom(res["final_host"], cfg))
-        # a 200 page that is really a wall still counts as a wall
-        if sig["challenge"] and not sig["spam"]:
-            res.update(state="WALLED",
-                       why=f"soft wall on a {best.get('status')} response: "
-                           f"{', '.join(sig['challenge'][:3])}")
-            return res
-        if sig["park"] or sig["park_path"] or sig["lander"] or sig["marketplace_host"]:
-            detail = (", ".join(sig["park"][:3]) or ", ".join(sig["lander"][:2])
-                      or ", ".join(sig["park_path"][:2]) or "marketplace host")
-            res.update(state="DEAD", why=f"parked / for-sale page ({detail})")
-            return res
-        if sig["default_page_title"] or sig["default_page_body"]:
-            hits = sig["default_page_title"] or sig["default_page_body"]
-            res.update(state="DEAD",
-                       why=f"bare server/default page ({', '.join(hits[:3])})")
-            return res
-        if sig["soft404_title"] or sig["soft404_body"]:
-            hits = sig["soft404_title"] or sig["soft404_body"]
-            res.update(state="DEAD",
-                       why=f"soft 404 on HTTP {best.get('status')} "
-                           f"({', '.join(hits[:2])})")
-            return res
-        # legal seizure / takedown: the domain is no longer the company's
-        if sig["seizure"]:
-            res.update(state="DEAD",
-                       why=f"legal seizure / takedown notice "
-                           f"({', '.join(sig['seizure'][:2])})")
-            return res
-        if sig["class_a"]:
-            res.update(state="REPURPOSED", evidence_class="A:spam-keyword",
-                       why="domain now sells unrelated gambling/piracy/SEO spam "
-                           f"[{sig['spam_tier']}] ({'; '.join(sig['spam'][:5])})")
-            return res
-        # class C: the domain was parked and is now monetised. It forwards to a
-        # parking network with the requested domain echoed in the query string and
-        # says nothing about the company that used to be here. Found by the
-        # browser pass on behalf.com, which now serves a "news portal".
-        if (sig["monetised_redirect"] and not sig["title_has_brand"]
-                and not sig["text_has_brand"]):
-            res.update(state="REPURPOSED", evidence_class="C:monetised-redirect",
-                       why="domain parked and monetised: forwards to "
-                           f"{host_of(best.get('final_url'))} with the stored domain "
-                           "echoed in the query string; no company token "
-                           f"{sig['brand_tokens']} anywhere on the page")
-            return res
-        if sig["class_b"]:
-            res.update(state="REPURPOSED", evidence_class="B:content-shell",
-                       why="stock CMS shell: default artefact "
-                           f"{','.join(sig['shell_strong'])}, generic title "
-                           f"{best.get('title','')[:40]!r}, no company token "
-                           f"{sig['brand_tokens']} in title or visible text")
-            return res
-        # banned category: live, real, and not ours to list. Checked after the
-        # repurposing classes so a hijacked domain still reports as REPURPOSED.
-        if sig["banned"]:
-            res.update(state="BANNED", evidence_class="policy:banned-category",
-                       why="live site in a category the archive does not list "
-                           f"[{sig['banned_tier']}] ({'; '.join(sig['banned'][:5])})")
-            return res
-        # moved to a different owner: the stored domain now serves a live site
-        # that mentions the company nowhere. An acquisition that kept the brand
-        # (guildeducation.com -> guild.com) is NOT this; one that did not is a
-        # policy call, so it goes to a human rather than being admitted.
-        if res["redirected"] and not sig["title_has_brand"] and not sig["text_has_brand"]:
-            res.update(state="MOVED", evidence_class="policy:owner-changed",
-                       why=f"stored host {res['stored_host']} now serves "
-                           f"{res['final_host']}, and no token of "
-                           f"{sig['brand_tokens']} appears on the page")
-            return res
-        if sig["placeholder"]:
-            res.update(state="UNKNOWN",
-                       why=f"placeholder wording ({', '.join(sig['placeholder'][:2])})")
-            return res
-        if sig["js_redirect"] or (best.get("meta_refresh") and not best.get("title")):
-            res.update(state="UNKNOWN",
-                       why="JavaScript/meta redirect shell; target not resolved "
-                           f"(title={best.get('title','')[:40]!r})")
-            return res
-        if sig["empty_body"]:
-            res.update(state="UNKNOWN",
-                       why=f"HTTP {best.get('status')} with an empty/short body and no title")
-            return res
-        res.update(state="LIVE", why=f"HTTP {best.get('status')}")
-        return res
-
-    # no alive capture - look at why
-    v = {c.get("ua", "")[:24]: verdict_of(c) for c in caps}
-    reasons = []
-    for c in caps:
-        reasons.append(f"{verdict_of(c)}({c.get('status') or c.get('error_class')})")
-    joined = ", ".join(reasons[:4])
-    gone = [c for c in caps if verdict_of(c) == "gone"]
-    blocked = [c for c in caps if verdict_of(c) == "blocked"]
-    guards = [c for c in caps if verdict_of(c) == "guard"]
-    if gone and not blocked:
-        res.update(state="DEAD", http_status=gone[0].get("status"),
-                   why=f"hard {', '.join(str(c.get('status')) for c in gone)} ({joined})")
-        return res
-    if blocked and not gone:
-        res.update(state="WALLED", http_status=blocked[0].get("status"),
-                   final_url=blocked[0].get("final_url") or "",
-                   why=f"refused every client we tried: {joined}")
-        return res
-    if guards and len(guards) == len(caps):
-        res.update(state="UNKNOWN", why=f"refused by SSRF guard: {guards[0].get('error')}")
-        return res
-    res.update(state="UNKNOWN", http_status=(caps[0].get("status") if caps else None),
-               why=f"unconfirmed: {joined}")
-    return res
 
 
 # ===========================================================================
@@ -1270,8 +616,100 @@ def load_records(args: argparse.Namespace, log: Log) -> tuple[list[dict], str]:
 # ===========================================================================
 # 6. Stages
 # ===========================================================================
+def _make_gate(hcfg: HttpCfg) -> Optional[HostGate]:
+    """Build the politeness gate from an HttpCfg, or None when the operator
+    disabled it entirely (the documented rollback: --per-host-delay 0 plus
+    --ignore-robots; a bare delay of 0 still caps concurrency and reads robots)."""
+    if hcfg.per_host_delay <= 0 and not hcfg.respect_robots \
+            and hcfg.per_host_concurrency >= 512:
+        return None
+    return HostGate(delay=hcfg.per_host_delay,
+                    concurrency=hcfg.per_host_concurrency,
+                    respect_robots=hcfg.respect_robots,
+                    robot_fetcher=(_robot_fetcher_factory(hcfg)
+                                   if hcfg.respect_robots else None))
+
+
+def _robot_fetcher_factory(hcfg: HttpCfg):
+    """One robots.txt read per host, cached by the gate (RFC 9309). Returns a
+    parser, or None when there is nothing to enforce: no robots -> allowed,
+    4xx -> allowed (no policy published), 5xx/429 -> DISALLOWED for the run
+    (conservative - the server is already pushing back), network error ->
+    allowed (we could not know)."""
+    def fetch_robots(host: str):
+        for scheme in ("https", "http"):
+            try:
+                cap = fetch_once(f"{scheme}://{host}/robots.txt",
+                                 DEFAULT_UAS[0],
+                                 HttpCfg(timeout=6.0, retries=0,
+                                         max_bytes=200_000,
+                                         allow_private=hcfg.allow_private))
+            except Exception:  # noqa: BLE001
+                continue
+            st = cap.get("status")
+            if st == 200:
+                rp = urllib.robotparser.RobotFileParser()
+                rp.parse((cap.get("html") or "").splitlines())
+                return rp
+            if st in (403, 429) or (st is not None and st >= 500):
+                rp = urllib.robotparser.RobotFileParser()
+                rp.parse(["User-agent: *", "Disallow: /"])
+                return rp  # the server is pushing back: disallow for this run
+            if st is not None and 400 <= st < 500:
+                return None  # no policy published -> allowed
+            # other (redirects that ended oddly, weird statuses): try next scheme
+        return None
+    return fetch_robots
+
+
+def _fetch_gated(url: str, ua: str, hcfg: HttpCfg,
+                 gate: Optional[HostGate]) -> dict[str, Any]:
+    """One fetch through the politeness gate: robots first, then a host slot.
+    A robots refusal is a CAPTURE, not an exception - it classifies honestly
+    as UNKNOWN ('we chose not to fetch'), never as death."""
+    if gate is None:
+        return fetch_once(url, ua, hcfg)
+    host = regdom(host_of(url), CFG)
+    if not gate.robots_allowed(url, host):
+        return {"url": url, "ua": ua, "status": None, "error": "",
+                "error_class": "robots",
+                "robots_note": "robots.txt disallows this path (politeness gate)",
+                "final_url": "", "chain": [], "content_type": "", "server": "",
+                "bytes": 0, "truncated": False, "title": "",
+                "meta_description": "", "h1": "", "visible": "", "html": "",
+                "elapsed_ms": 0, "blocked_by_guard": ""}
+    gate.reserve(host)
+    try:
+        cap = fetch_once(url, ua, hcfg)
+    finally:
+        gate.release(host)
+    gate.record_result(host, cap.get("status"))
+    return cap
+
+
+def _spread_by_host(records: list[dict]) -> list[dict]:
+    """Interleave records across hosts so the submission queue itself is
+    host-spread: a worker blocked waiting for one host's slot is then rare,
+    and idle workers almost always hold another host's job."""
+    groups: dict[str, "collections.deque"] = {}
+    for r in records:
+        groups.setdefault(regdom(host_of(r["url"]), CFG),
+                          collections.deque()).append(r)
+    out: list[dict] = []
+    queue = list(groups.values())
+    while queue:
+        remaining = []
+        for q in queue:
+            if q:
+                out.append(q.popleft())
+                remaining.append(q)
+        queue = remaining
+    return out
+
+
 def capture_all(records: list[dict], hcfg: HttpCfg, uas: list[str], log: Log,
-                cache: Optional["Cache"] = None) -> None:
+                cache: Optional["Cache"] = None,
+                gate: Optional[HostGate] = None) -> None:
     """Fetch every record with the primary UA (cache-aware, resumable)."""
     todo = [r for r in records if not (cache and cache.get(r["url"], uas[0]))]
     log(f"capture: {len(records)} records, {len(todo)} to fetch, "
@@ -1279,7 +717,8 @@ def capture_all(records: list[dict], hcfg: HttpCfg, uas: list[str], log: Log,
     done = 0
     t0 = time.time()
     with cf.ThreadPoolExecutor(max_workers=max(1, hcfg.workers)) as ex:
-        futs = {ex.submit(fetch_once, r["url"], uas[0], hcfg): r for r in todo}
+        futs = {ex.submit(_fetch_gated, r["url"], uas[0], hcfg, gate): r
+                for r in _spread_by_host(todo)}
         for fut in cf.as_completed(futs):
             r = futs[fut]
             try:
@@ -1305,7 +744,8 @@ def capture_all(records: list[dict], hcfg: HttpCfg, uas: list[str], log: Log,
 
 
 def recheck_all(records: list[dict], hcfg: HttpCfg, uas: list[str], log: Log,
-                cache: Optional["Cache"] = None) -> None:
+                cache: Optional["Cache"] = None,
+                gate: Optional[HostGate] = None) -> None:
     """Second method for anything that is not a clean LIVE (doctrine 3)."""
     need = []
     for r in records:
@@ -1324,14 +764,14 @@ def recheck_all(records: list[dict], hcfg: HttpCfg, uas: list[str], log: Log,
     for alt in uas[1:]:
         with cf.ThreadPoolExecutor(max_workers=max(1, hcfg.workers)) as ex:
             futs = {}
-            for r in need:
+            for r in _spread_by_host(need):
                 if any(c.get("ua") == alt for c in (r.get("caps") or [])):
                     continue
                 cached = cache.get(r["url"], alt) if cache else None
                 if cached:
                     futs[ex.submit(lambda c=cached: c)] = r
                 else:
-                    futs[ex.submit(fetch_once, r["url"], alt, hcfg)] = r
+                    futs[ex.submit(_fetch_gated, r["url"], alt, hcfg, gate)] = r
             for fut in cf.as_completed(futs):
                 r = futs[fut]
                 try:
@@ -1414,18 +854,26 @@ def run_audit(args: argparse.Namespace, log: Log) -> int:
     if args.limit:
         records = records[: args.limit]
     log(f"source: {provenance} | {len(records)} records | workers={args.workers} "
-        f"| timeout={args.timeout}s | config={_CFG_HASH}")
+        f"| timeout={args.timeout}s | config={LR.config_hash()}")
 
     hcfg = HttpCfg(timeout=args.timeout, max_bytes=args.max_bytes,
                    retries=args.retries, allow_private=args.allow_private,
-                   politerelay=args.min_delay)
+                   politerelay=args.min_delay,
+                   per_host_delay=args.per_host_delay,
+                   per_host_concurrency=args.per_host_concurrency,
+                   respect_robots=not args.ignore_robots)
     hcfg.workers = args.workers  # type: ignore[attr-defined]
     uas = args.user_agent or DEFAULT_UAS
     uas = uas[: max(1, args.ua_count)]
+    gate = _make_gate(hcfg)
+    if gate is not None:
+        log(f"politeness: per-host delay {hcfg.per_host_delay:.2f}s, "
+            f"per-host concurrency {hcfg.per_host_concurrency}, "
+            f"robots {'on' if hcfg.respect_robots else 'off'}")
     cache = Cache(os.path.join(out_dir, "captures.cache.jsonl"),
                   ttl_seconds=args.cache_ttl) if not args.no_cache else None
 
-    capture_all(records, hcfg, uas, log, cache)
+    capture_all(records, hcfg, uas, log, cache, gate)
 
     # score bodies before the recheck pass so the pre-filter can work
     for r in records:
@@ -1433,7 +881,7 @@ def run_audit(args: argparse.Namespace, log: Log) -> int:
             c["_sig"] = signals(c, r["name"], CFG)
 
     if not args.no_recheck and len(uas) > 1:
-        recheck_all(records, hcfg, uas, log, cache)
+        recheck_all(records, hcfg, uas, log, cache, gate)
 
     # final classification over all captures
     for r in records:
@@ -1469,7 +917,7 @@ def write_run(out_dir: str, records: list[dict], provenance: str,
     meta = {
         "tool": TOOL, "version": VERSION, "generated_at": dt.datetime.now().isoformat(timespec="seconds"),
         "source": provenance, "records": len(records), "user_agents": uas,
-        "config_hash": _CFG_HASH,
+        "config_hash": LR.config_hash(),
         "settings": {k: v for k, v in vars(args).items() if k not in ("url",)},
     }
     atomic_write(os.path.join(run_dir, "run.json"), json.dumps(meta, indent=2,
@@ -1688,8 +1136,18 @@ def run_verify(args: argparse.Namespace, log: Log) -> int:
                        "company_gate": gate["verdict"], "company_gate_why": gate["why"]})
     states.sort(key=lambda s: (str(s["name"]).lower(), str(s["id"])))
     meta = {"tool": TOOL, "version": VERSION, "generated_at": now(), "source": run_dir,
-            "config_hash": _CFG_HASH}
-    atomic_write(os.path.join(run_dir, "states.json"),
+            "config_hash": LR.config_hash()}
+    # A merged state file is EVIDENCE - the render pass's per-row receipts that a
+    # drop may trust (--no-recheck). A re-verify over it must not clobber that
+    # with HTTP-only states, so it writes alongside instead.
+    # (Footgun found by the 2026-09-19 critique, F2.)
+    merged_path = os.path.join(run_dir, "states-merged.json")
+    out_name = "states.json"
+    if os.path.exists(merged_path):
+        out_name = "states-reverified.json"
+        log("note: states-merged.json exists (a render pass ran); writing "
+            "states-reverified.json so the merged evidence survives")
+    atomic_write(os.path.join(run_dir, out_name),
                  json.dumps(states, indent=1, ensure_ascii=False))
     write_report(run_dir, states, meta, log)
     counts = collections.Counter(s["state"] for s in states)
@@ -1701,12 +1159,239 @@ def run_report(args: argparse.Namespace, log: Log) -> int:
     run_dir = os.path.abspath(args.run)
     states = json.load(open(os.path.join(run_dir, "states.json"), encoding="utf-8"))
     meta = {"tool": TOOL, "version": VERSION, "generated_at": now(), "source": run_dir,
-            "config_hash": _CFG_HASH}
+            "config_hash": LR.config_hash()}
     try:
         meta.update(json.load(open(os.path.join(run_dir, "run.json"), encoding="utf-8")))
     except Exception:  # noqa: BLE001
         pass
     write_report(run_dir, states, meta, log)
+    return 0
+
+
+def find_chrome(explicit: Optional[str]) -> str:
+    """Locate a Chrome/Chromium for the renderer. The machine's own browser
+    renders; nothing is downloaded."""
+    if explicit:
+        return explicit
+    env = os.environ.get("CHROME_PATH")
+    if env and os.path.isfile(env):
+        return env
+    cands = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        os.path.join(os.environ.get("LOCALAPPDATA", ""),
+                     r"Google\Chrome\Application\chrome.exe"),
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/usr/bin/google-chrome", "/usr/bin/chromium-browser", "/usr/bin/chromium",
+    ]
+    for c in cands:
+        if c and os.path.isfile(c):
+            return c
+    return ""
+
+
+def run_render(args: argparse.Namespace, log: Log) -> int:
+    """Settle rows the HTTP pass could not, with a real browser.
+
+    Round 4 of the 2026-09-18 audit did this by hand from a vendored copy and
+    settled 16 of 18 UNKNOWNs - and the drop that followed TRUSTED its output
+    (--states-file). A stage that feeds a destructive decision must be
+    reproducible from the repo, so here it is: render every selected row with
+    the machine's Chrome (scripts/render/render.mjs, puppeteer-core, no browser
+    downloads), judge the rendered capture with the SAME rules as the HTTP
+    pass, and write states-merged.json - the file `drop` now prefers
+    automatically and `verify` refuses to clobber.
+
+    Selection defaults to the ambiguity classes (UNKNOWN / WALLED / MOVED):
+    DEAD and REPURPOSED are already decided by content evidence on a 200 body,
+    and re-judging them would only add churn.
+    """
+    import subprocess
+
+    run_dir = os.path.abspath(args.run)
+    states_path = os.path.join(run_dir, "states.json")
+    if not os.path.isfile(states_path):
+        log(f"no states.json under {run_dir}")
+        return 2
+    with open(states_path, encoding="utf-8") as fh:
+        states = json.load(fh)
+    if not states:
+        log("nothing to render")
+        return 0
+
+    chrome = find_chrome(args.chrome)
+    if not chrome:
+        log("Chrome not found - pass --chrome or set CHROME_PATH")
+        return 2
+    node = shutil.which("node")
+    if not node:
+        log("node is not on PATH - the renderer needs it (Node >= 23)")
+        return 2
+    if not os.path.isdir(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                      "render", "node_modules")):
+        log("puppeteer-core is not installed: cd scripts/render && npm install")
+        return 2
+
+    # rebuild the HTTP captures so the merged classification has both bodies
+    caps_by_id: dict[Any, list[dict]] = collections.defaultdict(list)
+    caps_path = os.path.join(run_dir, "captures.jsonl")
+    if os.path.isfile(caps_path):
+        with open(caps_path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                c = json.loads(line)
+                caps_by_id[c.get("_record_id")].append(c)
+
+    want = {s.strip().upper() for s in args.states.split(",") if s.strip()}
+    targets = [s for s in states if s.get("state", "") in want]
+    if args.limit:
+        targets = targets[: args.limit]
+    if not targets:
+        counts = collections.Counter(s.get("state") for s in states)
+        log(f"nothing to render among states={sorted(want)} "
+            f"(run holds: {dict(counts)})")
+        return 0
+
+    merged_path = os.path.join(run_dir, "states-merged.json")
+    if os.path.exists(merged_path):
+        bak = f"{merged_path}.bak-{stamp()}"
+        shutil.copy2(merged_path, bak)
+        log(f"existing merged file backed up: {os.path.basename(bak)}")
+
+    scripts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "render")
+    jobs_path = os.path.join(run_dir, "render-jobs.json")
+    results_path = os.path.join(run_dir, "render-results.jsonl")
+    # The renderer is a second fetch surface and inherits the politeness gate
+    # (doctrine 10): robots checked here, and each job carries the gap it must
+    # wait before its goto, computed on that host's schedule (renders run
+    # sequentially in node, so per-job waits compose into intervals).
+    hcfg = HttpCfg(timeout=args.timeout, max_bytes=args.max_bytes, retries=0,
+                   allow_private=args.allow_private,
+                   per_host_delay=args.per_host_delay,
+                   per_host_concurrency=args.per_host_concurrency,
+                   respect_robots=not args.ignore_robots)
+    gate = _make_gate(hcfg)
+    jobs: list[dict] = []
+    for s in targets:
+        if gate is not None:
+            host = regdom(host_of(s.get("url", "")), CFG)
+            if not gate.robots_allowed(s.get("url", ""), host):
+                s["render_skipped"] = "robots.txt disallows this path"
+                log(f"  skipped {s['id']:>6} {str(s.get('name'))[:26]!r}: robots.txt")
+                continue
+            wait_ms = int(max(0.0, gate.next_slot(host) - time.monotonic()) * 1000)
+        else:
+            wait_ms = 0
+        jobs.append({"id": s["id"], "url": s["url"], "waitMs": wait_ms})
+
+    renders: dict[Any, dict] = {}
+    if jobs:
+        atomic_write(jobs_path, json.dumps({
+            "chromePath": chrome,
+            "timeoutMs": int(args.timeout * 1000),
+            "waitMs": args.wait_ms,
+            "maxChars": args.max_bytes,
+            "jobs": jobs,
+        }, indent=1))
+        log(f"render: {len(jobs)} of {len(targets)} selected rows via "
+            f"{os.path.basename(chrome)} (timeout {args.timeout:.0f}s, "
+            f"settle {args.wait_ms}ms)")
+        proc = subprocess.run([node, "render.mjs", jobs_path, results_path],
+                              cwd=scripts_dir, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace")
+        for line in (proc.stderr or "").splitlines():
+            if line.strip():
+                log(f"  {line.strip()}")
+        if proc.returncode != 0:
+            log(f"renderer failed (exit {proc.returncode}): {(proc.stdout or '')[:200]}")
+            return 1
+
+        with open(results_path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if line:
+                    r = json.loads(line)
+                    renders[r.get("id")] = r
+
+    outcomes = {"unchanged": 0, "changed": 0, "failed": 0}
+    merged_rows: list[dict] = []
+    for s in states:
+        row = dict(s)
+        r = renders.get(s.get("id"))
+        if s.get("state", "") not in want or r is None:
+            row.setdefault("evidence_mode", "http")
+            merged_rows.append(row)
+            continue
+        # the rendered capture, in the same shape as an HTTP capture, so the
+        # SAME rules judge it (one classifier, two clients)
+        cap = {
+            "url": s.get("url", ""), "ua": "render", "status": r.get("status"),
+            "error": r.get("error") or "",
+            "error_class": classify_error(r.get("error") or "") if r.get("error") else "",
+            "final_url": r.get("final_url") or "", "chain": [],
+            "content_type": "text/html", "server": "",
+            "bytes": len(r.get("html") or "") or len(r.get("visible") or ""),
+            "truncated": False, "title": r.get("title") or "",
+            "meta_description": "", "h1": r.get("h1") or "",
+            "visible": r.get("visible") or "", "html": r.get("html") or "",
+            "elapsed_ms": 0, "blocked_by_guard": "",
+        }
+        caps = [dict(c) for c in caps_by_id.get(s.get("id")) or []]
+        if r.get("ok"):
+            caps.append(cap)
+        else:
+            outcomes["failed"] += 1
+            log(f"  render failed {s['id']:>6} {str(s.get('name'))[:26]!r}: "
+                f"{(r.get('error') or '')[:90]}")
+        for c in caps:
+            if "_sig" not in c:
+                c["_sig"] = signals(c, s.get("name", ""), CFG)
+        res = classify(s.get("name", ""), s.get("url", ""), caps, CFG)
+        best_cap = max(caps, key=lambda c: len(c.get("visible") or ""), default={})
+        gate = company_gate(s.get("url", ""), best_cap.get("_sig") or {}, CFG)
+        row.update({
+            "state": res["state"], "why": res["why"],
+            "evidence_class": res.get("evidence_class", ""),
+            "http_status": res.get("http_status"),
+            "final_url": res.get("final_url", ""),
+            "title": res.get("title", ""), "spam": res.get("spam", ""),
+            "shell": res.get("shell", ""),
+            "stored_host": res.get("stored_host", ""),
+            "final_host": res.get("final_host", ""),
+            "redirected": res.get("redirected", False),
+            "verdicts": res.get("verdicts", {}),
+            "company_gate": gate["verdict"], "company_gate_why": gate["why"],
+            # the pre-render verdict and the render receipt travel with the row:
+            # a drop that trusts this file (--no-recheck) then carries a manifest
+            # that says WHY each row went, including what the browser saw
+            "http_state": s.get("state", ""), "http_why": s.get("why", ""),
+            "evidence_mode": "http+render" if r.get("ok") else "http",
+            "browser_evidence": {**{k: r.get(k) for k in
+                                    ("status", "final_url", "title", "h1",
+                                     "rendered_at") if r.get(k) is not None},
+                                 "visible_sample": (r.get("visible") or "")[:400]},
+        })
+        if res.get("state") == "MOVED":
+            row["moved_domain"] = res.get("final_host", "")
+        if r.get("ok"):
+            if res["state"] != s.get("state"):
+                outcomes["changed"] += 1
+                log(f"  {s['id']:>6} {str(s.get('name'))[:26]:<26} "
+                    f"{s.get('state'):<8} -> {res['state']:<8} {res['why'][:60]}")
+            else:
+                outcomes["unchanged"] += 1
+        merged_rows.append(row)
+
+    merged_rows.sort(key=lambda s: (str(s["name"]).lower(), str(s["id"])))
+    atomic_write(merged_path,
+                 json.dumps(merged_rows, indent=1, ensure_ascii=False))
+    counts = collections.Counter(s["state"] for s in merged_rows)
+    log(f"merged: {merged_path}")
+    log("merged states: " + ", ".join(f"{k}={counts.get(k, 0)}" for k in STATE_ORDER))
+    log("render outcomes: "
+        + ", ".join(f"{k}={outcomes[k]}" for k in ("unchanged", "changed", "failed")))
     return 0
 
 
@@ -1716,8 +1401,21 @@ def run_drop(args: argparse.Namespace, log: Log) -> int:
         log("drop requires --db")
         return 2
     run_dir = os.path.abspath(args.run)
-    states_path = os.path.abspath(args.states_file or
-                                 os.path.join(run_dir, "states.json"))
+    # An explicit --states-file wins. Otherwise the merged file (a render pass
+    # ran) is the better basis: its rows carry the rendered evidence and the
+    # pre-render verdicts. No manual join - this is the Round-5 lesson fixed.
+    if args.states_file:
+        states_path = os.path.abspath(args.states_file)
+    else:
+        merged = os.path.join(run_dir, "states-merged.json")
+        if os.path.exists(merged):
+            states_path = os.path.abspath(merged)
+            log("states file: states-merged.json (the render pass ran; its "
+                "evidence is the basis). Rows only visible to a renderer will "
+                "fail a fresh HTTP recheck - use --no-recheck to trust the "
+                "merged evidence, which the manifest then embeds.")
+        else:
+            states_path = os.path.join(run_dir, "states.json")
     states = json.load(open(states_path, encoding="utf-8"))
     targets = [s for s in states
                if s["state"] in (args.states.split(",") if args.states
@@ -1736,9 +1434,13 @@ def run_drop(args: argparse.Namespace, log: Log) -> int:
         return 3
 
     hcfg = HttpCfg(timeout=args.timeout, retries=args.retries,
-                   allow_private=args.allow_private)
+                   allow_private=args.allow_private,
+                   per_host_delay=args.per_host_delay,
+                   per_host_concurrency=args.per_host_concurrency,
+                   respect_robots=not args.ignore_robots)
     hcfg.workers = args.workers  # type: ignore[attr-defined]
     uas = (args.user_agent or DEFAULT_UAS)[: max(1, args.ua_count)]
+    gate = _make_gate(hcfg)
 
     # 1. fresh evidence at drop time (doctrine 8)
     if not args.no_recheck:
@@ -1751,7 +1453,8 @@ def run_drop(args: argparse.Namespace, log: Log) -> int:
         for s in targets:
             caps = []
             with cf.ThreadPoolExecutor(max_workers=min(4, len(uas) or 1)) as ex:
-                futs = [ex.submit(fetch_once, s["url"], ua, hcfg) for ua in uas]
+                futs = [ex.submit(_fetch_gated, s["url"], ua, hcfg, gate)
+                        for ua in uas]
                 for fut in cf.as_completed(futs):
                     try:
                         caps.append(fut.result())
@@ -1805,7 +1508,7 @@ def run_drop(args: argparse.Namespace, log: Log) -> int:
     # 3. manifest BEFORE the delete, so a crash leaves a receipt
     manifest = {
         "dropped_at": dt.datetime.now().isoformat(timespec="seconds"),
-        "tool": f"{TOOL} {VERSION}", "config_hash": _CFG_HASH,
+        "tool": f"{TOOL} {VERSION}", "config_hash": LR.config_hash(),
         "run": run_dir, "db": os.path.abspath(args.db), "table": table,
         "states_dropped": args.states or "DEAD,REPURPOSED",
         "states_file": states_path,
@@ -2042,6 +1745,29 @@ def _fixtures() -> list[tuple[str, str, str, list[dict], str, str]]:
                     title="HeadlineLogic News Portal",
                     visible="News Entertainment Weather Sports Finance Top Stories")],
               "REPURPOSED", "C:monetised-redirect"))
+
+    # --- the render pass: same rules, two clients ----------------------------
+    # The render pass appends a "render" capture to the HTTP captures and the
+    # SAME classifier decides (Round 4 settled 16 of 18 UNKNOWNs this way).
+    # These two pin the merge semantics: the best body - most visible text -
+    # wins, whatever client produced it. (Real shape: Chaldal, a client-rendered
+    # SPA that answers an empty shell to a scripted client; Run The World, whose
+    # lander only exists after JS.)
+    F.append(("render-settles-empty-shell", "Chaldal", "https://chaldal.example",
+              [_cap(status=200, bytes=200, title="", visible=""),
+               _cap(status=200, ua="render", bytes=90000,
+                    title="Chaldal - Online Grocery Shop",
+                    visible="Chaldal delivers groceries in Dhaka. Pricing FAQs "
+                            "Contact us")],
+              "LIVE", ""))
+    F.append(("render-sees-the-lander", "Run The World", "https://runtheworld.example",
+              [_cap(status=200, bytes=300, title="", visible=""),
+               _cap(status=200, ua="render", bytes=30000,
+                    final_url="https://runtheworld.example/lander",
+                    title="",
+                    visible="Related Searches run the world Copyright (c) 1999-2026 "
+                            "GoDaddy, LLC. All rights reserved.")],
+              "DEAD", ""))
     # An acquisition that forwards to the acquirer's own site and KEEPS the brand
     # is an ordinary redirect and stays LIVE (real: guildeducation.com ->
     # guild.com, ninjacart.in -> ninjacart.com).
@@ -2059,6 +1785,18 @@ def _fixtures() -> list[tuple[str, str, str, list[dict], str, str]]:
                     title="FortiMail Workspace Security | Fortinet",
                     visible="Fortinet Products Solutions Support Partners Company")],
               "MOVED", "policy:owner-changed"))
+    # A short brand yields NO brand tokens at all (brand_tokens keeps length >= 4),
+    # so "no token of the company appears on the page" would be vacuously true for
+    # ANY redirect: the MOVED rule needs tokens to exist before it can claim they
+    # are absent. A rebrand or platform move by a short-named company stays LIVE.
+    # (Found by the 2026-09-19 critique, docs/liveness-funnel-plan.md F3.)
+    F.append(("short-brand-redirect-stays-live", "Mux", "https://mux.com",
+              [_cap(status=200, bytes=90000,
+                    final_url="https://mux.dev/",
+                    title="Mux - Video infrastructure for developers",
+                    visible="Mux builds video APIs for developers. Pricing Docs "
+                            "Customers Blog")],
+              "LIVE", ""))
     # Legal seizure: nothing in the old vocabulary matched it, so a confiscated
     # domain read as LIVE.
     F.append(("seized-domain", "OldCo", "https://oldco.example",
@@ -2258,6 +1996,14 @@ def add_common(p: argparse.ArgumentParser, suppress_defaults: bool) -> None:
                    help="how many of the default UAs to use (1-3)")
     p.add_argument("--allow-private", action="store_true", default=D,
                    help="permit private/loopback targets (off by default)")
+    p.add_argument("--per-host-delay", type=float, default=dflt(1.0),
+                   help="min seconds between request starts to one host "
+                        "(politeness; 0 disables the interval)")
+    p.add_argument("--per-host-concurrency", type=int, default=dflt(2),
+                   help="max in-flight requests to one host")
+    p.add_argument("--ignore-robots", action="store_true", default=D,
+                   help="do not read robots.txt (the politeness gate still spaces "
+                        "requests; full rollback = --per-host-delay 0 too)")
     p.add_argument("--no-cache", action="store_true", default=D,
                    help="ignore the capture cache")
     p.add_argument("--cache-ttl", type=int, default=dflt(7 * 24 * 3600),
@@ -2304,6 +2050,19 @@ def build_parser() -> argparse.ArgumentParser:
                            ("report", "rebuild the report from a saved run")):
         s = sub.add_parser(name, help=helptext, parents=[common])
         s.add_argument("--run", required=True, help="run directory")
+
+    # render
+    r = sub.add_parser("render", help="settle non-LIVE rows with a real browser "
+                                      "(writes states-merged.json; drop prefers it)",
+                       parents=[common])
+    r.add_argument("--run", required=True, help="run directory")
+    r.add_argument("--states", default="UNKNOWN,WALLED,MOVED",
+                   help="which states to render (comma separated)")
+    r.add_argument("--limit", type=int, help="only the first N selected rows")
+    r.add_argument("--chrome",
+                   help="path to Chrome/Chromium (default: CHROME_PATH or autodetect)")
+    r.add_argument("--wait-ms", type=int, default=1500,
+                   help="settle wait after networkidle (default 1500)")
 
     # drop
     d = sub.add_parser("drop", help="delete DEAD/REPURPOSED rows (dry-run by default)",
@@ -2357,6 +2116,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             return run_audit(args, log)
         if args.cmd == "verify":
             return run_verify(args, log)
+        if args.cmd == "render":
+            return run_render(args, log)
         if args.cmd == "report":
             return run_report(args, log)
         if args.cmd == "drop":

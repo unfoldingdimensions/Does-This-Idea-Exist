@@ -15,7 +15,7 @@ import logging
 import time
 import uuid
 
-from . import db, github as gh, netguard
+from . import config, db, github as gh, liveness, netguard
 
 log = logging.getLogger("ideasexist")
 
@@ -30,7 +30,7 @@ UA_BROWSER = {
 _FILED = ("dead", "pivoted")
 
 
-def check_url_ok(url: str) -> tuple[bool, str, bool]:
+def check_url_ok(url: str, name: str = "") -> tuple[bool, str, bool]:
     """Tri-state website check: (ok, note, skipped).
 
     A genuine 404/410 is the ONLY website signal that counts as dead — bot
@@ -39,6 +39,19 @@ def check_url_ok(url: str) -> tuple[bool, str, bool]:
     never accumulate check_failures. Three bot-walled runs must never
     dead-flip a healthy company (real incident: WHOOP + Capterra filed dead
     by Cloudflare 403s).
+
+    On a 2xx/3xx the body is ALSO run through the liveness funnel's content
+    rules (app/liveness.py -> scripts/liveness_rules.py — the same rules the
+    audit CLI self-tests), because a 200 is not proof of life: parked
+    landers, server defaults, seizure notices and repurposed domains (the
+    four gambling sites the 2026-09-18 review found sitting at verified=1)
+    all answer 200. DEAD/REPURPOSED on content is a genuine strike — the
+    domain is no longer this company's; WALLED/UNKNOWN/MOVED/BANNED is a
+    skip with a named note, because those are policy calls or ambiguity,
+    never evidence of death. The content stage fails OPEN — a classifier
+    crash must not change the old behaviour — and this check only ever
+    tightens a 2xx, never invents new failure modes. (VERIFY_CONTENT_CHECK=0
+    reverts to the status-only check.)
     """
     if not url:
         return False, "no website_url", False
@@ -46,18 +59,35 @@ def check_url_ok(url: str) -> tuple[bool, str, bool]:
         url = "https://" + url
     try:
         r = netguard.safe_get(url, headers=UA_BROWSER, timeout=15)
-        status = r.status_code
-        if status in (404, 410):
-            return False, f"HTTP {status}", False  # genuinely gone — a real strike
-        if 200 <= status < 400:
-            return True, f"HTTP {status}", False
-        return False, f"HTTP {status}", True  # wall / rate limit / transient — skip
     except netguard.BlockedAddressError as exc:
         # SSRF guard refusal (non-public target). Counts as a failure with an
         # honest note — a junk internal URL must not masquerade as alive.
         return False, str(exc)[:80], False
     except Exception as exc:  # noqa: BLE001 — network/parse failure → skip, never strike
         return False, str(exc)[:80], True
+    status = r.status_code
+    if status in (404, 410):
+        return False, f"HTTP {status}", False  # genuinely gone — a real strike
+    if not (200 <= status < 400):
+        return False, f"HTTP {status}", True  # wall / rate limit / transient — skip
+    if not config.VERIFY_CONTENT_CHECK:
+        return True, f"HTTP {status}", False
+    try:
+        request = getattr(r, "request", None)
+        final_url = str(getattr(request, "url", "") or "") if request is not None else ""
+        res = liveness.classify_homepage(
+            name, url, status=status, text=getattr(r, "text", "") or "",
+            final_url=final_url, nbytes=len(getattr(r, "content", b"") or b""))
+        state = res.get("state", "")
+        why = (res.get("why") or "")[:70]
+        if state in liveness.STRIKE_STATES:
+            return False, f"HTTP {status}; content: {state} ({why})", False
+        if state in liveness.SKIP_STATES:
+            return False, f"HTTP {status}; content: {state} ({why})", True
+        # LIVE — and anything unmapped stays ok: no new failure modes.
+        return True, f"HTTP {status}", False
+    except Exception:  # noqa: BLE001 — content check fails open, by design
+        return True, f"HTTP {status}", False
 
 
 def check_github_ok(github_url: str) -> tuple[bool, str, bool]:
@@ -288,7 +318,7 @@ def run_verify_job(job: dict) -> None:
             web_ok: bool | None = None
             web_skipped = False
             if row["website_url"]:
-                web_ok, web_note, web_skipped = check_url_ok(row["website_url"])
+                web_ok, web_note, web_skipped = check_url_ok(row["website_url"], row["name"])
                 notes.append(f"website: {web_note}")
             gh_ok = None
             gh_skipped = False

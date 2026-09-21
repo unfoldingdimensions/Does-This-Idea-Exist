@@ -369,7 +369,7 @@ try:
         # sleep keeps the first pass running long enough for the 409 check.
         # (Stays stubbed for the whole client4 block — the queue test must not
         # do real network checks with 15s timeouts inside a 5s wait_job.)
-        verify_mod.check_url_ok = lambda url: (time.sleep(0.05), (True, "HTTP 200", False))[1]
+        verify_mod.check_url_ok = lambda *a, **k: (time.sleep(0.05), (True, "HTTP 200", False))[1]
 
         # rate limit → skipped, check_failures untouched
         gh_mod.fetch_repo = fake_gh_rate_limited
@@ -481,7 +481,7 @@ try:
         )
         conn.commit()
         conn.close()
-        verify_mod.check_url_ok = lambda url: (True, "HTTP 200", False)
+        verify_mod.check_url_ok = lambda *a, **k: (True, "HTTP 200", False)
         # offline-deterministic: every github lookup is a genuine 404 (failed bucket)
         def fake_gh_404(url, **kwargs):
             raise ValueError("GitHub repo not found: test")
@@ -565,7 +565,7 @@ try:
 
         # a) website 403 (bot wall — the WHOOP/Capterra regression) → skipped, never a strike
         wall_id = fresh_row("BotWallCo", "https://botwall.example")
-        verify_mod.check_url_ok = lambda url: (False, "HTTP 403", True)
+        verify_mod.check_url_ok = lambda *a, **k: (False, "HTTP 403", True)
         vjob = client7.post("/api/verify/run", headers=MUT).json()
         vstat = wait_job(client7, vjob["job_id"])
         check(
@@ -575,7 +575,7 @@ try:
         )
 
         # b) website 404 → genuine failure, strike bumps
-        verify_mod.check_url_ok = lambda url: (False, "HTTP 404", False)
+        verify_mod.check_url_ok = lambda *a, **k: (False, "HTTP 404", False)
         vjob = client7.post("/api/verify/run", headers=MUT).json()
         vstat = wait_job(client7, vjob["job_id"])
         check(

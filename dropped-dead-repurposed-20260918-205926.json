@@ -1,0 +1,504 @@
+{
+  "dropped_at": "2026-09-18T20:59:26",
+  "reason": "manual third pass - audit 2026-09-18 20:10 filed these LIVE (HTTP 200), but the domains now serve unrelated content (repurposed). Evidence class recorded per row (A:spam-keyword / B:content-shell); re-fetched with Chrome + Firefox UAs before deletion.",
+  "audit_csv": "liveness-audit-2026-09-18-2010.csv",
+  "verified_by": "independent review pass 2026-09-18 21:0x",
+  "db_backup": "ideasexist.db.bak-drop-20260918-205926",
+  "startups": [
+    {
+      "id": 922,
+      "name": "Oribi",
+      "tagline": "Easily understand your website results. Get the actionable info you need.",
+      "description": "Oribi is a website analytics platform that simplifies data, delivering actionable insights without complex reports. It is designed for marketers, agencies, and eCommerce businesses who want quick answers instead of endless data. Users can switch from Google Analytics and try it for free.",
+      "category": "other",
+      "website_url": "https://www.oribi.io/",
+      "github_url": null,
+      "founded": "2015-07-25",
+      "stars": null,
+      "language": null,
+      "status": "active",
+      "verified": 1,
+      "verified_at": "2026-08-11 18:25:11",
+      "last_checked": "2026-09-17 06:32:19",
+      "check_failures": 0,
+      "source": "website",
+      "created_at": "2026-08-10 17:28:31",
+      "updated_at": "2026-08-10 17:28:31",
+      "entity_type": null,
+      "canonical_domain": null,
+      "aliases": null,
+      "problem_statement": null,
+      "target_users": null,
+      "product_url": null,
+      "docs_url": null,
+      "demo_url": null,
+      "app_store_url": null,
+      "play_store_url": null,
+      "pricing_json": null,
+      "pricing_captured_at": null,
+      "pricing_source_url": null,
+      "features_json": null,
+      "positioning": null,
+      "content_notes": null,
+      "activity_checked_at": null,
+      "activity_summary": null,
+      "last_human_reviewed_at": null,
+      "review_notes": null,
+      "provenance": null,
+      "date_source": "unknown"
+    },
+    {
+      "id": 1006,
+      "name": "Helium Health",
+      "tagline": "No website content available",
+      "description": "The domain registration for Helium Health has expired, and the homepage currently shows a renewal notice from Namecheap. No product details or company information are available from the provided evidence.",
+      "category": "other",
+      "website_url": "http://heliumhealthcare.com",
+      "github_url": null,
+      "founded": "2017-09-02",
+      "stars": null,
+      "language": null,
+      "status": "active",
+      "verified": 1,
+      "verified_at": "2026-08-11 18:25:11",
+      "last_checked": "2026-09-17 06:33:51",
+      "check_failures": 0,
+      "source": "website",
+      "created_at": "2026-08-10 18:08:39",
+      "updated_at": "2026-08-10 18:08:39",
+      "entity_type": null,
+      "canonical_domain": null,
+      "aliases": null,
+      "problem_statement": null,
+      "target_users": null,
+      "product_url": null,
+      "docs_url": null,
+      "demo_url": null,
+      "app_store_url": null,
+      "play_store_url": null,
+      "pricing_json": null,
+      "pricing_captured_at": null,
+      "pricing_source_url": null,
+      "features_json": null,
+      "positioning": null,
+      "content_notes": null,
+      "activity_checked_at": null,
+      "activity_summary": null,
+      "last_human_reviewed_at": null,
+      "review_notes": null,
+      "provenance": null,
+      "date_source": "unknown"
+    },
+    {
+      "id": 1033,
+      "name": "Raise (formerly HelloOffice)",
+      "tagline": "All kinds of historical objects and inventions that shaped world civilization.",
+      "description": "A website publishing articles about historical artifacts, inventions, and world heritage. It covers topics such as globally recognized historical legacies and sought-after ancient objects. The content is aimed at readers interested in history and discoveries.",
+      "category": "media",
+      "website_url": "https://hellooffice.com/",
+      "github_url": null,
+      "founded": "2002-11-19",
+      "stars": null,
+      "language": null,
+      "status": "active",
+      "verified": 1,
+      "verified_at": "2026-08-11 18:25:11",
+      "last_checked": "2026-09-17 06:34:19",
+      "check_failures": 0,
+      "source": "website",
+      "created_at": "2026-08-10 18:25:19",
+      "updated_at": "2026-08-10 18:25:19",
+      "entity_type": null,
+      "canonical_domain": null,
+      "aliases": null,
+      "problem_statement": null,
+      "target_users": null,
+      "product_url": null,
+      "docs_url": null,
+      "demo_url": null,
+      "app_store_url": null,
+      "play_store_url": null,
+      "pricing_json": null,
+      "pricing_captured_at": null,
+      "pricing_source_url": null,
+      "features_json": null,
+      "positioning": null,
+      "content_notes": null,
+      "activity_checked_at": null,
+      "activity_summary": null,
+      "last_human_reviewed_at": null,
+      "review_notes": null,
+      "provenance": null,
+      "date_source": "unknown"
+    },
+    {
+      "id": 1260,
+      "name": "Creator",
+      "tagline": "Indonesian bookmaker for toto slot and mix parlay.",
+      "description": "TOTO99 is an official Indonesian bookmaker providing toto slot signals and mix parlay options for sports betting. It serves Indonesian users interested in online slot lottery and football parlay hobby platforms for 2026.",
+      "category": "other",
+      "website_url": "https://ttoto99.com/?ArticleID=465",
+      "github_url": null,
+      "founded": "2026-06-21",
+      "stars": null,
+      "language": null,
+      "status": "active",
+      "verified": 1,
+      "verified_at": "2026-08-11 18:25:07",
+      "last_checked": "2026-09-17 06:38:24",
+      "check_failures": 0,
+      "source": "website",
+      "created_at": "2026-08-11 06:15:48",
+      "updated_at": "2026-08-11 06:15:48",
+      "entity_type": null,
+      "canonical_domain": null,
+      "aliases": null,
+      "problem_statement": null,
+      "target_users": null,
+      "product_url": null,
+      "docs_url": null,
+      "demo_url": null,
+      "app_store_url": null,
+      "play_store_url": null,
+      "pricing_json": null,
+      "pricing_captured_at": null,
+      "pricing_source_url": null,
+      "features_json": null,
+      "positioning": null,
+      "content_notes": null,
+      "activity_checked_at": null,
+      "activity_summary": null,
+      "last_human_reviewed_at": null,
+      "review_notes": null,
+      "provenance": null,
+      "date_source": "unknown"
+    }
+  ],
+  "evidence": [],
+  "verify_log": [
+    {
+      "id": 2523,
+      "startup_id": 922,
+      "checked_at": "2026-08-11 05:04:50",
+      "website_ok": 1,
+      "github_ok": null,
+      "notes": "website: HTTP 200"
+    },
+    {
+      "id": 2607,
+      "startup_id": 1006,
+      "checked_at": "2026-08-11 05:06:02",
+      "website_ok": 1,
+      "github_ok": null,
+      "notes": "website: HTTP 200"
+    },
+    {
+      "id": 2634,
+      "startup_id": 1033,
+      "checked_at": "2026-08-11 05:06:39",
+      "website_ok": 1,
+      "github_ok": null,
+      "notes": "website: HTTP 200"
+    },
+    {
+      "id": 3633,
+      "startup_id": 922,
+      "checked_at": "2026-08-11 07:03:08",
+      "website_ok": 1,
+      "github_ok": null,
+      "notes": "website: HTTP 200"
+    },
+    {
+      "id": 3717,
+      "startup_id": 1006,
+      "checked_at": "2026-08-11 07:04:43",
+      "website_ok": 1,
+      "github_ok": null,
+      "notes": "website: HTTP 200"
+    },
+    {
+      "id": 3744,
+      "startup_id": 1033,
+      "checked_at": "2026-08-11 07:05:27",
+      "website_ok": 1,
+      "github_ok": null,
+      "notes": "website: HTTP 200"
+    },
+    {
+      "id": 3971,
+      "startup_id": 1260,
+      "checked_at": "2026-08-11 07:11:43",
+      "website_ok": 1,
+      "github_ok": null,
+      "notes": "website: HTTP 200"
+    },
+    {
+      "id": 5616,
+      "startup_id": 922,
+      "checked_at": "2026-09-04 14:53:39",
+      "website_ok": 1,
+      "github_ok": null,
+      "notes": "website: HTTP 200"
+    },
+    {
+      "id": 5700,
+      "startup_id": 1006,
+      "checked_at": "2026-09-04 14:55:42",
+      "website_ok": 1,
+      "github_ok": null,
+      "notes": "website: HTTP 200"
+    },
+    {
+      "id": 5727,
+      "startup_id": 1033,
+      "checked_at": "2026-09-04 14:56:41",
+      "website_ok": 0,
+      "github_ok": null,
+      "notes": "website: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl."
+    },
+    {
+      "id": 5952,
+      "startup_id": 1260,
+      "checked_at": "2026-09-04 15:02:54",
+      "website_ok": 1,
+      "github_ok": null,
+      "notes": "website: HTTP 200"
+    },
+    {
+      "id": 6898,
+      "startup_id": 922,
+      "checked_at": "2026-09-16 13:25:52",
+      "website_ok": 1,
+      "github_ok": null,
+      "notes": "website: HTTP 200"
+    },
+    {
+      "id": 6982,
+      "startup_id": 1006,
+      "checked_at": "2026-09-16 13:27:10",
+      "website_ok": 1,
+      "github_ok": null,
+      "notes": "website: HTTP 200"
+    },
+    {
+      "id": 7907,
+      "startup_id": 922,
+      "checked_at": "2026-09-16 13:40:49",
+      "website_ok": 1,
+      "github_ok": null,
+      "notes": "website: HTTP 200"
+    },
+    {
+      "id": 7991,
+      "startup_id": 1006,
+      "checked_at": "2026-09-16 13:42:01",
+      "website_ok": 1,
+      "github_ok": null,
+      "notes": "website: HTTP 200"
+    },
+    {
+      "id": 8018,
+      "startup_id": 1033,
+      "checked_at": "2026-09-16 13:42:42",
+      "website_ok": 1,
+      "github_ok": null,
+      "notes": "website: HTTP 200"
+    },
+    {
+      "id": 8243,
+      "startup_id": 1260,
+      "checked_at": "2026-09-16 13:47:11",
+      "website_ok": 1,
+      "github_ok": null,
+      "notes": "website: HTTP 200"
+    },
+    {
+      "id": 9189,
+      "startup_id": 922,
+      "checked_at": "2026-09-17 06:32:19",
+      "website_ok": 1,
+      "github_ok": null,
+      "notes": "website: HTTP 200"
+    },
+    {
+      "id": 9273,
+      "startup_id": 1006,
+      "checked_at": "2026-09-17 06:33:51",
+      "website_ok": 1,
+      "github_ok": null,
+      "notes": "website: HTTP 200"
+    },
+    {
+      "id": 9300,
+      "startup_id": 1033,
+      "checked_at": "2026-09-17 06:34:19",
+      "website_ok": 1,
+      "github_ok": null,
+      "notes": "website: HTTP 200"
+    },
+    {
+      "id": 9525,
+      "startup_id": 1260,
+      "checked_at": "2026-09-17 06:38:24",
+      "website_ok": 1,
+      "github_ok": null,
+      "notes": "website: HTTP 200"
+    }
+  ],
+  "live_evidence": {
+    "922": {
+      "url": "https://www.oribi.io/",
+      "class": "A:spam-keyword",
+      "reason": "page now serves gambling/SEO spam: best online casinos, casino online, online casino",
+      "verdict": "REPURPOSED",
+      "chrome": {
+        "status": 200,
+        "final_url": "https://oribi.io/",
+        "title": "Best Online Casinos in Canada: Top Sites Compared 2026",
+        "spam_hits": [
+          "best online casinos",
+          "casino online",
+          "online casino"
+        ],
+        "error": "",
+        "markers": {
+          "wp": false,
+          "sample_page": false,
+          "skip_to_content": false
+        }
+      },
+      "firefox": {
+        "status": 200,
+        "final_url": "https://oribi.io/",
+        "title": "Best Online Casinos in Canada: Top Sites Compared 2026",
+        "spam_hits": [
+          "best online casinos",
+          "casino online",
+          "online casino"
+        ],
+        "error": "",
+        "markers": {
+          "wp": false,
+          "sample_page": false,
+          "skip_to_content": false
+        }
+      }
+    },
+    "1006": {
+      "url": "http://heliumhealthcare.com",
+      "class": "A:spam-keyword",
+      "reason": "page now serves gambling/SEO spam: agen togel, bandar, penyeragaman, prediksi, situs, togel",
+      "verdict": "REPURPOSED",
+      "chrome": {
+        "status": 200,
+        "final_url": "https://heliumhealthcare.com/",
+        "title": "KPKTOTO ⫛ Penyeragaman Agen Togel Toto Macau Sponsor Nomor Jitu Bonafide",
+        "spam_hits": [
+          "agen togel",
+          "bandar",
+          "penyeragaman",
+          "prediksi",
+          "situs",
+          "togel"
+        ],
+        "error": "",
+        "markers": {
+          "wp": false,
+          "sample_page": false,
+          "skip_to_content": true
+        }
+      },
+      "firefox": {
+        "status": 200,
+        "final_url": "https://heliumhealthcare.com/",
+        "title": "KPKTOTO ⫛ Penyeragaman Agen Togel Toto Macau Sponsor Nomor Jitu Bonafide",
+        "spam_hits": [
+          "agen togel",
+          "bandar",
+          "penyeragaman",
+          "prediksi",
+          "situs",
+          "togel"
+        ],
+        "error": "",
+        "markers": {
+          "wp": false,
+          "sample_page": false,
+          "skip_to_content": true
+        }
+      }
+    },
+    "1033": {
+      "url": "https://hellooffice.com/",
+      "class": "B:content-shell",
+      "reason": "generic WordPress content shell; visible text contains none of the company tokens ['raise', 'hellooffice'] (title='Segala Jenis Benda &amp; Penemuan Bersejarah yang Dunia - Se')",
+      "verdict": "REPURPOSED",
+      "chrome": {
+        "status": 200,
+        "final_url": "https://hellooffice.com/",
+        "title": "Segala Jenis Benda &amp; Penemuan Bersejarah yang Dunia - Segala jenis benda dan penemuan bersejarah yang membentuk peradaban dunia, dari alat sederhana hingga inovasi besar, menjadi saksi perkembanga",
+        "spam_hits": [],
+        "error": "",
+        "markers": {
+          "wp": true,
+          "sample_page": true,
+          "skip_to_content": true
+        }
+      },
+      "firefox": {
+        "status": 200,
+        "final_url": "https://hellooffice.com/",
+        "title": "Segala Jenis Benda &amp; Penemuan Bersejarah yang Dunia - Segala jenis benda dan penemuan bersejarah yang membentuk peradaban dunia, dari alat sederhana hingga inovasi besar, menjadi saksi perkembanga",
+        "spam_hits": [],
+        "error": "",
+        "markers": {
+          "wp": true,
+          "sample_page": true,
+          "skip_to_content": true
+        }
+      }
+    },
+    "1260": {
+      "url": "https://ttoto99.com/?ArticleID=465",
+      "class": "A:spam-keyword",
+      "reason": "page now serves gambling/SEO spam: bandar, parlay, situs, togel, toto slot",
+      "verdict": "REPURPOSED",
+      "chrome": {
+        "status": 200,
+        "final_url": "https://ttoto99.com/?ArticleID=465",
+        "title": "TOTO99: Bandar Penyedia Signal Toto Slot dan Jembatan Hobby Bola Mix Parlay Tersolid 2026",
+        "spam_hits": [
+          "bandar",
+          "parlay",
+          "situs",
+          "togel",
+          "toto slot"
+        ],
+        "error": "",
+        "markers": {
+          "wp": false,
+          "sample_page": false,
+          "skip_to_content": false
+        }
+      },
+      "firefox": {
+        "status": 200,
+        "final_url": "https://ttoto99.com/?ArticleID=465",
+        "title": "TOTO99: Bandar Penyedia Signal Toto Slot dan Jembatan Hobby Bola Mix Parlay Tersolid 2026",
+        "spam_hits": [
+          "bandar",
+          "parlay",
+          "situs",
+          "togel",
+          "toto slot"
+        ],
+        "error": "",
+        "markers": {
+          "wp": false,
+          "sample_page": false,
+          "skip_to_content": false
+        }
+      }
+    }
+  }
+}

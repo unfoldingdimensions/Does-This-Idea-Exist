@@ -75,3 +75,6 @@ deliverables-index.md
 # memory items
 MEMORY.md
 memory/
+
+# Command Code tool state (machine-local)
+.commandcode/

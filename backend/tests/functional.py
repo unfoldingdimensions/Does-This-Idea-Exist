@@ -1608,14 +1608,14 @@ with TestClient(api) as client:
     _real_check_url = verify.check_url_ok
     gh_mod.fetch_repo = _gh_404
     try:
-        verify.check_url_ok = lambda url: (False, "HTTP 403", True)
+        verify.check_url_ok = lambda *a, **k: (False, "HTTP 403", True)
         _j = client.post("/api/verify/run", headers=MUT).json()
         _jstat = wait_job(client, _j["job_id"])
         check("a 403 website check SKIPS — it never strikes (tri-state liveness)",
               _jstat["result"]["skipped"] >= 1 and row_of(_wall_id)["check_failures"] == 0,
               f"skipped={_jstat['result']['skipped']} cf={row_of(_wall_id)['check_failures']}")
 
-        verify.check_url_ok = lambda url: (False, "HTTP 404", False)
+        verify.check_url_ok = lambda *a, **k: (False, "HTTP 404", False)
         _j = client.post("/api/verify/run", headers=MUT).json()
         _jstat = wait_job(client, _j["job_id"])
         check("a 404 website check strikes — only 404/410 count (tri-state liveness)",
@@ -1640,7 +1640,7 @@ with TestClient(api) as client:
                 "WHERE checked_at < datetime('now', '-90 days')").fetchone()["c"]
         finally:
             _conn.close()
-        verify.check_url_ok = lambda url: (True, "HTTP 200", False)
+        verify.check_url_ok = lambda *a, **k: (True, "HTTP 200", False)
         _j = client.post("/api/verify/run", headers=MUT).json()
         wait_job(client, _j["job_id"])
         _conn = db.connect()
@@ -1994,6 +1994,264 @@ try:
         check("the override clears again and the gateway falls back to its default",
               cleared["base_url"] == cleared["default_base_url"],
               str(cleared["base_url"]))
+
+    # =======================================================================
+    # Liveness funnel: shared rules, content-aware verify, admission wiring
+    # (docs/liveness-funnel-plan.md, Sequence 1 — 2026-09-19). The backend now
+    # consults the SAME classifier the audit CLI self-tests, the weekly verify
+    # pass treats a parked/repurposed 200 as the strike it is, and a completed
+    # run can be imported: admit the clean majority, queue the exceptions,
+    # never delete.
+    # =======================================================================
+    import app.funnel as funnel_mod
+    import app.liveness as liveness_mod
+    import app.netguard as netguard_mod
+
+    check("the backend loads the canonical rules module (scripts/liveness_rules.py)",
+          liveness_mod.rules.__file__.replace("\\", "/").endswith("scripts/liveness_rules.py"),
+          str(liveness_mod.rules.__file__))
+    check("the rules module carries a config hash for receipt parity",
+          len(liveness_mod.config_hash()) == 12, liveness_mod.config_hash())
+
+    _oribi = liveness_mod.classify_homepage(
+        "Oribi", "https://oribi.io", status=200,
+        text="<title>Best Online Casinos in Canada: Top Sites Compared 2026</title> "
+             "Best online casinos in Canada. Compare the top sites.",
+        final_url="https://oribi.io", nbytes=400)
+    check("the shared rules classify the Oribi gambling page as REPURPOSED (class A)",
+          _oribi["state"] == "REPURPOSED" and _oribi["evidence_class"] == "A:spam-keyword",
+          f"{_oribi['state']} {_oribi['evidence_class']}")
+
+    _mux = liveness_mod.classify_homepage(
+        "Mux", "https://mux.com", status=200,
+        text="<title>Mux - Video infrastructure for developers</title> "
+             "Mux builds video APIs for developers. Pricing Docs Customers Blog",
+        final_url="https://mux.dev/", nbytes=60000)
+    check("a short-brand redirect is not MOVED on vacuous tokens (F3 fix)",
+          _mux["state"] == "LIVE", f"{_mux['state']} {_mux['why'][:60]}")
+
+    _nginx = liveness_mod.classify_homepage(
+        "Credy", "https://credy.in", status=200,
+        text="<title>Welcome to nginx!</title> Welcome to nginx! If you see this "
+             "page, the web server is successfully installed and working.",
+        final_url="https://credy.in", nbytes=300)
+    check("a bare server default page is DEAD even at HTTP 200",
+          _nginx["state"] == "DEAD", f"{_nginx['state']} {_nginx['why'][:60]}")
+
+    # --- check_url_ok: content mapped onto the tri-state contract ------------
+    class _StubResp:
+        def __init__(self, status: int, text: str, final: str = "https://stub.example/"):
+            self.status_code = status
+            self.text = text
+            self.content = text.encode()
+            self.request = type("Req", (), {"url": final})()
+
+    _real_safe_get = netguard_mod.safe_get
+    try:
+        _casino = ("<title>Best Online Casinos in Canada</title>"
+                   "Best online casinos. Compare the top sites.")
+        netguard_mod.safe_get = lambda url, **k: _StubResp(200, _casino)
+        _r = verify.check_url_ok("https://oribi.example", "Oribi")
+        check("check_url_ok strikes a repurposed 200 (the review's blind spot, closed)",
+              _r[0] is False and _r[2] is False and "content: REPURPOSED" in _r[1]
+              and "HTTP 200" in _r[1], str(_r))
+        netguard_mod.safe_get = lambda url, **k: _StubResp(
+            200, "<title>Just a moment...</title>Checking your browser before continuing")
+        _r = verify.check_url_ok("https://walled.example", "Walled Co")
+        check("check_url_ok skips (never strikes) a soft wall served on a 200",
+              _r[0] is False and _r[2] is True and "content: WALLED" in _r[1], str(_r))
+        netguard_mod.safe_get = lambda url, **k: _StubResp(
+            200, "<title>Acme - Trusted by teams</title>Pricing. Book a demo. Contact sales.")
+        _r = verify.check_url_ok("https://acme.example", "Acme")
+        check("check_url_ok keeps a clean 200 alive with the plain note",
+              _r == (True, "HTTP 200", False), str(_r))
+        netguard_mod.safe_get = lambda url, **k: _StubResp(404, "gone")
+        _r = verify.check_url_ok("https://gone.example", "Gone Co")
+        check("check_url_ok hard-404 semantics unchanged",
+              _r == (False, "HTTP 404", False), str(_r))
+    finally:
+        netguard_mod.safe_get = _real_safe_get
+
+    # --- funnel.import_run: admit / queue / ignore / never delete ------------
+    _run_dir = Path(_tmp.name) / "funnel-run"
+    _run_dir.mkdir(exist_ok=True)
+
+    def _state(sid, name, url, state, gate, why="because the run said so"):
+        return {"id": sid, "name": name, "url": url, "state": state, "why": why,
+                "company_gate": gate, "company_gate_why": why}
+
+    _fa = insert_startup("Funnel Admit Co", "https://funnel-admit.example")
+    _fb = insert_startup("Funnel Project Co", "https://funnel-project.example")
+    _fc = insert_startup("Funnel Walled Co", "https://funnel-walled.example")
+    _fd = insert_startup("Funnel Dead Co", "https://funnel-dead.example")
+    _fe = insert_startup("Funnel Already Co", "https://funnel-already.example")
+    _ff = insert_startup("Funnel Render Co", "https://funnel-render.example")
+    verify.approve_suggested(ids=[_fe])  # a human already admitted this one
+    (_run_dir / "states.json").write_text(json.dumps([
+        _state(_fa, "Funnel Admit Co", "https://funnel-admit.example", "LIVE", "company"),
+        _state(_fb, "Funnel Project Co", "https://funnel-project.example", "LIVE", "not_company"),
+        _state(_fc, "Funnel Walled Co", "https://funnel-walled.example", "WALLED", "unverified"),
+        _state(_fd, "Funnel Dead Co", "https://funnel-dead.example", "DEAD", "company"),
+        _state(_fe, "Funnel Already Co", "https://funnel-already.example", "LIVE", "company"),
+        # a render-settled row carries browser evidence, and must be admitted
+        # under the stage that actually settled it (funnel:render, not :http)
+        {**_state(_ff, "Funnel Render Co", "https://funnel-render.example",
+                  "LIVE", "company"),
+         "browser_evidence": {"status": 200,
+                              "final_url": "https://funnel-render.example/",
+                              "title": "Funnel Render Co",
+                              "rendered_at": "2026-09-19T00:00:00"}},
+        _state(999991, "Ghost Row", "https://ghost.example", "LIVE", "company"),
+    ]), encoding="utf-8")
+    (_run_dir / "run.json").write_text(json.dumps(
+        {"tool": "site_liveness_audit 1.0.0", "generated_at": "2026-09-19T00:00:00",
+         "config_hash": liveness_mod.config_hash()}), encoding="utf-8")
+
+    _plan = funnel_mod.import_run(str(_run_dir), dry_run=True)
+    check("dry-run import plans the admissions, counts the human row and the ghost",
+          _plan["dry_run"] is True and _plan["admit_eligible"] == 2
+          and _plan["admitted"] == [] and _plan["already_admitted"] == 1
+          and _plan["unknown_ids"] == [999991],
+          json.dumps({k: _plan[k] for k in
+                      ("admit_eligible", "admitted", "already_admitted", "unknown_ids")}))
+    check("dry-run queues the non-company and the walled row, ignores the dead row",
+          {q["id"] for q in _plan["queued"]} == {_fb, _fc}
+          and [i["id"] for i in _plan["ignored"]] == [_fd],
+          json.dumps({"queued": [q["id"] for q in _plan["queued"]],
+                      "ignored": [i["id"] for i in _plan["ignored"]]}))
+    _conn = db.connect()
+    try:
+        _still0 = _conn.execute("SELECT verified FROM startups WHERE id=?", (_fa,)).fetchone()[0]
+    finally:
+        _conn.close()
+    check("dry-run left the row unverified", _still0 == 0, f"verified={_still0}")
+
+    # --- the endpoint: admin-tokened, dry-run default, honest errors ---------
+    _ep = client.post("/api/admin/funnel/import",
+                      json={"run": str(_run_dir), "dry_run": True}, headers=MUT)
+    check("POST /api/admin/funnel/import plans without writing",
+          _ep.status_code == 200 and _ep.json()["admit_eligible"] == 2
+          and _ep.json()["admitted"] == [], _ep.text[:160])
+    _ep_default = client.post("/api/admin/funnel/import",
+                              json={"run": str(_run_dir)}, headers=MUT)
+    check("the endpoint's default is dry-run", _ep_default.status_code == 200
+          and _ep_default.json()["dry_run"] is True, _ep_default.text[:120])
+    _ep404 = client.post("/api/admin/funnel/import",
+                         json={"run": str(Path(_tmp.name) / "no-such-run")}, headers=MUT)
+    check("a missing run is a 404 naming the path", _ep404.status_code == 404,
+          _ep404.text[:120])
+    _bad = Path(_tmp.name) / "bad-run"
+    _bad.mkdir(exist_ok=True)
+    (_bad / "states.json").write_text(json.dumps([{"id": 1, "state": "LIVE"}]),
+                                      encoding="utf-8")
+    _ep422 = client.post("/api/admin/funnel/import", json={"run": str(_bad)}, headers=MUT)
+    check("a pre-gate run is refused with the re-run instruction (422)",
+          _ep422.status_code == 422 and "company gate" in _ep422.json()["detail"],
+          _ep422.text[:160])
+
+    _res = funnel_mod.import_run(str(_run_dir), dry_run=False)
+    check("real import admits exactly the clean LIVE rows",
+          _res["admitted"] == sorted([_fa, _ff]), json.dumps(_res["admitted"]))
+    _conn = db.connect()
+    try:
+        _row = _conn.execute(
+            "SELECT verified, approval_source, approved_by, approval_note "
+            "FROM startups WHERE id=?", (_fa,)).fetchone()
+        _fd_status = _conn.execute(
+            "SELECT verified, status FROM startups WHERE id=?", (_fd,)).fetchone()
+        _ff_row = _conn.execute(
+            "SELECT approved_by FROM startups WHERE id=?", (_ff,)).fetchone()
+    finally:
+        _conn.close()
+    check("the admission receipt: machine, funnel:http, the run named in the note",
+          _row["verified"] == 1 and _row["approval_source"] == "machine"
+          and _row["approved_by"] == "funnel:http"
+          and "funnel-run" in (_row["approval_note"] or ""),
+          str(dict(_row)))
+    check("a render-settled row is admitted under the stage that settled it "
+          "(funnel:render)", _ff_row["approved_by"] == "funnel:render",
+          str(dict(_ff_row)))
+    check("the DEAD row is untouched — removal stays with the drop tool",
+          _fd_status["verified"] == 0 and _fd_status["status"] == "active",
+          str(dict(_fd_status)))
+    _fp = client.get("/api/startups/funnel-project-co").json()
+    check("a queued non-company is neither admitted nor Admin Verified",
+          _fp["admin_verified"] is False, str(_fp["admin_verified"]))
+    _again = funnel_mod.import_run(str(_run_dir), dry_run=False)
+    check("re-import is a no-op: nothing new to admit, all admitted rows counted",
+          _again["admitted"] == [] and _again["already_admitted"] == 3,
+          json.dumps({"admitted": _again["admitted"],
+                      "already_admitted": _again["already_admitted"]}))
+
+    # --- the politeness gate (Sequence 3, docs/liveness-funnel-plan.md) ------
+    # Pure logic over real threads: at most `concurrency` starts per `delay`
+    # window on one host; one host's delay never blocks another host; pushback
+    # grows the interval; robots.txt is enforced through an injectable fetcher.
+    import urllib.robotparser as _urp
+
+    gate = liveness_mod.rules.HostGate(delay=0.05, concurrency=2)
+    _starts: list = []
+    _starts_lock = threading.Lock()
+
+    def _gate_worker():
+        for _ in range(5):
+            gate.reserve("one.example")
+            with _starts_lock:
+                _starts.append(time.monotonic())
+            gate.release("one.example")
+
+    _threads = [threading.Thread(target=_gate_worker) for _ in range(4)]
+    _gate_t0 = time.monotonic()
+    for _t in _threads:
+        _t.start()
+    for _t in _threads:
+        _t.join()
+    _gate_span = time.monotonic() - _gate_t0
+    _starts.sort()
+    _spaced = all(_starts[i + 2] - _starts[i] >= 0.04 for i in range(len(_starts) - 2))
+    check("the gate spaces one host: <= concurrency starts per delay window",
+          len(_starts) == 20 and _spaced and _gate_span >= 0.4,
+          f"{len(_starts)} starts, span {_gate_span:.2f}s")
+
+    _gate_b = liveness_mod.rules.HostGate(delay=1.0, concurrency=1)
+    _ta = time.monotonic()
+    _gate_b.reserve("a.example")
+    _gate_b.release("a.example")
+    _a_wait = time.monotonic() - _ta
+    _tb = time.monotonic()
+    _gate_b.reserve("b.example")
+    _gate_b.release("b.example")
+    _b_wait = time.monotonic() - _tb
+    check("one host's delay never blocks another host",
+          _a_wait < 0.5 and _b_wait < 0.5, f"a={_a_wait:.2f}s b={_b_wait:.2f}s")
+
+    _gate_c = liveness_mod.rules.HostGate(delay=0.05, concurrency=1)
+    _gate_c.reserve("push.example")
+    _gate_c.release("push.example")
+    _gate_c.record_result("push.example", 429)
+    _pen_429 = _gate_c.penalty("push.example")
+    _gate_c.record_result("push.example", 200)
+    _pen_200 = _gate_c.penalty("push.example")
+    check("a 429 grows the host's interval and a clean 2xx shrinks it back",
+          _pen_429 >= 0.5 and 0.0 < _pen_200 < _pen_429,
+          f"429->{_pen_429} 200->{_pen_200}")
+
+    _rp = _urp.RobotFileParser()
+    _rp.parse(["User-agent: *", "Disallow: /private/"])
+    _gate_r = liveness_mod.rules.HostGate(delay=0.05, concurrency=1,
+                                          respect_robots=True,
+                                          robot_fetcher=lambda host: _rp)
+    check("robots.txt enforced: the disallowed path is refused, the rest passes",
+          _gate_r.robots_allowed("https://host.example/private/x", "host.example") is False
+          and _gate_r.robots_allowed("https://host.example/ok", "host.example") is True,
+          "Disallow: /private/")
+    _gate_nr = liveness_mod.rules.HostGate(delay=0.05, concurrency=1,
+                                           respect_robots=False,
+                                           robot_fetcher=lambda host: _rp)
+    check("--ignore-robots disables the robots check",
+          _gate_nr.robots_allowed("https://host.example/private/x", "host.example") is True,
+          "respect_robots=False")
+
 finally:
     for _k, _v in _saved_env.items():
         if _v is None:

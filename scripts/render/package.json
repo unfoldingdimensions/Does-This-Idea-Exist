@@ -1,0 +1,12 @@
+{
+  "name": "dtse-render",
+  "private": true,
+  "type": "module",
+  "description": "The liveness funnel's renderer: puppeteer-core + the installed Chrome. No browser downloads - the machine's own Chrome renders; the Python side judges.",
+  "scripts": {
+    "render": "node render.mjs"
+  },
+  "dependencies": {
+    "puppeteer-core": "^23.11.1"
+  }
+}
