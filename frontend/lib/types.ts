@@ -25,6 +25,16 @@ export interface Startup {
    * in the type because rows written before Phase 1 carry no value.
    */
   date_source?: string | null;
+  /**
+   * WHO admitted the row (scale-to-10k, 2026-09-18): `human` · `machine` ·
+   * null for rows written before the column existed (legacy = human). The
+   * trust copy must distinguish: "a human checked this" is only true when
+   * this is NOT 'machine' — a funnel-admitted row says so instead.
+   * Optional because the list endpoint omits fields the client never reads.
+   */
+  approval_source?: "human" | "machine" | null;
+  /** Which stage admitted a machine row: `funnel:http` · `funnel:render`. */
+  approved_by?: string | null;
 }
 
 export interface CategoryCount {
@@ -163,9 +173,9 @@ export interface BadgeFields {
    * 2026-09-18 (all of which were human). `admin_verified` is false whenever this
    * is 'machine', because a robot did not confirm the business - it reached it.
    */
-  approval_source: "human" | "machine" | null;
+  approval_source?: "human" | "machine" | null;
   /** Which gate admitted it: 'admin' | 'funnel:http' | 'funnel:render'. */
-  approved_by: string | null;
+  approved_by?: string | null;
 }
 
 /** One pricing plan, as the founder or a capture entered it. */

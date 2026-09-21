@@ -4,6 +4,59 @@ All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added — the liveness funnel closes the loop (2026-09-19 … 09-21)
+
+- **Content-aware verification.** The weekly verify pass no longer trusts a
+  bare `HTTP 200`: every 2xx body runs through the same liveness rules the
+  audit CLI self-tests (`VERIFY_CONTENT_CHECK`, default on, fails open). A
+  parked, for-sale, default-page, seized or repurposed page is a strike —
+  the exact blind spot that kept four gambling/repurposed domains at
+  `verified=1` until the 2026-09-18 review.
+- **Funnel import.** `POST /api/admin/funnel/import` applies a completed
+  audit run: the clean LIVE majority is admitted under the machine stamp
+  (`funnel:render` when a browser settled the row, else `funnel:http`, with
+  the run and reason as the `approval_note` receipt), exceptions queue for a
+  human, DEAD/REPURPOSED stay the drop tool's jurisdiction. Dry-run is the
+  default; runs are validated as local repo-contained directories before
+  anything is probed; a 40,000-row run imports fine (chunked id reads past
+  SQLite's 32,766 bind ceiling; oversize files refused on size).
+- **The render subcommand.** `site_liveness_audit.py render` settles
+  non-LIVE rows with the machine's own Chrome (`scripts/render/`), judged by
+  the same rules, writing `states-merged.json` with per-row render receipts.
+  `verify` no longer clobbers it; `drop` prefers it.
+- **Per-host politeness.** The audit tool spaces requests per registrable
+  domain (`--per-host-delay`, default 1s), caps per-host concurrency (2),
+  reads robots.txt once per host (RFC 9309, conservative on 5xx/429) and
+  backs off adaptively on 403/429. Wired through capture, recheck, render
+  and drop; `--per-host-delay 0 --ignore-robots` rolls back.
+- **Machine admissions are strikable.** Only a human stamp
+  (`approval_source='human'`) protects a row from automation; a
+  machine-admitted row accumulates strikes and dead-flips on three
+  consecutive genuine failures, exactly as the funnel contract requires.
+- **The company gate.** "Is this a company, or a project page?" runs on the
+  same captures before admission — project hosts and docs clusters are
+  rejected at intake (selftest 50/50, measured on the pilot-50).
+- **Honest card copy.** Machine-admitted rows read "Machine approved" on the
+  grid instead of "a human checked this" — the two stamps can no longer blur
+  between surfaces.
+- **Product pages are indexable.** `/products/<slug>` no longer inherits the
+  root canonical `/` (every product page told crawlers it was a duplicate of
+  the home page); the sitemap now lists every product page alongside the
+  home page, and robots.txt keeps publishing the sitemap URL.
+
+### Fixed — 2026-09-21/22 audit follow-ups
+
+- **The container boots.** The liveness rules module moved into the app
+  package (`backend/app/liveness_rules.py`); the old `scripts/` path shim
+  resolved to the filesystem root inside the image and killed uvicorn at
+  import. The Dockerfile now fails the *build* (not the boot) if any future
+  edit reintroduces an out-of-package import.
+- README trust claims match the code (the funnel admits; humans stamp
+  `Admin Verified`; provenance is on the record), and `VERIFY_CONTENT_CHECK`
+  is documented in the config table and `.env.example`.
+
 ## [1.1.0] — 2026-09-18
 
 The competitor-teardown release: Phases 1–8 of the backend-first plan, built,

@@ -28,16 +28,20 @@ export const metadata: Metadata = {
   title: "IdeaExists — Does this startup exist?",
   description:
     "A human-kept archive of what exists — searchable startups with their websites and code. Verified locally, refreshed weekly, nothing tracked.",
-  alternates: {
-    canonical: "/",
-  },
+  // NOTE: no `alternates.canonical` here. The root layout is inherited by
+  // every route including /products/<slug>, and a canonical of "/" told
+  // crawlers each product page was a duplicate of the home page. Product
+  // pages now export their own metadata (see products/[slug]/page.tsx's
+  // sibling metadata file) and self-canonicalise; pages without their own
+  // canonical simply fall back to the URL's canonical form.
   openGraph: {
     type: "website",
     siteName: "IdeaExists",
     title: "IdeaExists — Does this startup exist?",
     description:
       "A human-kept archive of what exists — searchable startups with their websites and code. Verified locally, refreshed weekly, nothing tracked.",
-    url: "/",
+    // Site-level OG default (no url: "/" — same reasoning as the canonical
+    // removal above; per-page OG would override it).
     locale: "en_US",
   },
   twitter: {

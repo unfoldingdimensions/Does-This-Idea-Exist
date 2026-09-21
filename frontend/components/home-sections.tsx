@@ -106,6 +106,7 @@ export function HomeSections({
       <Strip
         title="Recently verified"
         icon={<ShieldCheck className="h-3 w-3" />}
+        footnote="Human-checks and machine approvals, newest first."
         items={recentlyVerified}
         onNavigate={onNavigate}
       />

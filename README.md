@@ -6,9 +6,13 @@
 
 A verification-first directory of startups: what they do, where they live, and
 whether they're still alive. Entries are seeded from curated sources and
-**checked by a human, not a crawler** — automation only ever flags; a person
-stamps the trust. Everything runs locally: SQLite file, no accounts, no
-tracking, no favicon fetching. Searches stay on this machine.
+**admitted through a gated funnel, not a blind crawler** — an HTTP/browser
+liveness pass with per-host politeness admits the clean majority, walled or
+ambiguous rows queue for a person, and every admission carries its provenance
+on the record (`Admin Verified` = a human stamped it, `Machine Approved` = the
+automated gate did, with the run and reason in the receipt). Everything runs
+locally: SQLite file, no accounts, no tracking, no favicon fetching. Searches
+stay on this machine.
 
 **Status:** in development (local backend + frontend). The archive grows with
 every seed; data lives in `backend/data/ideasexist.db` (git-ignored).
@@ -60,9 +64,14 @@ opens the admin panel (see [Admin seeder](#admin-seeder-owner-only)).
   `404/410`s count against it (bot-walls, rate limits and transient errors
   skip). Three consecutive failures file an entry as **dead** — filed, never
   deleted.
-- **Human gate** — automation never stamps trust. The admin panel queues
-  alive-but-unverified entries; you approve them one-by-one, per seed-batch,
-  or in bulk. Verified rows are protected from automation entirely.
+- **Human gate, with provenance** — automation can admit the clean majority,
+  but the two stamps never blur: `Admin Verified` means a person confirmed the
+  entry (human-verified rows are protected from automation entirely — failures
+  surface as re-check items, never strikes), `Machine Approved` means the
+  liveness funnel admitted it, with `approval_source` / `approved_by` /
+  `approval_note` recording which stage let it in and why. The admin panel
+  queues alive-but-unverified entries plus any funnel exceptions for review,
+  one-by-one, per seed-batch, or in bulk.
 - **Local-first privacy** — SQLite (WAL), no accounts, no analytics, no
   external avatars; the privacy line is a brand promise, not a footnote.
 - **Warm Glass UI** — Next.js 16 + shadcn/ui, beige/navy light ⇄
@@ -107,6 +116,7 @@ local and hosted behavior are identical.
 | `DB_PATH` | `backend/data/ideasexist.db` | SQLite file location (`/data/ideasexist.db` in Docker) |
 | `FRONTEND_ORIGIN` | `http://localhost:3023` | CORS allow-origin |
 | `VERIFY_AUTO_STALE_DAYS` | `7` | Verification threshold — a pass is enqueued at boot and every 24h when entries are older than this (`0` disables) |
+| `VERIFY_CONTENT_CHECK` | `1` (**on**) | Content-aware liveness: the verify pass runs the same rules as the audit CLI over every 2xx body, so a parked/repurposed page is a strike, not a live signal (`0` reverts to the status-only check) |
 | `MUTATION_AUTH` | `1` (**on**) | Requires the admin token on status-flip / seed / verify-run endpoints. Set `0` only for a throwaway local instance. With it on and `ADMIN_TOKEN` empty, startup fails loudly rather than 403-ing every write |
 | `RATE_LIMIT_ENABLED` | `1` | Per-IP rate limits on the admin gate + mutations (`0` disables) |
 | `FORWARDED_ALLOW_IPS` | empty | Reverse-proxy address, so uvicorn resolves the real client IP for rate limiting. Empty = trust no forwarded headers. **Never `*` on a public host** — that lets any caller spoof `X-Forwarded-For` and bypass the limits |

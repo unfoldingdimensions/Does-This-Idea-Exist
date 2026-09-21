@@ -94,6 +94,11 @@ export function StatusPill({
 }) {
   const dead = startup.status === "dead" || startup.status === "pivoted";
   const verified = !dead && startup.verified === 1;
+  // WHO verified it: the backend stamps approval_source='machine' for
+  // funnel-admitted rows and 'human' (or NULL on legacy rows) for human ones.
+  // The copy must never claim a human checked a row a robot admitted — the
+  // record page already shows "Machine Approved", the grid agrees now too.
+  const machineAdmitted = startup.approval_source === "machine";
   const current: StatusChoice = dead ? "dead" : verified ? "verified" : "unverified";
 
   const unlocked = useAdminToken() !== null;
@@ -103,13 +108,22 @@ export function StatusPill({
   const [justStamped, setJustStamped] = React.useState(false);
   const reduce = useReducedMotion();
 
-  const label = STATUS_OPTIONS.find((o) => o.value === current)?.label ?? "Unverified";
+  const baseLabel = STATUS_OPTIONS.find((o) => o.value === current)?.label ?? "Unverified";
+  // A machine-admitted row shows its own stamp word on the pill — "Verified"
+  // alone would claim a human. The record page's "Machine Approved" badge is
+  // the long form; this is the grid-level truth.
+  const label =
+    verified && machineAdmitted ? "Machine approved" : baseLabel;
   const hint = dead
     ? "Checked 3 times, link dead each time. Filed, never deleted."
     : verified
-      ? startup.verified_at
-        ? `A human checked this on ${formatDate(startup.verified_at)} — it's alive.`
-        : "A human checked this one. It's alive."
+      ? machineAdmitted
+        ? startup.verified_at
+          ? `Machine approved on ${formatDate(startup.verified_at)} — the automated liveness gate admitted it.`
+          : "Machine approved — the automated liveness gate admitted it."
+        : startup.verified_at
+          ? `A human checked this on ${formatDate(startup.verified_at)} — it's alive.`
+          : "A human checked this one. It's alive."
       : "Not yet confirmed — click to change its status.";
 
   const pillClass = cn(

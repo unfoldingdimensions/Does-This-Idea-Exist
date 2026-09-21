@@ -624,7 +624,7 @@ export default function HomePage() {
             )}
             <span className="flex items-center gap-1.5">
               <span className="live-dot h-1.5 w-1.5 rounded-full bg-success" aria-hidden />
-              Verified — a human checked it
+              Verified — human-checked or machine-approved, stamped on the record
             </span>
             <span className="flex items-center gap-1.5">
               <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/60" aria-hidden />
