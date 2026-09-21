@@ -1,11 +1,17 @@
 """Content-aware liveness rules for the app's verify pass and the funnel import.
 
-One canonical rule set: this module loads `scripts/liveness_rules.py` — the same
-module the audit CLI (`site_liveness_audit.py`) runs its fixture selftest
-against — so the weekly verify pass, the funnel import and the CLI classify with
-identical vocabulary and identical rules. It is imported by path because backend
-and scripts are one repo unit (nothing is packaged or deployed yet); if that
-ever changes, promote the module into a real package and change only this shim.
+One canonical rule set: this module re-exports `app.liveness_rules` — the same
+rules the audit CLI (`site_liveness_audit.py`) runs its fixture selftest
+against — so the weekly verify pass, the funnel import and the CLI classify
+with identical vocabulary and identical rules.
+
+WHERE THE RULES LIVE: `backend/app/liveness_rules.py`. The backend must be able
+to import its own rules offline from its own package (the container image ships
+`app/` and nothing else), so the canonical copy lives IN the app and the CLI is
+the guest: `site_liveness_audit.py` finds this file by path when run from a
+repo checkout (`scripts/` sits beside `backend/`). If the two ever become
+separately deployed units, the CLI should vendor or pin the module explicitly
+rather than reaching across.
 
 Nothing here touches the network or the database. Callers fetch (netguard) and
 decide what a verdict means:
@@ -22,17 +28,7 @@ the 2026-09-18 review found sitting in the archive as verified=1 on a bare
 """
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-# backend/app/liveness.py -> parents[2] is the repo root; the rules module and
-# the CLI live in <root>/scripts and the CLI imports it the same way, so the
-# selftest pins exactly what the app runs.
-_SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
-if str(_SCRIPTS) not in sys.path:
-    sys.path.insert(0, str(_SCRIPTS))
-
-import liveness_rules as rules  # noqa: E402
+from . import liveness_rules as rules  # the canonical module, inside the app
 
 # States that mean the stored domain is genuinely no longer this company's —
 # a verify strike (3 consecutive → the existing dead-flip), never instant death.

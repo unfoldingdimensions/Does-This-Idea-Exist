@@ -22,6 +22,13 @@ COPY app ./app
 # sources fail at runtime. Note this is NOT where the DB lives (that's /data).
 COPY data/seed_famous.json data/seed_design_library.json ./data/
 
+# Fail the BUILD, not the boot: app.verify imports app.liveness, which imports
+# app.liveness_rules — the canonical liveness classifier must ship inside app/
+# (it moved here from scripts/ for exactly that reason). If a future edit
+# reintroduces an out-of-package import, this line refuses the image instead of
+# shipping a container that dies at first import.
+RUN python -c "import app.liveness"
+
 # Non-root. The volume mount point is created and chowned here so the container
 # can write the DB even when the host mounts an empty named volume.
 RUN useradd --create-home --uid 10001 ideasexist \

@@ -146,17 +146,57 @@ import threading
 import time
 import unicodedata
 
-# The vocabulary and the classifier are ONE canonical rule set, shared with the
-# backend: backend/app/liveness.py loads scripts/liveness_rules.py (the module
-# below) by path, and this CLI imports the same module. Capture stays here;
-# deciding lives there. `selftest` pins the shared module with its fixtures.
-import liveness_rules as LR
-from liveness_rules import (COMPANY, DEFAULT_CONFIG, H1_RE, JS_LOC_RE,
-                            META_DESC_RE, META_REFRESH_RE, NOT_COMPANY,
-                            REVIEW_GATE, TITLE_RE, UNVERIFIED, HostGate,
-                            classify, company_gate, decode_body, first_match,
-                            host_of, load_config, regdom, signals, verdict_of,
-                            visible_text)
+# The vocabulary and the classifier are ONE canonical rule set. The CANONICAL
+# copy lives in the app package: backend/app/liveness_rules.py (the deployable
+# unit must carry its own rules - the container image ships `app/` and nothing
+# else). This CLI is the guest: run from a repo checkout, `scripts/` sits beside
+# `backend/`, so resolve the app package by path and import the same module the
+# backend imports. Capture stays here; deciding lives there. `selftest` pins the
+# shared module with its fixtures.
+import importlib.util as _ilu
+import pathlib as _plp
+
+
+def _load_liveness_rules():
+    here = _plp.Path(__file__).resolve().parent
+    for candidate in (here.parent / "backend" / "app" / "liveness_rules.py",
+                      here / "liveness_rules.py"):  # legacy spot, belt and braces
+        if candidate.is_file():
+            spec = _ilu.spec_from_file_location("liveness_rules", candidate)
+            mod = _ilu.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            return mod
+    raise ImportError(
+        "liveness_rules.py not found (looked beside the repo: "
+        "<repo>/backend/app/liveness_rules.py and scripts/liveness_rules.py)")
+
+
+LR = _load_liveness_rules()
+liveness_rules = LR
+
+# Names the CLI body references directly, bound from the shared module:
+COMPANY = LR.COMPANY
+DEFAULT_CONFIG = LR.DEFAULT_CONFIG
+H1_RE = LR.H1_RE
+JS_LOC_RE = LR.JS_LOC_RE
+META_DESC_RE = LR.META_DESC_RE
+META_REFRESH_RE = LR.META_REFRESH_RE
+NOT_COMPANY = LR.NOT_COMPANY
+REVIEW_GATE = LR.REVIEW_GATE
+TITLE_RE = LR.TITLE_RE
+UNVERIFIED = LR.UNVERIFIED
+HostGate = LR.HostGate
+classify = LR.classify
+company_gate = LR.company_gate
+decode_body = LR.decode_body
+first_match = LR.first_match
+host_of = LR.host_of
+load_config = LR.load_config
+regdom = LR.regdom
+signals = LR.signals
+verdict_of = LR.verdict_of
+visible_text = LR.visible_text
+
 from typing import Any, Iterable, Optional
 from urllib.parse import urlparse, urljoin
 
@@ -181,7 +221,7 @@ import urllib.robotparser
 
 
 # ===========================================================================
-# 1. Vocabulary -> scripts/liveness_rules.py
+# 1. Vocabulary -> backend/app/liveness_rules.py
 #
 #    The vocabulary, the signal rules and the classifier moved to
 #    liveness_rules.py (2026-09-19) so the backend can consult the SAME rules
@@ -511,7 +551,7 @@ def _extract(out: dict[str, Any], body: bytes, ctype: str, hcfg: HttpCfg) -> Non
 
 
 # ===========================================================================
-# 4. Signal extraction + classification -> scripts/liveness_rules.py
+# 4. Signal extraction + classification -> backend/app/liveness_rules.py
 #
 #    signals / classify / company_gate / verdict_of and the verdict constants
 #    moved to liveness_rules.py (2026-09-19) and are imported above. They are

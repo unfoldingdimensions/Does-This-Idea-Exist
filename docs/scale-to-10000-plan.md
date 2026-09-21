@@ -144,7 +144,7 @@ metered, and complete".
 
 | Need | Already exists (cited) | What is actually missing |
 |---|---|---|
-| Liveness classification | auditor (rules + fixtures, now a shared module: `scripts/liveness_rules.py`, consumed by the backend too) | ~~emit machine-approval output~~ **done 2026-09-19** — `POST /api/admin/funnel/import` admits a run's clean majority via `verify.approve_machine` and queues the exceptions; the verify pass also runs the same content rules on 2xx bodies (`VERIFY_CONTENT_CHECK`) |
+| Liveness classification | auditor (rules + fixtures, now a shared module: `backend/app/liveness_rules.py` — canonical copy in the app package, loaded by the CLI too) | ~~emit machine-approval output~~ **done 2026-09-19** — `POST /api/admin/funnel/import` admits a run's clean majority via `verify.approve_machine` and queues the exceptions; the verify pass also runs the same content rules on 2xx bodies (`VERIFY_CONTENT_CHECK`) |
 | App-side tri-state check | `verify.check_url_ok` (404=strike, wall/429/5xx=skip) | run it on the parallel engine, not one serial worker |
 | SSRF guard | `netguard.safe_get` (2 MB cap, 5 redirects), auditor `guard_url` | — |
 | Page plan for a teardown | `pages.fetch_pages` (homepage → /pricing → /docs), `readable/enumerating` | — |

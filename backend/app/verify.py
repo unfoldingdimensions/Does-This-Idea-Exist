@@ -41,7 +41,7 @@ def check_url_ok(url: str, name: str = "") -> tuple[bool, str, bool]:
     by Cloudflare 403s).
 
     On a 2xx/3xx the body is ALSO run through the liveness funnel's content
-    rules (app/liveness.py -> scripts/liveness_rules.py — the same rules the
+    rules (app/liveness.py -> app/liveness_rules.py — the same rules the
     audit CLI self-tests), because a 200 is not proof of life: parked
     landers, server defaults, seizure notices and repurposed domains (the
     four gambling sites the 2026-09-18 review found sitting at verified=1)

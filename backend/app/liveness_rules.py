@@ -8,9 +8,13 @@ HTTP status alone, and four gambling-spam domains sat in the archive as
 `verified=1` on a bare "HTTP 200" until a human noticed (audit review,
 2026-09-18). This module is the extraction of everything that is pure - the
 vocabulary, the signal extraction and the classifier - so that the audit CLI and
-the backend (`backend/app/liveness.py` loads this file by path) classify with
-ONE rule set. The CLI's `selftest` (47+ fixtures, every one a real incident)
-runs against THIS module, so any consumer is pinned by the same fixtures.
+the backend classify with ONE rule set. The CLI's `selftest` (50 fixtures, every
+one a real incident) runs against THIS module, so any consumer is pinned by the
+same fixtures.
+
+The canonical copy lives in the app package (`backend/app/`) because the
+deployable unit must carry its own rules; the audit CLI imports it from there
+(see the shim at the top of `scripts/site_liveness_audit.py`).
 
 Nothing here touches the network or a database. Capture (HTTP, caching, the
 browser pass) stays in `site_liveness_audit.py`; deciding what a verdict means
@@ -27,6 +31,22 @@ THE DOCTRINE (same as the CLI's; kept short here, full version there)
 7. Scan visible text, not raw HTML.
 """
 from __future__ import annotations
+
+import hashlib
+import html as _html
+import json
+import re
+import threading
+import time
+import unicodedata
+from typing import Any, Iterable
+from urllib.parse import urlparse
+
+
+# ===========================================================================
+# 1. Vocabulary. Everything a rule looks at lives here so another corpus can be
+#    handled with --config instead of a code edit.
+# ===========================================================================
 
 import hashlib
 import html as _html

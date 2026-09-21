@@ -155,8 +155,9 @@ depends on an operator remembering to cross-check two worlds by hand.
 1. **Extract the pure classifier core** — vocabulary (`DEFAULT_CONFIG`),
    `load_config`, text utilities, `signals`, `classify`, `company_gate`,
    `verdict_of`, `host_of`/`regdom`/`brand_tokens` — verbatim into
-   `scripts/liveness_rules.py`. The CLI imports it; the backend imports it
-   (one documented path shim). One canonical rule set.
+   `backend/app/liveness_rules.py` (the canonical copy lives in the app package
+   so the container ships its own rules; the CLI loads it by path). One
+   canonical rule set.
    **Parity proof:** the CLI selftest passes 47/47 unchanged.
 2. **Fix F3** — add the missing `and sig["brand_tokens"]` guard to MOVED; add a
    short-brand redirect fixture. **Proof:** selftest 48/48.

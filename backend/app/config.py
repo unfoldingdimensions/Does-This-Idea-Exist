@@ -52,7 +52,8 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "") or None
 VERIFY_AUTO_STALE_DAYS = int(os.getenv("VERIFY_AUTO_STALE_DAYS", "7"))
 
 # Content-aware website checks: the verify pass runs the SAME liveness rules as
-# the audit CLI (scripts/liveness_rules.py) over every 2xx body it fetches, so a
+# the audit CLI (app/liveness_rules.py — the canonical module, also self-tested
+# by the CLI) over every 2xx body it fetches, so a
 # parked or repurposed page is a strike, not a live signal. This is the check
 # that would have caught the four gambling/repurposed domains the 2026-09-18
 # review found sitting at verified=1 on a bare "HTTP 200". Safe by architecture:

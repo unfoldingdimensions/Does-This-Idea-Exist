@@ -2007,9 +2007,41 @@ try:
     import app.liveness as liveness_mod
     import app.netguard as netguard_mod
 
-    check("the backend loads the canonical rules module (scripts/liveness_rules.py)",
-          liveness_mod.rules.__file__.replace("\\", "/").endswith("scripts/liveness_rules.py"),
+    def _rules_importable_from_app_dir() -> bool:
+        """The container-image contract: a tree holding ONLY app/ must be able
+        to import the rules module (the Dockerfile copies app/ + two seed JSONs
+        and nothing else — the old scripts/-path shim broke exactly there).
+        Imports the copied app as a real package (`app.liveness`), which is how
+        uvicorn loads it in the image."""
+        import shutil as _sh
+        import tempfile as _t
+        with _t.TemporaryDirectory() as _td:
+            root = Path(_td)
+            _sh.copytree(BACKEND / "app", root / "app",
+                         ignore=_sh.ignore_patterns("__pycache__"))
+            saved = sys.path[:]
+            sys.path.insert(0, str(root))
+            try:
+                import importlib as _il
+                for stale in ("app", "app.liveness", "app.liveness_rules"):
+                    sys.modules.pop(stale, None)
+                mod = _il.import_module("app.liveness")
+            except Exception:
+                return False
+            finally:
+                sys.path[:] = saved
+                for stale in ("app", "app.liveness", "app.liveness_rules"):
+                    sys.modules.pop(stale, None)
+            return mod.rules.DEFAULT_CONFIG == liveness_mod.rules.DEFAULT_CONFIG
+
+    check("the backend loads the canonical rules module from its own package",
+          liveness_mod.rules.__file__.replace("\\", "/").endswith(
+              "backend/app/liveness_rules.py"),
           str(liveness_mod.rules.__file__))
+    check("the rules module is importable WITHOUT a repo checkout beside it "
+          "(the container ships app/ alone)",
+          _rules_importable_from_app_dir(),
+          "importlib on app/liveness_rules.py with scripts/ absent")
     check("the rules module carries a config hash for receipt parity",
           len(liveness_mod.config_hash()) == 12, liveness_mod.config_hash())
 
