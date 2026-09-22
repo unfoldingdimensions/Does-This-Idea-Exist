@@ -57,6 +57,16 @@ MAX_FILE_BYTES = 128_000_000
 # dying with "too many SQL variables" past the limit.
 _CHUNK = 10_000
 
+# Sequence 4 (docs/liveness-funnel-plan.md): auto-approval carries an error
+# budget. The QA subcommand records a run's false-approval rate in
+# qa-result.json (written INTO the run directory); import reads it when
+# present and refuses to apply admits while the measured rate breaches the
+# budget — unless the caller overrides explicitly (allow_qa_breach, logged on
+# the receipt). A run without qa-result.json is not gated: refusing would make
+# QA mandatory before any import, and the sampled sweep is the other half of
+# the measurement loop.
+QA_BUDGET = 0.005
+
 # The run directory must live inside the deployable backend tree (the tool's
 # default `--out` is `./liveness-out` at the repo root; the operator copies or
 # points the run under here). Everything the API accepts is checked against
@@ -111,13 +121,25 @@ def run_dir_is_importable(run: str) -> list[str]:
     return problems
 
 
-def import_run(run_dir: str, *, dry_run: bool = True) -> dict[str, Any]:
+def import_run(
+    run_dir: str,
+    *,
+    dry_run: bool = True,
+    allow_qa_breach: bool = False,
+) -> dict[str, Any]:
     """Execute (or, by default, plan) a run's admission decisions.
 
     `run_dir` is the operator's own local run directory — the tool prints it at
     the end of every audit; this is an admin-tokened endpoint for exactly that
     path. Raises FileNotFoundError for a missing run, ValueError for a run the
     funnel rules refuse.
+
+    Error budget (Sequence 4): when the run carries a qa-result.json whose
+    measured false-approval rate breaches QA_BUDGET, applying admits raises
+    ValueError naming the rate — the line stops — unless allow_qa_breach is
+    True, in which case the override rides the receipt (qa_breach_overridden).
+    A dry-run plan is never blocked: measuring must stay possible after a
+    breach, and a plan writes nothing.
 
     State file selection mirrors the tool's own `drop` command: when a render
     pass has run, states-merged.json is the better basis — its rows carry the
@@ -160,6 +182,34 @@ def import_run(run_dir: str, *, dry_run: bool = True) -> dict[str, Any]:
             run_meta = json.load(fh)
         if not isinstance(run_meta, dict):
             run_meta = {}
+
+    # --- the error budget (Sequence 4) -------------------------------------
+    # A completed QA round rides in the run directory. A breach blocks APPLY
+    # (never the dry-run plan) and the refusal names the rate and the budget;
+    # allow_qa_breach is the operator's explicit, logged "proceed anyway".
+    qa_breach: dict[str, Any] | None = None
+    qa_path = os.path.join(run_dir, "qa-result.json")
+    if os.path.isfile(qa_path):
+        try:
+            with open(qa_path, encoding="utf-8") as fh:
+                qa = json.load(fh)
+            rate = qa.get("false_approval_rate")
+            if (isinstance(rate, (int, float)) and not isinstance(rate, bool)
+                    and rate > QA_BUDGET and qa.get("within_budget") is False):
+                qa_breach = {
+                    "rate": rate,
+                    "budget": QA_BUDGET,
+                    "false_approvals": qa.get("false_approvals"),
+                    "live_verdicted": qa.get("live_verdicted"),
+                }
+        except (json.JSONDecodeError, OSError):
+            qa_breach = None  # an unreadable QA result gates nothing
+    if qa_breach and not dry_run and not allow_qa_breach:
+        raise ValueError(
+            f"QA error budget breached: {qa_breach['false_approvals']} false "
+            f"approvals of {qa_breach['live_verdicted']} sampled LIVE rows = "
+            f"{qa_breach['rate']:.2%} (budget {QA_BUDGET:.1%}). Import refused — "
+            f"fix the rules or pass allow_qa_breach to override explicitly")
 
     # Current DB state per id — read-only, in chunks. Two ceilings bite at
     # scale: SQLite's bind-variable limit (32766 by default — a 100k-row run
@@ -242,6 +292,8 @@ def import_run(run_dir: str, *, dry_run: bool = True) -> dict[str, Any]:
         "states_file": os.path.basename(states_path),
         "total_rows": len(states),
         "dry_run": dry_run,
+        "qa_breach": qa_breach,
+        "qa_breach_overridden": bool(qa_breach and allow_qa_breach and not dry_run),
         "admit_eligible": len(admits),
         "already_admitted": already_admitted,
         "admitted": sorted(admitted),

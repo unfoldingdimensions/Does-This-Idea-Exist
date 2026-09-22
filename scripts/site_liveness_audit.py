@@ -1615,6 +1615,281 @@ def run_drop(args: argparse.Namespace, log: Log) -> int:
 
 
 # ===========================================================================
+# 7b. Sampled QA (Sequence 4, docs/liveness-funnel-plan.md) - auto-approval is
+# only legitimate once its error rate is MEASURED, and a breach stops the line.
+# ===========================================================================
+# The budget is configuration, not law of nature: a breach refuses the import
+# (the safe direction) unless the operator overrides explicitly, and the
+# override is logged on the import receipt.
+QA_BUDGET = 0.005  # <0.5% false-approval rate (docs/scale-to-10000-plan.md §6)
+QA_SAMPLE_RATE = 0.02  # 2% of the LIVE slice
+QA_SAMPLE_FLOOR = 30  # ...but never fewer than 30 LIVE rows in the worksheet
+# Worksheet states, in priority order: everything suspicious is sampled IN
+# FULL; only the clean majority is sampled at the rate above.
+QA_FULL_STATES = ("DEAD", "REPURPOSED", "MOVED", "BANNED")
+QA_WALL_STATES = ("WALLED", "UNKNOWN")
+QA_VERDICTS = ("approve", "reject", "unsure")
+
+
+def _qa_load_states(run_dir: str, log: Log) -> tuple[list[dict], str]:
+    """Load the run's state rows - the merged file when a render pass ran.
+
+    Mirrors the import/drop preference: rendered evidence is the better basis
+    for a verdict worksheet, so the sample must include the rows only the
+    browser could settle.
+    """
+    merged = os.path.join(run_dir, "states-merged.json")
+    plain = os.path.join(run_dir, "states.json")
+    path = merged if os.path.isfile(merged) else plain
+    if not os.path.isfile(path):
+        raise SafetyError(f"no states file under {run_dir} - run an audit first")
+    with open(path, encoding="utf-8") as fh:
+        states = json.load(fh)
+    if not isinstance(states, list) or not states:
+        raise SafetyError(f"{path} holds no rows")
+    log(f"qa sample basis: {os.path.basename(path)} ({len(states)} rows)")
+    return states, path
+
+
+def _qa_sample(states: list[dict], seed: int,
+               rate: float = QA_SAMPLE_RATE, floor: int = QA_SAMPLE_FLOOR
+               ) -> tuple[list[dict], dict[str, int]]:
+    """Deterministic stratified sample. Same seed -> the same worksheet.
+
+    Strata: every DEAD/REPURPOSED/MOVED/BANNED row (a wrong kill verdict is
+    the expensive kind), every WALLED/UNKNOWN row (the gate could not see the
+    site), then a seeded random slice of LIVE big enough to measure the
+    false-approval rate (default 2%, floor 30). The LIVE draw uses
+    random.Random(seed) over rows sorted by (name, id) so the sample is a
+    function of the run and the seed alone - never of dict or file order.
+    """
+    by_state: dict[str, list[dict]] = collections.defaultdict(list)
+    for s in states:
+        by_state[str(s.get("state", "")).upper()].append(s)
+    picked: list[dict] = []
+    for state in (*QA_FULL_STATES, *QA_WALL_STATES):
+        picked.extend(by_state.get(state, ()))
+    live = sorted(by_state.get("LIVE", ()),
+                  key=lambda s: (str(s.get("name", "")).lower(), str(s.get("id", ""))))
+    rng = random.Random(seed)
+    n_live = max(floor, round(len(live) * rate)) if live else 0
+    picked.extend(rng.sample(live, min(n_live, len(live))))
+    counts = {k: len(by_state[k]) for k in by_state}
+    # de-dupe by id, keep worksheet order stable (state strata first, then name)
+    seen: set = set()
+    uniq: list[dict] = []
+    for s in sorted(picked, key=lambda s: (str(s.get("name", "")).lower(),
+                                           str(s.get("id", "")))):
+        key = (str(s.get("id")), str(s.get("state", "")).upper())
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(s)
+    return uniq, counts
+
+
+def _qa_worksheet(run_dir: str, rows: list[dict], seed: int,
+                  basis: str, counts: dict[str, int], log: Log) -> dict:
+    """Write qa-worksheet.md + qa-worksheet.csv: one row per sampled entry,
+    each carrying its evidence and an empty verdict column to fill."""
+    ts = dt.datetime.now().isoformat(timespec="seconds")
+    for s in rows:
+        s["_kind"] = ("kill-strata" if str(s.get("state", "")).upper() in QA_FULL_STATES
+                      else "wall-strata" if str(s.get("state", "")).upper() in QA_WALL_STATES
+                      else "live-sample")
+    lines = [
+        "# QA worksheet", "",
+        f"- run: `{os.path.basename(run_dir)}`",
+        f"- basis: `{os.path.basename(basis)}`",
+        f"- seed: `{seed}` (same seed -> the same sample)",
+        f"- sampled: {len(rows)} of {sum(counts.values())} rows "
+        f"(full strata: {'/'.join(QA_FULL_STATES)} + {'/'.join(QA_WALL_STATES)}; "
+        f"LIVE at {QA_SAMPLE_RATE:.0%}, floor {QA_SAMPLE_FLOOR})",
+        f"- run state counts: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())),
+        f"- generated: {ts}", "",
+        "Fill `verdict` in the CSV with one of: " + ", ".join(QA_VERDICTS) +
+        ". `reject` on a LIVE-sampled row means the funnel admitted a site it "
+        "should not have - that is a false approval and counts against the "
+        "budget in qa-result.json.", "",
+    ]
+    with open(os.path.join(run_dir, "qa-worksheet.csv"), "w",
+              encoding="utf-8", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["id", "name", "url", "state", "why", "kind", "verdict", "qa_note"])
+        for s in rows:
+            w.writerow([s.get("id", ""), s.get("name", ""), s.get("url", ""),
+                        s.get("state", ""), (s.get("why") or "")[:200],
+                        s.get("_kind", ""), "", ""])
+            why = (s.get("why") or "").replace("|", "\\|")
+            gate = s.get("company_gate", "")
+            lines.append(
+                f"| {s.get('id', '')} | {s.get('name', '')} | {s.get('state', '')} "
+                f"| {gate} | {why[:140]} | {s.get('_kind', '')} | |")
+    lines.insert(0, "")
+    lines.insert(0, "| id | name | state | gate | why | kind | verdict |")
+    lines.insert(0, "|---|---|---|---|---|---|---|")
+    atomic_write(os.path.join(run_dir, "qa-worksheet.md"), "\n".join(lines) + "\n")
+    log(f"qa worksheet: {len(rows)} rows -> qa-worksheet.md / qa-worksheet.csv "
+        f"(fill verdict, then `qa --run {run_dir} --record`)")
+    return {"sampled": len(rows), "seed": seed, "basis": os.path.basename(basis),
+            "counts": counts}
+
+
+def run_qa(args: argparse.Namespace, log: Log) -> int:
+    """Sample a run into a QA worksheet, or record completed verdicts."""
+    if getattr(args, "record", False) and getattr(args, "sweep", False):
+        raise SafetyError("qa --record and qa --sweep are separate operations")
+    if getattr(args, "sweep", False):
+        return _qa_sweep(args, log)
+    run = getattr(args, "run", None)
+    if not run:
+        raise SafetyError("qa needs --run (a run directory) or --sweep")
+    run_dir = os.path.abspath(run)
+    if not os.path.isdir(run_dir):
+        raise SafetyError(f"no such run directory: {run_dir}")
+    if args.record:
+        return _qa_record(run_dir, args, log)
+    states, basis = _qa_load_states(run_dir, log)
+    rows, counts = _qa_sample(states, args.seed, rate=args.rate, floor=args.floor)
+    if not rows:
+        log("nothing to sample: the run has no rows in any QA stratum")
+        return 1
+    _qa_worksheet(run_dir, rows, args.seed, basis, counts, log)
+    return 0
+
+
+def _qa_ledger(out_root: str, entry: dict) -> None:
+    """QA rounds ledger - append-only, one JSON object per line.
+
+    Every recorded round (run or sweep) lands here in order, so the error
+    budget's history is a straight line, not files scattered across run dirs.
+    """
+    path = os.path.join(out_root, "qa-rounds.jsonl")
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def _qa_sweep(args: argparse.Namespace, log: Log) -> int:
+    """Re-sample machine-admitted rows (the weekly sweep).
+
+    Reads the archive directly (read-only): every row the funnel admitted
+    (`approval_source='machine'`) inside the window becomes the LIVE stratum
+    of a fresh worksheet. The human samples it, `qa --record` scores it, and
+    the rate joins the same budget as run-based rounds. This is the loop that
+    catches slow rot: a rule drift that passes per-run QA but fails across a
+    week of admissions.
+    """
+    db_path = getattr(args, "db", None)
+    if not db_path:
+        raise SafetyError("qa --sweep needs --db (the archive to re-sample)")
+    days = int(getattr(args, "sweep_days", 7) or 7)
+    uri = os.path.abspath(db_path).replace("\\", "/")
+    con = sqlite3.connect(f"file:{uri}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute(
+            "select id, name, website_url, approved_by, approval_note, verified_at "
+            "from startups where approval_source = 'machine' and verified = 1 "
+            f"and verified_at >= datetime('now', '-{days} days') "
+            "order by name collate nocase, id").fetchall()
+    finally:
+        con.close()
+    if not rows:
+        log(f"qa sweep: no machine-admitted rows in the last {days} days")
+        return 0
+    recs = [{"id": r["id"], "name": r["name"], "url": r["website_url"],
+             # they were admitted as alive; the QA question is whether that
+             # admission was right, so they land in the LIVE stratum
+             "state": "LIVE",
+             "why": r["approval_note"] or r["approved_by"] or "",
+             "company_gate": r["approved_by"] or ""} for r in rows]
+    out_root = os.path.abspath(getattr(args, "out", "./liveness-out"))
+    sweep_dir = os.path.join(out_root, f"qa-sweep-{stamp()}")
+    os.makedirs(sweep_dir, exist_ok=True)
+    atomic_write(os.path.join(sweep_dir, "run.json"), json.dumps(
+        {"tool": TOOL, "version": VERSION, "kind": "qa-sweep",
+         "window_days": days, "generated_at": now(), "rows": len(recs)},
+        indent=2, ensure_ascii=False))
+    atomic_write(os.path.join(sweep_dir, "states.json"),
+                 json.dumps(recs, indent=1, ensure_ascii=False))
+    sampled, counts = _qa_sample(recs, args.seed, rate=args.rate, floor=args.floor)
+    _qa_worksheet(sweep_dir, sampled, args.seed,
+                  os.path.join(sweep_dir, "states.json"), counts, log)
+    _qa_ledger(out_root, {"kind": "sweep", "at": now(),
+                          "run": os.path.basename(sweep_dir),
+                          "window_days": days, "population": len(recs),
+                          "sampled": len(sampled)})
+    log(f"qa sweep: {len(sampled)} of {len(recs)} machine-admitted rows "
+        f"(last {days} days) -> {sweep_dir}")
+    return 0
+
+
+def _qa_record(run_dir: str, args: argparse.Namespace, log: Log) -> int:
+    """Ingest completed verdicts -> qa-result.json with the false-approval rate.
+
+    The rate that counts against the budget is the false-approval rate:
+    rejected-or-should-not-exist verdicts among the LIVE sample. Kill-strata
+    verdicts do not water it down - they are recorded per-row for the rules
+    feedback loop, but the budget reads only the LIVE slice, because that is
+    the slice auto-approval actually published.
+    """
+    csv_path = os.path.join(run_dir, "qa-worksheet.csv")
+    if not os.path.isfile(csv_path):
+        raise SafetyError(f"no {csv_path} - run `qa` without --record first")
+    verdict_tally: dict[str, int] = {v: 0 for v in QA_VERDICTS}
+    live_rows: list[dict] = []
+    other_rows: list[dict] = []
+    with open(csv_path, encoding="utf-8-sig", newline="") as fh:
+        for row in csv.DictReader(fh):
+            verdict = (row.get("verdict") or "").strip().lower()
+            kind = (row.get("kind") or "").strip()
+            if verdict and verdict in verdict_tally:
+                verdict_tally[verdict] += 1
+            entry = {"id": row.get("id"), "name": row.get("name"),
+                     "state": row.get("state"), "kind": kind,
+                     "verdict": verdict or None,
+                     "note": (row.get("qa_note") or "").strip() or None}
+            if kind == "live-sample":
+                live_rows.append(entry)
+            else:
+                other_rows.append(entry)
+    if not any(e["verdict"] for e in live_rows):
+        raise SafetyError(
+            "no verdicts on the LIVE sample - the false-approval rate would be "
+            "meaningless; fill the verdict column first")
+    live_verdicted = [e for e in live_rows if e["verdict"]]
+    false_approvals = [e for e in live_verdicted if e["verdict"] == "reject"]
+    rate = (len(false_approvals) / len(live_verdicted)) if live_verdicted else 0.0
+    result = {
+        "run": os.path.basename(run_dir),
+        "recorded_at": dt.datetime.now().isoformat(timespec="seconds"),
+        "seed": args.seed,
+        "budget": QA_BUDGET,
+        "live_sample_size": len(live_rows),
+        "live_verdicted": len(live_verdicted),
+        "false_approvals": len(false_approvals),
+        "false_approval_rate": round(rate, 6),
+        "within_budget": rate <= QA_BUDGET,
+        "verdict_tally": verdict_tally,
+        "live_rows": live_rows,
+        "other_rows": other_rows,
+    }
+    atomic_write(os.path.join(run_dir, "qa-result.json"),
+                 json.dumps(result, indent=2, ensure_ascii=False))
+    _qa_ledger(os.path.dirname(run_dir) or ".", {
+        "kind": "run", "at": result["recorded_at"],
+        "run": result["run"], "seed": result["seed"],
+        "live_verdicted": len(live_verdicted),
+        "false_approvals": len(false_approvals),
+        "rate": result["false_approval_rate"],
+        "within_budget": result["within_budget"]})
+    log(f"qa recorded: {len(false_approvals)}/{len(live_verdicted)} false approvals "
+        f"= {rate:.2%} (budget {QA_BUDGET:.1%}) -> "
+        f"{'WITHIN budget' if result['within_budget'] else 'BREACH - the import will refuse'}")
+    return 0
+
+
+# ===========================================================================
 # 7. Selftest - the fixtures are the real cases that taught us the rules.
 # ===========================================================================
 def _cap(**kw: Any) -> dict[str, Any]:
@@ -2130,6 +2405,31 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("print-config", help="dump the vocabulary as JSON", parents=[common])
     sub.add_parser("selftest", help="run the classifier fixtures offline", parents=[common])
+
+    # qa (Sequence 4): sampled QA of a run -> worksheet -> recorded verdicts.
+    # The resulting qa-result.json is what the import endpoint reads to enforce
+    # the auto-approval error budget (a breach refuses the import).
+    q = sub.add_parser("qa", help="sampled QA: stratified worksheet for a run, "
+                                  "--record ingests verdicts (feeds the import "
+                                  "error budget)", parents=[common])
+    q.add_argument("--run", required=False, default=None,
+                   help="run directory with states.json (or states-merged.json); "
+                        "omit when --sweep")
+    q.add_argument("--record", action="store_true",
+                   help="ingest the completed qa-worksheet.csv into qa-result.json "
+                        "(computes the false-approval rate against the budget)")
+    q.add_argument("--sweep", action="store_true",
+                   help="ignore --run: sample machine-admitted archive rows from "
+                        "the last --sweep-days into a fresh sweep run directory")
+    q.add_argument("--sweep-days", type=int, default=7,
+                   help="qa --sweep window (default 7)")
+    q.add_argument("--db", help="qa --sweep: the archive sqlite file (read-only)")
+    q.add_argument("--seed", type=int, default=7,
+                   help="sample seed (same seed -> same worksheet; default 7)")
+    q.add_argument("--rate", type=float, default=QA_SAMPLE_RATE,
+                   help="LIVE sample rate (default 0.02 = 2 percent)")
+    q.add_argument("--floor", type=int, default=QA_SAMPLE_FLOOR,
+                   help=f"minimum LIVE rows in the sample (default {QA_SAMPLE_FLOOR})")
     return p
 
 
@@ -2162,6 +2462,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             return run_report(args, log)
         if args.cmd == "drop":
             return run_drop(args, log)
+        if args.cmd == "qa":
+            return run_qa(args, log)
         if args.cmd == "selftest":
             return run_selftest(args, log)
     except KeyboardInterrupt:

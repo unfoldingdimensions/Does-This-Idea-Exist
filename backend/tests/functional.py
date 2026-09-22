@@ -2393,6 +2393,99 @@ try:
     check("an oversized states file is refused on size, before parsing",
           _refused, "ValueError naming the size")
 
+    # --- Sequence 4: sampled QA and the error budget -------------------------
+    # The full loop, exercised through the real CLI: qa samples a run into a
+    # worksheet (deterministic for a seed), --record computes the false-
+    # approval rate, and import REFUSES admits while the rate breaches the
+    # 0.5% budget unless explicitly overridden (logged on the receipt).
+    import subprocess as _sp
+
+    _qa_run = _runs_root / "funnel-run"
+    _qa_out_root = _runs_root / "qa-root"
+
+    def _cli(*qa_args):
+        return _sp.run(
+            [sys.executable, str(BACKEND.parent / "scripts" / "site_liveness_audit.py"),
+             "qa", *qa_args],
+            capture_output=True, text=True, timeout=120)
+
+    # same seed -> identical sample; different seed -> different LIVE draw
+    _cli("--run", str(_qa_run), "--seed", "7", "--out", str(_qa_out_root))
+    _ws7 = (_qa_run / "qa-worksheet.csv").read_text(encoding="utf-8")
+    _cli("--run", str(_qa_run), "--seed", "7", "--out", str(_qa_out_root))
+    check("qa: same seed reproduces the identical worksheet",
+          (_qa_run / "qa-worksheet.csv").read_text(encoding="utf-8") == _ws7,
+          "byte-identical qa-worksheet.csv")
+    _cli("--run", str(_qa_run), "--seed", "99", "--out", str(_qa_out_root))
+    import csv as _csv
+    with open(_qa_run / "qa-worksheet.csv", encoding="utf-8", newline="") as fh:
+        _ws_rows = list(_csv.DictReader(fh))
+    _kinds = {r["kind"] for r in _ws_rows}
+    check("qa: worksheet carries all strata (kill, wall, live sample)",
+          _kinds == {"kill-strata", "wall-strata", "live-sample"},
+          f"{len(_ws_rows)} rows, kinds={sorted(_kinds)}")
+
+    # recording refuses an empty verdict column...
+    _p = _cli("--run", str(_qa_run), "--record")
+    check("qa: --record refuses before any verdict exists",
+          _p.returncode != 0 and "no verdicts on the LIVE sample" in (_p.stdout + _p.stderr),
+          (_p.stdout + _p.stderr)[-120:])
+    # ...then a planted breach: 1 reject of 30 LIVE verdicts = 3.3% > 0.5%
+    for _i, _r in enumerate(_ws_rows):
+        _r["verdict"] = "reject" if (_r["kind"] == "live-sample" and _i == 0) else "approve"
+    with open(_qa_run / "qa-worksheet.csv", "w", encoding="utf-8", newline="") as fh:
+        _w = _csv.DictWriter(fh, fieldnames=list(_ws_rows[0].keys()))
+        _w.writeheader()
+        _w.writerows(_ws_rows)
+    _p = _cli("--run", str(_qa_run), "--record")
+    _qa_res = json.loads((_qa_run / "qa-result.json").read_text(encoding="utf-8"))
+    check("qa: the planted breach records a rate above the budget",
+          _p.returncode == 0 and _qa_res["within_budget"] is False
+          and _qa_res["false_approval_rate"] > funnel_mod.QA_BUDGET
+          and _qa_res["live_verdicted"] == sum(
+              1 for r in _ws_rows if r["kind"] == "live-sample"),
+          f"rate={_qa_res['false_approval_rate']} verdicted={_qa_res['live_verdicted']}")
+
+    # the breach stops the line: APPLY refused (naming the rate), PLAN never
+    _breach_apply = client.post("/api/admin/funnel/import",
+                                json={"run": "liveness-test-runs/funnel-run",
+                                      "dry_run": False}, headers=MUT)
+    check("a QA breach refuses the import with a named reason (422)",
+          _breach_apply.status_code == 422
+          and "QA error budget breached" in _breach_apply.json()["detail"]
+          and str(_qa_res["false_approvals"]) in _breach_apply.json()["detail"],
+          _breach_apply.text[:200])
+    _breach_plan = client.post("/api/admin/funnel/import",
+                               json={"run": "liveness-test-runs/funnel-run",
+                                     "dry_run": True}, headers=MUT)
+    check("a dry-run plan is never blocked by the breach (nothing to override)",
+          _breach_plan.status_code == 200
+          and _breach_plan.json()["qa_breach"] is not None
+          and _breach_plan.json()["qa_breach_overridden"] is False,
+          _breach_plan.text[:160])
+    _misuse = client.post("/api/admin/funnel/import",
+                          json={"run": "liveness-test-runs/funnel-run",
+                                "dry_run": True, "allow_qa_breach": True},
+                          headers=MUT)
+    _misuse_body = _misuse.json().get("detail")
+    _misuse_text = json.dumps(_misuse_body) if not isinstance(_misuse_body, str) \
+        else _misuse_body
+    check("overriding a dry-run is a 422 (there is nothing to override)",
+          _misuse.status_code == 422 and "allow_qa_breach" in _misuse_text,
+          _misuse.text[:160])
+    # clean round: all approve -> import passes, receipt says not overridden
+    for _r in _ws_rows:
+        _r["verdict"] = "approve"
+    with open(_qa_run / "qa-worksheet.csv", "w", encoding="utf-8", newline="") as fh:
+        _w = _csv.DictWriter(fh, fieldnames=list(_ws_rows[0].keys()))
+        _w.writeheader()
+        _w.writerows(_ws_rows)
+    _cli("--run", str(_qa_run), "--record")
+    _qa_res = json.loads((_qa_run / "qa-result.json").read_text(encoding="utf-8"))
+    check("qa: the clean round is within budget",
+          _qa_res["within_budget"] is True and _qa_res["false_approval_rate"] == 0.0,
+          f"rate={_qa_res['false_approval_rate']}")
+
     # --- the politeness gate (Sequence 3, docs/liveness-funnel-plan.md) ------
     # Pure logic over real threads: at most `concurrency` starts per `delay`
     # window on one host; one host's delay never blocks another host; pushback

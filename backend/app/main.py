@@ -439,6 +439,11 @@ class FunnelImportIn(BaseModel):
 
     run: str = Field(min_length=1, max_length=1000)
     dry_run: bool = True
+    # Sequence 4: an explicit operator override for a run whose recorded QA
+    # false-approval rate breaches the budget. Only meaningful when actually
+    # applying (dry_run=false); validated below so a nonsense combination
+    # (dry-run + override) is rejected rather than silently ignored.
+    allow_qa_breach: bool = False
 
     @model_validator(mode="after")
     def _run_must_be_local(self) -> "FunnelImportIn":
@@ -447,6 +452,15 @@ class FunnelImportIn(BaseModel):
         problems = run_dir_is_importable(self.run)
         if problems:
             raise ValueError("; ".join(problems))
+        return self
+
+    @model_validator(mode="after")
+    def _override_needs_apply(self) -> "FunnelImportIn":
+        if self.allow_qa_breach and self.dry_run:
+            raise ValueError(
+                "allow_qa_breach only applies with dry_run=false — a dry-run "
+                "plan is never blocked by the budget, so there is nothing to "
+                "override")
         return self
 
 
@@ -466,7 +480,8 @@ def admin_funnel_import(body: FunnelImportIn) -> dict:
     run is a no-op (the guard only stamps verified=0 rows).
     """
     try:
-        return funnel.import_run(body.run, dry_run=body.dry_run)
+        return funnel.import_run(
+            body.run, dry_run=body.dry_run, allow_qa_breach=body.allow_qa_breach)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except ValueError as exc:
