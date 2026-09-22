@@ -6,6 +6,20 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added — Sequence 4: sampled QA and the error budget (2026-09-22)
+
+- `site_liveness_audit.py qa`: a deterministic, seeded, stratified sample of a
+  run (all kill/wall strata in full, LIVE at 2% with a floor of 30) written as
+  a QA worksheet (MD + CSV) with a verdict column; `--record` ingests verdicts
+  into `qa-result.json` with the false-approval rate; `--sweep` re-samples
+  machine-admitted archive rows weekly into a fresh sweep run; rounds append
+  to `qa-rounds.jsonl`.
+- The funnel import now enforces the **0.5% auto-approval error budget**: a
+  run whose recorded QA rate breaches it refuses to apply admits (422 naming
+  the rate) until the rules are fixed or the operator passes
+  `allow_qa_breach` explicitly — the override rides the import receipt.
+  Dry-run plans are never blocked.
+
 ### Added — the liveness funnel closes the loop (2026-09-19 … 09-21)
 
 - **Content-aware verification.** The weekly verify pass no longer trusts a
