@@ -218,7 +218,7 @@ A company's site is allowed to name the industries it serves. Word-level scannin
 a casino" from "we serve casinos", and no amount of two-tier tuning fixes that - the distinction is
 about **offer vs topic**, not frequency. Hence: offer phrasing only, title-or-two-hits, intake filter
 first. All seven cases are now `selftest` fixtures, so the rule cannot regress into rejecting them
-again (`selftest` is 37/37).
+again (`selftest` is 50/50 — the 47 parity fixtures plus the company-gate cases).
 
 ### 3.5 The company gate - "is this a company, or a project page?"
 
@@ -344,8 +344,8 @@ lighter identity fields elsewhere) — never cutting the evidence rules.
 
 ## 6. Quality control at scale
 
-1. **Liveness regression net.** The auditor's `selftest` (30 fixtures, every one a real regression)
-   must stay 30/30. Every new real-world false positive becomes a fixture — that is how the four rule
+1. **Liveness regression net.** The auditor's `selftest` (50 fixtures, every one a real regression)
+   must stay 50/50. Every new real-world false positive becomes a fixture — that is how the four rule
    gaps of 2026-09-18 were closed, and the three the renderer found.
 2. **Auto-approval error budget.** Proposed **<0.5%** false-approval rate, measured by sending a
    random sample of auto-approved rows to human QA every batch. A breach **stops the batch and
@@ -381,7 +381,7 @@ lighter identity fields elsewhere) — never cutting the evidence rules.
 | Phase | Scope | Acceptance criteria | Rollback |
 |---|---|---|---|
 | **A** | Approval model: `approval_source`/`approved_at`/`approved_by` + machine-approval path + badge exposure | additive migration idempotent; machine vs human approvals distinguishable in API and UI; the existing 1,254 rows unchanged; `teardown-spec.md` §8.1 updated as a recorded decision; smoke + functional pass | drop the new columns (additive only) |
-| **B** | Funnel v2 dry-run over the **existing** 1,258 rows, publishing nothing | reproduces the 2026-09-18 outcome (the 8 dead/repurposed + Magdrive walled); auto-approval changes nothing about the current verified set; auditor `selftest` 30/30 | nothing published, nothing deleted |
+| **B** | Funnel v2 dry-run over the **existing** 1,258 rows, publishing nothing | reproduces the 2026-09-18 outcome (the 8 dead/repurposed + Magdrive walled); auto-approval changes nothing about the current verified set; auditor `selftest` 50/50 | nothing published, nothing deleted |
 | **C** | Sourcing harness + `candidates` staging; pull 3,000 candidates, **no publishes** | per-channel yield report; zero duplicates by `canonical_domain`; >95% of staged rows carry `source_url`+`captured_at` | truncate staging table |
 | **D** | Enrichment pilot, 200 rows, six fields, end-to-end | measured s/row, tokens/row, $/row; per-field accuracy vs human labels; 100% of claims have evidence rows; **reports the real 10k budget (D3)** | delete pilot enrichment, keep rows |
 | **P** | Platform unblock: §7.1 paging, §7.2 FTS5 search, §7.7 sitemap+indexable pages | 10k-row synthetic fixture served correctly by paged read; search p95 sane; sitemap lists every product page | revert frontend/API |

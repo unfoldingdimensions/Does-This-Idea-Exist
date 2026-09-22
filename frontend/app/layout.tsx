@@ -27,7 +27,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: "IdeaExists — Does this startup exist?",
   description:
-    "A human-kept archive of what exists — searchable startups with their websites and code. Verified locally, refreshed weekly, nothing tracked.",
+    "An archive of what exists — searchable startups with their websites and code. Re-checked on a schedule, provenance on every stamp, nothing tracked.",
   // NOTE: no `alternates.canonical` here. The root layout is inherited by
   // every route including /products/<slug>, and a canonical of "/" told
   // crawlers each product page was a duplicate of the home page. Product
@@ -39,7 +39,7 @@ export const metadata: Metadata = {
     siteName: "IdeaExists",
     title: "IdeaExists — Does this startup exist?",
     description:
-      "A human-kept archive of what exists — searchable startups with their websites and code. Verified locally, refreshed weekly, nothing tracked.",
+      "An archive of what exists — searchable startups with their websites and code. Re-checked on a schedule, provenance on every stamp, nothing tracked.",
     // Site-level OG default (no url: "/" — same reasoning as the canonical
     // removal above; per-page OG would override it).
     locale: "en_US",
@@ -48,7 +48,7 @@ export const metadata: Metadata = {
     card: "summary",
     title: "IdeaExists — Does this startup exist?",
     description:
-      "A human-kept archive of what exists — searchable startups with their websites and code. Verified locally, refreshed weekly, nothing tracked.",
+      "An archive of what exists — searchable startups with their websites and code. Re-checked on a schedule, provenance on every stamp, nothing tracked.",
   },
 };
 

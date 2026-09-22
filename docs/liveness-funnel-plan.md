@@ -1,7 +1,7 @@
 # Liveness funnel — critique and implementation plan
 
-**Date:** 2026-09-19 · **Status:** Sequences 1–3 **done** 2026-09-19 — parity selftest 50/50, backend functional 270/270 (five politeness-gate checks), `npm test` gate ALL PASS. The render stage is in-repo with an end-to-end proof run. Politeness is live and measured: full-archive audit (1,258 rows) under the defaults ran in **334s = 1.52× baseline** (budget 3×), capture 6.5/s; 21 rows became honest robots-refusal UNKNOWNs. Sequence 4 (sampled QA) is next
-**Subject:** `scripts/site_liveness_audit.py` (the funnel, 2,382 lines), its
+**Date:** 2026-09-19 · **Status:** Sequences 1–3 **done** 2026-09-19, audit fixes landed 2026-09-21/22 — parity selftest 50/50, backend functional 283/283 (rules-shipping, content check, run import + path gate), `npm test` gate ALL PASS. The render stage is in-repo with an end-to-end proof run. Politeness is live and measured: full-archive audit (1,258 rows) under the defaults ran in **334s = 1.52× baseline** (budget 3×), capture 6.5/s; 21 rows became honest robots-refusal UNKNOWNs. Sequence 4 (sampled QA) is next
+**Subject:** `scripts/site_liveness_audit.py` (the funnel, 2,182 lines), its
 (non-)integration with the app, and the work between here and production standard.
 **Method:** full read of the funnel, `backend/app/verify.py`, `backend/app/netguard.py`,
 the 2026-09-18 audit review (Rounds 1–5), `docs/scale-to-10000-plan.md`, and the

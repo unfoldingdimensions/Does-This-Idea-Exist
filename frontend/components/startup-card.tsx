@@ -37,22 +37,18 @@ function isHttpUrl(value: string | null | undefined): value is string {
 const STATUS_OPTIONS: {
   value: StatusChoice;
   label: string;
-  hint: string;
 }[] = [
   {
     value: "verified",
     label: "Verified",
-    hint: "A human checked this one. It's alive.",
   },
   {
     value: "unverified",
     label: "Unverified",
-    hint: "Filed, awaiting a human.",
   },
   {
     value: "dead",
     label: "Dead",
-    hint: "Checked, gone. Filed, never deleted.",
   },
 ];
 
@@ -69,7 +65,7 @@ const CONFIRM_COPY: Record<
   unverified: {
     title: (name) => `Mark ${name} as unverified?`,
     body: (name) =>
-      `Clears the verified stamp on ${name}. It returns to "filed, awaiting a human".`,
+      `Clears the verified stamp on ${name}. It returns to unverified, until the gate or a human stamps it again.`,
   },
   dead: {
     title: (name) => `Mark ${name} as dead?`,
@@ -166,8 +162,10 @@ export function StatusPill({
         <PopoverContent align="end" sideOffset={6} className="w-64 p-3">
           <p className="text-xs leading-relaxed text-muted-foreground">{hint}</p>
           <p className="mt-2 border-t border-border/60 pt-2 text-[11px] leading-relaxed text-muted-foreground/80">
-            How verification works: a human opens the link and stamps the filing. No crawlers,
-            no votes — the stamp means someone looked.
+            How verification works: most filings pass the automated liveness gate
+            (marked &ldquo;Machine approved&rdquo;); anything the gate is unsure
+            about waits for a human, whose stamp reads &ldquo;Verified&rdquo;.
+            Every row shows which happened.
           </p>
         </PopoverContent>
       </Popover>

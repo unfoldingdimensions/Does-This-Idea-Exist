@@ -256,9 +256,10 @@ Five steps, in order:
    SQLite DB: no live server, no network.
 2. **backend functional** (`backend/tests/functional.py` — the gate) —
    `F-01`–`F-24` plus the trust and store-separation invariants, with the fetcher,
-   both LLM prompts and both date sources stubbed: **270 checks** (now including
+   both LLM prompts and both date sources stubbed: **283 checks** (including
    the liveness-funnel contract: the shared rules module, the content-aware
-   website check, and run import — admit / queue / never delete).
+   website check, run import — admit / queue / never delete — and the import
+   path gate).
 3. **frontend sort check** (`scripts/sort-check.ts`) — runs the real frontend
    module for all five sort keys.
 4. **frontend lint + production build**.

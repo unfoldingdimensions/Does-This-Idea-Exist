@@ -5,7 +5,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { Compass, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const HEADLINE = "A human-kept archive of what exists.";
+const HEADLINE = "An archive of what exists.";
 const WORDS = HEADLINE.split(" ");
 
 export function KineticMasthead({ className }: { className?: string }) {
@@ -80,7 +80,8 @@ export function KineticMasthead({ className }: { className?: string }) {
         transition={{ duration: 0.45, delay: 0.35 }}
         className="mx-auto mt-4 max-w-[56ch] text-sm md:text-base leading-relaxed text-muted-foreground"
       >
-        Every startup filed by hand, verified for vital signs, and indexed for eternity.
+        The archive files what exists — vetted at intake, then re-checked for
+        vital signs on a schedule, with every stamp&rsquo;s provenance on the record.
         <span className="block mt-1 text-xs font-mono text-muted-foreground/75">
           Dead is a status, never an erasure. Look closely behind the frosted glass.
         </span>

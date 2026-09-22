@@ -370,7 +370,7 @@ export default function HomePage() {
     r.last = now;
     if (r.count >= 3) {
       r.count = 0;
-      toast("Filed by hand. Checked the dead ones twice. — The Curator");
+      toast("Filed honestly. Re-checked on a schedule. — The Curator");
     }
   };
 
@@ -453,7 +453,7 @@ export default function HomePage() {
         choice === "dead"
           ? `${updated.name} — filed. Checked three times, gone.`
           : choice === "unverified"
-            ? `${updated.name} — stamp cleared. Back to "filed, awaiting a human".`
+            ? `${updated.name} — stamp cleared. Back to unverified.`
             : `${updated.name} — checked and alive.`,
         choice === "verified" ? { description: "Stamped today. Reversible." } : undefined,
       );
@@ -628,7 +628,7 @@ export default function HomePage() {
             </span>
             <span className="flex items-center gap-1.5">
               <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/60" aria-hidden />
-              Unverified — filed, awaiting a human
+              Unverified — filed, not yet stamped
             </span>
             <span className="flex items-center gap-1.5">
               <span className="h-1.5 w-1.5 rounded-full bg-destructive/80" aria-hidden />
@@ -714,8 +714,9 @@ export default function HomePage() {
             <ShieldCheck className="mx-auto h-8 w-8 text-success" />
             <h2 className="mt-3 text-sm font-bold">Yes. You&rsquo;re looking at it.</h2>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              The thing you&rsquo;re asking about is the page you&rsquo;re on — a human-kept
-              archive of what exists, filed one entry at a time.
+              The thing you&rsquo;re asking about is the page you&rsquo;re on — an
+              archive of what exists, with each stamp&rsquo;s provenance on the
+              record.
             </p>
             <div className="mt-4 flex justify-center">
               <span className="inline-flex items-center gap-1.5 rounded-full border border-success/25 bg-success/12 px-2.5 py-0.5 text-[11px] font-medium text-success dark:bg-success/15">
@@ -828,7 +829,7 @@ export default function HomePage() {
             className="hidden font-mono text-[11px] tabular-nums md:inline"
             onClick={handleMantraClick}
           >
-            Dead is a status, not an erasure. Kept by a human, checked weekly.
+            Dead is a status, not an erasure. Filed honestly, re-checked on a schedule.
           </span>
           <span className="hidden lg:inline">
             No accounts. No tracking. Searches stay on this machine.
