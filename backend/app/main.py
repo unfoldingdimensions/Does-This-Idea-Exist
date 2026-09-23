@@ -879,7 +879,21 @@ def search(
         return []  # the documented empty-query contract
     conn = db.connect()
     try:
-        rows = [dict(r) for r in conn.execute("SELECT * FROM startups").fetchall()]
+        # Phase P fast path: FTS/word-table candidates -> the SAME ladder on
+        # just those rows. candidate_ids() is a proven SUPERSET of the ladder's
+        # admissions (exact/prefix/mid-word/fuzzy via the raw word table), so
+        # results are identical to the scan below — order, reasons, everything.
+        # [] on any problem (no index, huge band, cap exceeded) reads as "use
+        # the linear path", never as "no results": correctness never depends
+        # on the index existing.
+        candidate_ids = fts.candidate_ids(conn, search_mod.query_terms(q))
+        if candidate_ids:
+            ph = ",".join("?" * len(candidate_ids))
+            rows = [dict(r) for r in conn.execute(
+                f"SELECT * FROM startups WHERE id IN ({ph})",
+                tuple(candidate_ids)).fetchall()]
+        else:
+            rows = [dict(r) for r in conn.execute("SELECT * FROM startups").fetchall()]
     finally:
         conn.close()
     # Archive rows only — the founder store is a different file and is never

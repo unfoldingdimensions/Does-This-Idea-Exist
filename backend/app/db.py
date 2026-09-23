@@ -188,6 +188,8 @@ def connect_path(path) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=5000")
+    from .udf import register  # late import: udf imports nothing from db
+    register(conn)
     return conn
 
 

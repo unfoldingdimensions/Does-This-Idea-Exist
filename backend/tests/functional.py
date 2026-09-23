@@ -2550,14 +2550,53 @@ try:
         _fts_conn.close()
 
     # --- the candidate path through the real endpoint -------------------------
-    # Task 4 wires /api/search to prefer fts.search_ids; until then the linear
-    # scan remains the only path, and this endpoint-level check pins that the
-    # FTS work so far changed nothing about responses.
+    # Phase P task 4: /api/search prefers fts.candidate_ids (a SUPERSET of the
+    # ladder's admissions — exact/prefix/mid-word/fuzzy via the raw word table)
+    # and the ladder itself classifies that candidate slice. The parity checks
+    # below drive BOTH paths through the real endpoint code by comparing the
+    # endpoint response against a forced-linear computation.
     _lin = client.get("/api/search", params={"q": "Fts Quillwind"}).json()
-    check("fts: /api/search still answers identically (linear path untouched)",
+    check("fts: /api/search answers with ladder reasons intact",
           any(r["name"] == "Fts Quillwind Co" for r in _lin)
           and all("reason" in r for r in _lin),
           f"{len(_lin)} rows, reasons intact")
+
+    # PARITY: fast path vs linear path over every admission band. Both sides
+    # run the ladder; the fast side only narrows the candidate rows.
+    _parity_qs = [
+        "Fts Quillwind Co",      # exact name rung
+        "fts-quillwind.example",  # exact domain rung
+        "Quillwind",             # name-phrase/token rung
+        "parchment",             # tagline rung
+        "grimoire",              # description rung
+        "wax-sealing",           # category rung
+        "obsiden",               # fuzzy typo (ratio admission)
+        "spectral",              # mid-word substring admission (name 'spectralwobble' deleted; falls back cleanly)
+        "quillwind scrolls",     # AND across terms + aliases
+        "zzqxj",                 # junk: no row anywhere
+        "the",                   # stopword-ish: broad band, still parity
+    ]
+    _fts_conn2 = db.connect()
+    try:
+        _all_rows = [dict(r) for r in _fts_conn2.execute("SELECT * FROM startups").fetchall()]
+        for _pq in _parity_qs:
+            _fast = search_mod.rank(_all_rows, _pq, limit=20)  # linear reference
+            _resp = client.get("/api/search", params={"q": _pq, "limit": 20}).json()
+            _names_fast = [(r["id"], r["reason"]) for r in _fast]
+            _names_resp = [(r["id"], r["reason"]) for r in _resp]
+            check(f"fts parity: q={_pq!r} identical ids+reasons (fast vs linear)",
+                  _names_fast == _names_resp,
+                  f"{len(_names_fast)} linear vs {len(_names_resp)} endpoint")
+        # the fast path actually ENGAGED (candidates found) for a token query:
+        _cand = fts_mod.candidate_ids(_fts_conn2, search_mod.query_terms("quillwind"))
+        check("fts parity: candidate_ids engages for a token query",
+              _cand and _fts_live in _cand, str(_cand[:5]))
+        # AND-gate: candidates for two terms intersect
+        _cand2 = fts_mod.candidate_ids(_fts_conn2, ["parchment", "spreadsheet"])
+        check("fts parity: AND across terms intersects candidate sets",
+              _cand2 == [], str(_cand2))
+    finally:
+        _fts_conn2.close()
 
     # --- Phase P Task 1: the paged envelope endpoint --------------------------
     # /api/startups keeps its bare-list shape (pinned); /api/startups/page is
