@@ -33,6 +33,7 @@ import csv
 import io
 import json
 import os
+import random
 import sqlite3
 import sys
 import tempfile
@@ -2597,6 +2598,144 @@ try:
               _cand2 == [], str(_cand2))
     finally:
         _fts_conn2.close()
+
+    # --- Phase P Task 6: the 10k scale proof (pager walk + search p95) --------
+    # The scale plan's Phase P acceptance, executable: a 10k-row synthetic
+    # archive, the pager walking all of it, and search p95 MEASURED over a
+    # real query set (logged here, asserted against a generous bound).
+    _p6_words = ("note task tracker kanban board calendar markdown local sync "
+                 "cloud backup photo video music editor deploy monitor alert "
+                 "finance budget invoice habit fitness recipe travel write").split()
+    _p6_topics = ("zenith quartz beryl cobalt topaz onyx jade lumen pulsar "
+                  "vector cipher delta omega signal beacon ember frost tide "
+                  "storm whisper canyon drift harbor prism vertex nova").split()
+
+    def _p6_insert(n: int) -> list[int]:
+        """n synthetic rows through the REAL writer (insert_startup), so the
+        FTS index + word table fill via their triggers, not a backdoor."""
+        rng = random.Random(11)
+        ids: list[int] = []
+        for i in range(n):
+            topic = _p6_topics[i % len(_p6_topics)]
+            w1, w2 = rng.choice(_p6_words), rng.choice(_p6_words)
+            name = f"{topic.capitalize()} {w1.capitalize()} {i:05d}"
+            ids.append(insert_startup(
+                name,
+                f"https://{topic}-{i:05d}.example",
+                tagline=f"{topic} workflow for {w1} and {w2} teams",
+                description=" ".join(rng.choice(_p6_words) for _ in range(24)),
+                category=rng.choice(["productivity", "devtools", "media"]),
+                founded=f"20{rng.randint(15, 24)}-06-01",
+                aliases=json.dumps([f"{topic} {i:05d}"]),
+            ))
+        return ids
+
+    _t_insert = time.perf_counter()
+    _p6_ids = _p6_insert(10_000 - 12)  # the 12 Page Co rows top it up
+    _t_insert_ms = (time.perf_counter() - _t_insert) * 1000
+    print(f"[phase p6] inserted {len(_p6_ids)} rows in {_t_insert_ms:.0f} ms")
+
+    _p6_conn = db.connect()
+    try:
+        # the index structures are up to date with all 10k rows
+        _p6_stats = fts_mod.stats(_p6_conn)
+        check("p6: the indexes track the 10k archive",
+              _p6_stats["available"] is True
+              and _p6_stats["archive_rows"] >= 10_000,
+              json.dumps(_p6_stats))
+
+        # --- the pager walks all 10k -----------------------------------------
+        _t_walk = time.perf_counter()
+        _walk: list[int] = []
+        _p6_total = None
+        _off = 0
+        while True:
+            _pg = client.get("/api/startups/page",
+                             params={"limit": 500, "offset": _off}).json()
+            _p6_total = _pg["total"]
+            _walk.extend(r["id"] for r in _pg["rows"])
+            if _off + 500 >= _pg["total"] or not _pg["rows"]:
+                break
+            _off += 500
+        _t_walk_ms = (time.perf_counter() - _t_walk) * 1000
+        check("p6: total reports the full 10k archive (filters empty)",
+              _p6_total >= 10_000, f"total={_p6_total}")
+        check("p6: the pager walk covers every row exactly once",
+              len(_walk) == len(set(_walk)) == _p6_total,
+              f"{len(_walk)} rows walked in {_t_walk_ms:.0f} ms")
+        print(f"[phase p6] pager walk: {len(_walk)} rows in {_t_walk_ms:.0f} ms")
+
+        # a filtered walk: the year facet narrows the total server-side
+        _yr = client.get("/api/startups/page",
+                         params={"limit": 1, "year": "2019"}).json()
+        _yr_walk_total = 0
+        _off = 0
+        while True:
+            _pg = client.get("/api/startups/page",
+                             params={"limit": 500, "year": "2019",
+                                     "offset": _off}).json()
+            _yr_walk_total = _pg["total"]
+            _got = len(_pg["rows"])
+            if _off + 500 >= _yr_walk_total or _got == 0:
+                break
+            _off += 500
+        check("p6: a filtered walk totals consistently (year=2019)",
+              _yr_walk_total > 0 and _yr_walk_total < _p6_total,
+              f"year=2019 total={_yr_walk_total} of {_p6_total}")
+
+        # --- search p95 over a real query set --------------------------------
+        # Query classes: narrow single-token (fast path SHOULD engage),
+        # multi-term/broad (may exceed the 500-cap -> fallback is CORRECT),
+        # fuzzy typo, junk. p95 is measured over all of it.
+        _p6_queries = [
+            ("narrow: topic token", "pulsar"),
+            ("narrow: topic token 2", "cobalt"),
+            ("fuzzy typo", "pulsaar"),
+            ("narrow: multi-term AND", "zenith workflow"),
+            ("narrow: exact name tail", "Whisper Canyon 01234"),
+            ("broad: common word", "note"),
+            ("broad: two common words", "note task"),
+            ("junk: nothing matches", "zzqxjv"),
+        ]
+        _timings: list[float] = []
+        _p6_parity = True
+        _p6_engaged = 0
+        for _label, _q in _p6_queries:
+            _t0 = time.perf_counter()
+            _resp = client.get("/api/search", params={"q": _q, "limit": 20}).json()
+            _dt = (time.perf_counter() - _t0) * 1000
+            _timings.append(_dt)
+            _c = fts_mod.candidate_ids(
+                _p6_conn, search_mod.query_terms(_q))
+            if _c:
+                _p6_engaged += 1
+            # parity holds at scale too: endpoint vs forced-linear reference
+            _ref = search_mod.rank(
+                [dict(r) for r in _p6_conn.execute("SELECT * FROM startups").fetchall()],
+                _q, limit=20)
+            if [(r["id"], r["reason"]) for r in _resp] != \
+               [(r["id"], r["reason"]) for r in _ref]:
+                _p6_parity = False
+            print(f"[phase p6] search { _label }: {_dt:.0f} ms "
+                  f"({'fast' if _c else 'fallback'}, {len(_resp)} results)")
+        _timings.sort()
+        _p95 = _timings[max(0, int(len(_timings) * 0.95) - 1)]
+        print(f"[phase p6] search p95: {_p95:.0f} ms over {len(_timings)} queries "
+              f"(fast path engaged {_p6_engaged}/{len(_timings)})")
+        check("p6: search p95 logged and inside the generous CI bound (<3000 ms)",
+              _p95 < 3000, f"p95={_p95:.0f} ms")
+        check("p6: parity holds at 10k (endpoint == linear reference on every query)",
+              _p6_parity is True, "id+reason pairs match on all queries")
+        # Engagement: the narrow SINGLE-TOKEN queries must take the fast path
+        # (candidates <= cap); multi-term/broad queries may legitimately exceed
+        # the 500 candidate cap and fall back — that's the valve, not a bug.
+        _narrow = ("pulsar", "cobalt", "pulsaar")
+        _narrow_engaged = sum(
+            1 for _q in _narrow if fts_mod.candidate_ids(_p6_conn, [_q]))
+        check("p6: the fast path engages on narrow single-token queries at scale",
+              _narrow_engaged == len(_narrow), f"{_narrow_engaged}/{len(_narrow)} narrow queries fast")
+    finally:
+        _p6_conn.close()
 
     # --- Phase P Task 1: the paged envelope endpoint --------------------------
     # /api/startups keeps its bare-list shape (pinned); /api/startups/page is
