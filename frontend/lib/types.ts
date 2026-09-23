@@ -59,6 +59,9 @@ export interface VerifyResult {
   already_verified: { id: number; name: string; url: string }[];
   suggested: { id: number; name: string; url: string }[];
   failed_list: { id: number; name: string; url: string; reason: string }[];
+  /** Walls / rate-limits / transient failures — ambiguous by design, never a
+   * strike. Named per row so the panel can show what the pass could not see. */
+  skipped_list?: { name: string; reason: string }[];
 }
 
 export interface SuggestedStartup {
@@ -176,6 +179,12 @@ export interface BadgeFields {
   approval_source?: "human" | "machine" | null;
   /** Which gate admitted it: 'admin' | 'funnel:http' | 'funnel:render'. */
   approved_by?: string | null;
+  /**
+   * The admission receipt the funnel stamped on a machine row (which run, what
+   * state, which gate). Written since the funnel existed but surfaced in the
+   * UI only now — the record page shows it as the badge's tooltip.
+   */
+  approval_note?: string | null;
 }
 
 /** One pricing plan, as the founder or a capture entered it. */

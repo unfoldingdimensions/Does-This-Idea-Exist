@@ -7,6 +7,7 @@ import sqlite3
 from urllib.parse import urlparse
 
 from . import db, github as gh, llm, website as ws
+from .liveness_rules import load_config as _lr_load_config, regdom as _lr_regdom
 
 log = logging.getLogger("ideasexist")
 
@@ -221,6 +222,29 @@ def values_from_record(record) -> dict:
     return values
 
 
+def _canonical_domain(url: str | None) -> str | None:
+    """The registrable domain of a URL, or None when there is nothing usable.
+
+    One writer, one shape: www-stripped, lowercased, suffix-aware
+    (instance.app.github.dev -> github.dev). Written at intake and by the
+    backfill so `db.find_by_url`'s unique index and the search ladder's
+    exact-domain rung finally have a populated column to read — the column
+    existed since the 40 -> 43 migration but NOTHING wrote it (measured
+    2026-09-22: 1,258/1,258 rows NULL).
+    """
+    raw = (url or "").strip()
+    if not raw:
+        return None
+    host = raw.split("://", 1)[1] if "://" in raw else raw
+    host = host.split("/", 1)[0].split(":", 1)[0].strip()
+    if not host or "." not in host:
+        return None  # "localhost", "Probe Co" — not a domain
+    try:
+        return _lr_regdom(host, _lr_load_config(None)) or None
+    except Exception:  # noqa: BLE001 — a weird host never blocks a filing
+        return None
+
+
 def seed_from_github(github_url: str, reuse_profile: bool = False) -> dict:
     repo = gh.fetch_repo(github_url)
     conn = db.connect()
@@ -238,6 +262,7 @@ def seed_from_github(github_url: str, reuse_profile: bool = False) -> dict:
                 "website_url": website_url,
                 "github_url": repo["html_url"],
                 "founded": repo["created_at"] or None,
+                "canonical_domain": _canonical_domain(website_url),
                 "stars": repo["stars"],
                 "language": repo["language"],
                 "source": "github",
@@ -273,6 +298,7 @@ def seed_from_github(github_url: str, reuse_profile: bool = False) -> dict:
             # classified sources (llm/wayback/rdap/human) — the column keeps
             # its "unknown" default rather than claiming a provenance it has
             # not got.
+            "canonical_domain": _canonical_domain(website_url),
             "stars": repo["stars"],
             "language": repo["language"],
             "source": "github",
@@ -305,6 +331,7 @@ def seed_from_website(
                 "website_url": page["final_url"],
                 "founded": found,
                 "date_source": date_source if found else None,
+                "canonical_domain": _canonical_domain(page["final_url"]),
                 "source": "website",
             }
             # F-14 teardown carve-out (Phase 2). This payload carries metadata
@@ -328,6 +355,7 @@ def seed_from_website(
             "github_url": None,
             "founded": founded,
             "date_source": date_source if founded else None,
+            "canonical_domain": _canonical_domain(page["final_url"]),
             "stars": None,
             "language": None,
             "source": "website",
@@ -406,3 +434,32 @@ def _upsert_inner(conn: sqlite3.Connection, values: dict, existing) -> dict:
     result = dict(row)
     result["_inserted"] = True
     return result
+
+
+def backfill_canonical_domains(conn: sqlite3.Connection) -> int:
+    """Fill canonical_domain for rows admitted before anything wrote the column.
+
+    Idempotent: only rows whose canonical_domain is NULL/'' are touched, so
+    re-running (at boot, or ad hoc) is a no-op. Chunked commits so a 10k-row
+    archive backfills without holding one long write lock (the verify pass's
+    interleave rule). Returns the number of rows filled.
+
+    This is the one-time backfill for the 1,258 rows the 2026-09-22 audit
+    measured at 0% populated; every intake path now writes the column itself.
+    """
+    rows = conn.execute(
+        "SELECT id, website_url, github_url FROM startups "
+        "WHERE canonical_domain IS NULL OR canonical_domain = ''"
+    ).fetchall()
+    filled = 0
+    for i in range(0, len(rows), 500):
+        for row in rows[i:i + 500]:
+            domain = _canonical_domain(row["website_url"] or row["github_url"])
+            if domain:
+                conn.execute(
+                    "UPDATE startups SET canonical_domain = ? WHERE id = ?",
+                    (domain, row["id"]),
+                )
+                filled += 1
+        conn.commit()
+    return filled

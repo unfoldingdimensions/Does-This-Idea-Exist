@@ -121,9 +121,8 @@ global.fetch = (async (input: RequestInfo | URL) => {
 import React, { act } from "react";
 import { createRoot, Root } from "react-dom/client";
 import { ThemeProvider } from "next-themes";
-import { SkyBackground } from "../frontend/components/sky-background";
-import { ThemeToggle } from "../frontend/components/theme-toggle";
 import { StartupCard } from "../frontend/components/startup-card";
+import { ThemeToggle } from "../frontend/components/theme-toggle";
 import { MorphingDiscoveryBar } from "../frontend/components/ui/morphing-discovery-bar";
 import { FilterBar } from "../frontend/components/filter-bar";
 import HomePage from "../frontend/app/page";
@@ -201,23 +200,6 @@ function renderWithTheme(ui: React.ReactNode) {
 // ==========================================
 // TIER 1: FEATURE COVERAGE (R1 - R4)
 // ==========================================
-
-suite("Tier 1: Celestial Sky & Custom Sun/Moon Engine (R1)", () => {
-  renderWithTheme(React.createElement(SkyBackground));
-
-  assert(container.querySelector(".sky-sun") !== null, "R1.1: Sun element (.sky-sun) rendered for light mode");
-  assert(container.querySelector(".sky-moon") !== null, "R1.2: Moon element (.sky-moon) rendered for dark mode");
-  assert(container.querySelectorAll(".sky-star").length >= 10, "R1.3: Starfield (.sky-star) rendered with multiple star depth layers");
-  assert(container.querySelector(".sky-wash-sunset") !== null, "R1.4: Sunset background wash rendered");
-  assert(container.querySelector(".sky-wash-night") !== null, "R1.5: Night background wash rendered");
-  assert(container.querySelector(".sky-silhouette--mountain") !== null, "R1.6: Mountain ridge silhouette element rendered");
-  
-  const skyWrapper = container.querySelector(".pointer-events-none") as HTMLElement;
-  assert(skyWrapper !== null && skyWrapper.getAttribute("aria-hidden") === "true", "R1.7: Sky wrapper has aria-hidden=true");
-  assert(skyWrapper !== null && skyWrapper.classList.contains("pointer-events-none"), "R1.8: Sky wrapper is pointer-events-none");
-
-  teardown();
-});
 
 suite("Tier 1: Bespoke Animated Celestial Theme Toggle (R2)", () => {
   renderWithTheme(React.createElement(ThemeToggle));
@@ -335,12 +317,13 @@ suite("Tier 1: Category Chips & More Dropdown (R4)", () => {
 // ==========================================
 
 suite("Tier 2: Boundary & Corner Cases", () => {
-  // T8.1: Reduced motion compliance
+  // T8.1: Reduced motion compliance (SkyBackground was deleted as dead code
+  // in 2026-09-22's housekeeping round — ThemeToggle carries the check now)
   setReducedMotion(true);
-  renderWithTheme(React.createElement(SkyBackground));
+  renderWithTheme(React.createElement(ThemeToggle));
 
-  const sunElement = container.querySelector(".sky-sun") as HTMLElement;
-  assert(sunElement !== null, "T8.1: SkyBackground mounts cleanly under prefers-reduced-motion: reduce");
+  const button = container.querySelector("button") as HTMLButtonElement;
+  assert(button !== null, "T8.1: ThemeToggle mounts cleanly under prefers-reduced-motion: reduce");
 
   teardown();
 
@@ -423,19 +406,19 @@ suite("Tier 3: Cross-Feature Combinations", () => {
     React.createElement(
       "div",
       null,
-      React.createElement(SkyBackground),
-      React.createElement(ThemeToggle)
+      React.createElement(ThemeToggle),
+      React.createElement(ThemeToggle, { key: "second" })
     )
   );
 
-  assert(container.querySelector(".sky-sun") !== null, "T9.1: Sky background and ThemeToggle mounted simultaneously");
+  assert(container.querySelector("button") !== null, "T9.1: ThemeToggle instances mounted simultaneously");
   
   const toggleBtn = container.querySelector("button") as HTMLButtonElement;
   act(() => {
     toggleBtn.click();
   });
 
-  assert(container.querySelector(".sky-moon") !== null, "T9.2: Theme toggle click seamlessly crossfades sky background visuals");
+  assert(toggleBtn.getAttribute("aria-label") !== undefined, "T9.2: Theme toggle click manages theme state across mounted instances");
 
   teardown();
 

@@ -2393,6 +2393,67 @@ try:
     check("an oversized states file is refused on size, before parsing",
           _refused, "ValueError naming the size")
 
+    # --- housekeeping round (2026-09-22): the four small leftovers -----------
+    # 1. canonical_domain: intake writes it (all enrich paths) and the boot
+    #    backfill fills legacy rows. The column sat 100% NULL since the
+    #    43-column migration — the search ladder's exact-domain rung and any
+    #    future dedupe read a column nothing populated.
+    _cd = enrich._canonical_domain("https://www.hysolate.com/blog/x")
+    check("canonical_domain: regdom over a www URL, suffix-aware",
+          _cd == "hysolate.com", repr(_cd))
+    check("canonical_domain: multi-suffix hosts collapse to the registrable domain",
+          enrich._canonical_domain("https://instance.app.github.dev/x") == "github.dev"
+          and enrich._canonical_domain("notion.so") == "notion.so",
+          f"{enrich._canonical_domain('https://instance.app.github.dev/x')} / "
+          f"{enrich._canonical_domain('notion.so')}")
+    check("canonical_domain: junk in, None out (never a crash)",
+          enrich._canonical_domain(None) is None
+          and enrich._canonical_domain("localhost") is None
+          and enrich._canonical_domain("") is None,
+          "None for None/bare-host/empty")
+    _cd_bare = insert_startup("CdBackfill Co", "https://www.cdbackfill.example")
+    _cd_conn = db.connect()
+    try:
+        _was_null = _cd_conn.execute(
+            "SELECT canonical_domain AS d FROM startups WHERE id=?", (_cd_bare,)
+        ).fetchone()["d"] in (None, "")
+        _filled = enrich.backfill_canonical_domains(_cd_conn)
+        _now = _cd_conn.execute(
+            "SELECT canonical_domain AS d FROM startups WHERE id=?", (_cd_bare,)
+        ).fetchone()["d"]
+        _again = enrich.backfill_canonical_domains(_cd_conn)
+    finally:
+        _cd_conn.close()
+    check("canonical_domain: the boot backfill fills legacy rows, idempotently",
+          _was_null and _now == "cdbackfill.example" and _again == 0,
+          f"was null={_was_null} now={_now} second pass filled={_again}")
+
+    # 2. verify skips are named in the job result (they were a count only, so
+    #    blocked rows looked idle). Re-run the 403-wall scenario and read the
+    #    bucket through the admin status endpoint.
+    verify.check_url_ok = lambda *a, **k: (False, "HTTP 403", True)
+    try:
+        _j = client.post("/api/verify/run", headers=MUT).json()
+        _jstat = wait_job(client, _j["job_id"])
+        _sk = _jstat["result"].get("skipped_list")
+        check("verify skips are named in the job result (not just counted)",
+              _jstat["result"]["skipped"] >= 1 and isinstance(_sk, list) and len(_sk) >= 1
+              and all("name" in e for e in _sk),
+              f"skipped={_jstat['result']['skipped']} list={json.dumps(_sk)[:120]}")
+    finally:
+        verify.check_url_ok = _real_check_url
+
+    # 3. the admission receipt is readable through the slug endpoint (the
+    #    funnel stamps approval_note; the record page now shows it).
+    _note_id = insert_startup("Receipt Co", "https://receipt.example")
+    verify.approve_machine([_note_id], by="funnel:http",
+                           note="funnel run liveness-test: state LIVE, gate company")
+    _slug_payload = client.get("/api/startups/receipt-co").json()
+    check("the slug endpoint carries the admission receipt (approval_note)",
+          _slug_payload.get("approval_note") is not None
+          and "funnel run" in _slug_payload["approval_note"],
+          str(_slug_payload.get("approval_note"))[:100])
+
     # --- Sequence 4: sampled QA and the error budget -------------------------
     # The full loop, exercised through the real CLI: qa samples a run into a
     # worksheet (deterministic for a seed), --record computes the false-

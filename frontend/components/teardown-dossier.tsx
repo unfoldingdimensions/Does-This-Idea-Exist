@@ -172,7 +172,14 @@ function TrustBadges({ record }: { record: StartupRecord | null }) {
   }
   return (
     <div className="space-y-1.5">
-      <div className="flex flex-wrap items-center gap-2">
+      <div
+        className="flex flex-wrap items-center gap-2"
+        title={
+          machineAdmitted && record.approval_note
+            ? record.approval_note
+            : undefined
+        }
+      >
         <span
           className={cn(
             "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium",

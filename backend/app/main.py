@@ -75,6 +75,20 @@ async def _auto_verify_loop() -> None:
 async def lifespan(app: FastAPI):
     _check_auth_config()
     db.init_db()
+    # canonical_domain backfill (2026-09-22): the column existed since the 43-col
+    # migration but nothing wrote it (1,258/1,258 NULL). Every intake path now
+    # writes it; this one-time pass fills the rows admitted before that. Idempotent
+    # and chunked — a fully-populated archive makes it a single indexed SELECT.
+    try:
+        _conn = db.connect()
+        try:
+            _filled = enrich.backfill_canonical_domains(_conn)
+        finally:
+            _conn.close()
+        if _filled:
+            log.info("canonical_domain backfill: %d rows filled", _filled)
+    except Exception as exc:  # noqa: BLE001 — a backfill failure must not block boot
+        log.warning("canonical_domain backfill skipped: %s", exc)
     # F-10: the founder store is its own file and its own schema. Creating it at
     # boot (not lazily on first write) means a broken FOUNDER_DB_PATH fails here,
     # loudly, instead of on a founder's first request.

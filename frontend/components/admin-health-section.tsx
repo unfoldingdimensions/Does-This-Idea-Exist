@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CheckCircle2, Loader2, Play, RefreshCw, TriangleAlert } from "lucide-react";
+import { CheckCircle2, CircleDashed, Loader2, Play, RefreshCw, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -343,6 +343,43 @@ export function HealthCheckSection({
                   </ul>
                 )}
               </div>
+              {/* Skips: walls/rate-limits/transients. They never strike, but a
+                  count alone made blocked rows look idle — name what the pass
+                  could not see. Older jobs may not carry the list. */}
+              {(result?.skipped ?? 0) > 0 && (
+                <div className="rounded-lg bg-background/60">
+                  <button
+                    type="button"
+                    onClick={() => onToggle(`hskipped:${job.id}`)}
+                    disabled={(result?.skipped_list?.length ?? 0) === 0}
+                    className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 disabled:cursor-default"
+                  >
+                    {(result?.skipped_list?.length ?? 0) > 0 ? (
+                      <CircleDashed
+                        className={cn(
+                          "h-3 w-3 shrink-0",
+                          expanded.has(`hskipped:${job.id}`) && "text-foreground",
+                        )}
+                      />
+                    ) : (
+                      <span className="w-3 shrink-0" />
+                    )}
+                    Skipped (not struck) <span className="tabular-nums">{result?.skipped ?? 0}</span>
+                  </button>
+                  {expanded.has(`hskipped:${job.id}`) && (result?.skipped_list?.length ?? 0) > 0 && (
+                    <ul className="max-h-40 space-y-1 overflow-y-auto px-2 pb-2">
+                      {result?.skipped_list?.map((x, i) => (
+                        <li key={`${x.name}-${i}`} className="px-1 text-[11px]">
+                          <span className="font-medium text-foreground">{x.name}</span>
+                          {x.reason && (
+                            <span className="text-muted-foreground"> — {x.reason}</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

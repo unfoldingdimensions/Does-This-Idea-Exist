@@ -441,6 +441,15 @@ def run_verify_job(job: dict) -> None:
             "already_verified": job["already_verified"],
             "suggested": job["suggested"],
             "failed_list": job["failed_list"],
+            # The skip list, named: walls/rate-limits/transients are ambiguous
+            # signals by design (they never strike), but they were previously
+            # only a count — rows sitting on skips looked idle rather than
+            # blocked. The health panel renders this bucket like the others.
+            "skipped_list": [
+                {"name": u.split(" (", 1)[0],
+                 "reason": u.split(" (", 1)[1].rstrip(")") if " (" in u else ""}
+                for u in job["skipped_urls"]
+            ],
         }
         job["status"] = "done"
         seeder._persist_job(job)
