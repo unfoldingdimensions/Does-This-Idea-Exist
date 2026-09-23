@@ -136,9 +136,10 @@ Public reads — no token:
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/health` | liveness + model/db echo |
-| `GET /api/startups` | list (`?q=` `?category=` `?limit=` `?offset=`; `limit` defaults to 3000, max 5000) |
+| `GET /api/startups` | list (`?q=` `?category=` `?limit=` `?offset=`; `limit` defaults to 3000, max 5000). Bare array, frozen shape; the filtered total rides the additive `X-Total-Count` header |
+| `GET /api/startups/page` | the paged envelope (`?limit=` max 5000, `?offset=`, plus `?category=` `?year=` `?status=` `?q=`) → `{total, limit, offset, rows}` where `total` is the **filtered** count, so a client can walk every window without ever trusting a truncated 200. Tombstones (`dead`, `pivoted`) sink to the end of the last window; an invalid `status` is a `422` |
 | `GET /api/startups/{slug}` | one product by slug — its teardown fields, its `evidence` rows, and the two trust signals as explicit `admin_verified` / `machine_verified` (`+ _at`) fields. A **pure read**: it never triggers a capture |
-| `GET /api/search` | search with a per-result `reason` from the eight-reason ladder; an empty query is `200 []` |
+| `GET /api/search` | search with a per-result `reason` from the eight-reason ladder; an empty query is `200 []`. Candidates come from the raw-word table and the same ladder ranks them; the linear scan is the fallback (index unavailable, or a band over the candidate cap) — both paths are parity-pinned to identical results |
 | `GET /api/categories` | category counts |
 | `GET /api/stats` | counts + freshness |
 | `POST /api/compare` | the gap table: `{you, competitors[]}` → the five bands, every cell sourced or `unknown` |

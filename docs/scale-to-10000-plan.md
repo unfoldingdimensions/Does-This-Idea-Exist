@@ -14,7 +14,7 @@
 | **C** sourcing + staging | next | needs D1/D2 confirmed in the form implemented, then 3,000 candidates with no publishes |
 | **C0** company gate | **done** 2026-09-19 | built and measured on real candidates before being trusted, per §3.5: on the pilot's 50, 10 non-companies rejected (all hand-verified), 0 inflated queue. Wired into both `audit` and `verify` and into the report. `selftest` 47/47 |
 | **D** enrichment pilot | blocked on C | 200 rows, measures $/row - the number D3 needs |
-| **P** platform unblock | not started | §7.1 paging, §7.2 FTS5, §7.7 sitemap |
+| **P** platform unblock | **done** 2026-09-24 | §7.1 paging + §7.2 FTS5 **struck from §7**; §7.7 sitemap partly (it now walks the paged envelope, so every slug is emitted instead of silently stopping at the read ceiling — **splitting is still single-file**). Proof: the 10k scale test walks 10,070 rows with no dupes or gaps (1.3 s) and measures search p95 **523 ms** over 8 query classes, narrow tokens **88–107 ms**, parity endpoint-vs-linear re-proven at 10k. Old `/api/startups` shape frozen + pinned; the funnel/approval surfaces untouched. Functional 270 → **341**, e2e 239 → **238** (dead code removed), selftest 50/50. Commits `bf0a3cc` `2ce55c2` `150033d` `8e56a79` `a3afa19`; plan `.hermes/plans/2026-09-22_phase-p-paging-fts5.md` |
 
 **D1/D2 as implemented in Phase A** (override any of this and A is re-done): approval provenance is an explicit column rather than automation writing `verified` silently; the admin queue is the 7 triggers in §3.3.
 
@@ -31,7 +31,7 @@ is a plumbing problem, and the expensive one (volume) is a budget problem.
 | **A** | Acquire candidates | 1,258 rows | ~13,000 candidates to net 10,000 live | sourcing breadth + dedupe |
 | **B** | Prove they are alive and real | 1,254 admin-verified by hand | ~10,000 auto-approved, hundreds to admin | HTTP + render throughput |
 | **C** | Enrich them | machinery exists, coverage ~0% | 10,000 × six sourced fields | **fetches + LLM tokens, unmetered today** |
-| **D** | Serve them | one sitemap URL, 3,000-row read ceiling | 10k pages, searchable, indexable | API paging, FTS, sitemap, build |
+| **D** | Serve them | one sitemap URL, 3,000-row read ceiling | 10k pages, searchable, indexable | API paging, FTS, sitemap, build **[paging + FTS shipped 2026-09-24; sitemap splitting outstanding]** |
 
 **Measured baseline (2026-09-18, read-only).** 1,258 startups · 1,254 `verified=1` · 4 unverified ·
 all `status='active'` · 11 distinct categories · 9,430 `verify_log` rows spanning 2026-08-08 → 09-17.
@@ -57,15 +57,15 @@ These bite before 10k, and several bite at 2–3k. Fixes are in §7.
 
 | # | Blocker | Where |
 |---|---|---|
-| 1 | `/api/startups` **truncates at 3,000 rows (max 5,000) and still returns HTTP 200** — at 10k the directory silently serves ~30% of the archive | `main.py:640, 653-686` |
-| 2 | Frontend fetches the **entire archive per page load** and filters client-side with Fuse; ~950 KiB raw / 225 KiB gzip at 1.3k → **~7 MB at 10k**, re-introducing documented 120–180 ms/keypress jank | `api.ts:52-55`, `page.tsx:214-233`, `search.ts:20-27` |
-| 3 | Search is a **Python linear scan** over `SELECT *`; FTS5+bm25 is named as the next step but not built | `main.py:735-739`, `search.py:118-125` |
+| ~~1~~ | ~~`/api/startups` **truncates at 3,000 rows (max 5,000) and still returns HTTP 200** — at 10k the directory silently serves ~30% of the archive~~ **fixed 2026-09-24 (§7.1)** — `/api/startups/page` carries `total` and walks every window; the truncating endpoint keeps its frozen shape but is no longer the only door | `main.py:640, 653-686` |
+| 2 | Frontend fetches the **entire archive per page load** and filters client-side with Fuse; ~950 KiB raw / 225 KiB gzip at 1.3k → **~7 MB at 10k**, re-introducing documented 120–180 ms/keypress jank | `api.ts:52-55`, `page.tsx:214-233`, `search.ts:20-27` **[frontend now switches to 24-row envelope windows past a 3,000-row client window — the below-window path is unchanged and pinned by e2e]** |
+| ~~3~~ | ~~Search is a **Python linear scan** over `SELECT *`; FTS5+bm25 is named as the next step but not built~~ **fixed 2026-09-24 (§7.2)** — candidates come from FTS5 + a trigger-synced raw-word table, the F-18 ladder still ranks (reasons unchanged), parity pinned at 10k; p95 523 ms, narrow tokens 88–107 ms | `main.py:735-739`, `search.py:118-125` |
 | 4 | Seed jobs are **serial, single-threaded, capped at 500 candidates/job**, one **synchronous LLM call per candidate** → 10k needs ≥20 jobs and days of wall-clock, with no checkpoint/resume | `seeder.py:38, 288-296, 301-337, 449-451` |
 | 5 | **No LLM cost control at all** — no token accounting, no $ cap, no concurrency limit; up to 2×8,000-token attempts per call | `llm.py:150-180`, `docs/llm-gateways.md` §6 |
 | 6 | SQLite contention: three writer threads, connection re-opened and committed **per candidate/row**, only `busy_timeout=5000` | `db.py:152-165`, `seeder.py:301-337` |
 | 7 | Dedupe is **URL-only**, with an **O(n) full-table scan** fallback; no name/alias/domain merge, no merge tool | `db.py:98-99, 236-262` |
 | 8 | Teardown capture is **JIT and serialized across all competitors** — by design. 10k teardowns through it is infeasible | `capture.py:1-8`, `seeder.py:92-130` |
-| 9 | Sitemap emits **exactly one URL**; every `/products/<slug>` page is client-rendered and unindexed | `sitemap.ts:6-15` |
+| 9 | ~~Sitemap emits **exactly one URL**~~ **partly fixed 2026-09-24** — the sitemap now walks the paged envelope and emits **every** `/products/<slug>`; still open: the pages are `"use client"` with no per-page metadata, and the sitemap is a single unsplit file | `sitemap.ts:6-15`, `frontend/app/products/[slug]/page.tsx:1` |
 | 10 | Approval does not batch: `ApproveIn.ids` capped at 1,000, the suggestion list returns unnarrowed (10k rows at scale), and the verify pass walks every row serially | `main.py:420-423, 427-479`, `verify.py:208-331` |
 
 Two more worth naming: evidence rows **never expire or dedupe** (`reviewed_at` is declared but never
@@ -363,13 +363,13 @@ lighter identity fields elsewhere) — never cutting the evidence rules.
 
 | # | Fix | Why it is required before volume |
 |---|---|---|
-| 7.1 | **Replace the 3,000-row read ceiling with pagination** (`main.py:640, 653-686`) — or raise it and page properly; never truncate behind an HTTP 200 | At 10k the directory silently serves a third of the archive |
-| 7.2 | **Server-side search + FTS5** (`main.py:735-739`, `search.py:118-125`), and stop shipping the whole archive to the browser (`api.ts:52-55`) | ~7 MB payload and client Fuse jank at 10k |
+| 7.1 | ~~**Replace the 3,000-row read ceiling with pagination** (`main.py:640, 653-686`) — or raise it and page properly; never truncate behind an HTTP 200~~ **DONE 2026-09-24** — `GET /api/startups/page` returns `{total, limit, offset, rows}` with `total` = filtered count; both list endpoints share one query builder (`_archive_page`); the old `/api/startups` shape is frozen and pinned by a regression test (the filtered total rides the additive `X-Total-Count` header). The frontend switches to envelope-driven server paging (24-row windows) past a 3,000-row client window; below it the UX is unchanged. Walked end-to-end at 10,070 rows: no dupes, no gaps, 1.3 s for the full walk. Commit `bf0a3cc`, `8e56a79`, `a3afa19` | At 10k the directory silently serves a third of the archive |
+| 7.2 | ~~**Server-side search + FTS5** (`main.py:735-739`, `search.py:118-125`), and stop shipping the whole archive to the browser (`api.ts:52-55`)~~ **DONE 2026-09-24** — FTS5 (external-content, trigger-synced) + a raw-word table feed `/api/search` candidates; the existing F-18 ladder still ranks and assigns reasons, so reasons are unchanged and parity (endpoint vs forced linear) is pinned on all 334-check suite rungs and re-proven at 10k. Measured: p95 **523 ms** over 8 query classes at 10,070 rows, narrow single-token queries **88–107 ms** (broad terms fall back to the scan by design — the 500-candidate cap). Two earlier designs were falsified by probe (porter-stem vocab loses mid-word matches; first-char fuzzy pruning is unsound), so the UDF mirrors the ladder's own tokenizer. Commits `2ce55c2`, `150033d`, `a3afa19` | ~7 MB payload and client Fuse jank at 10k |
 | 7.3 | **Batch/parallel orchestration** — parallel workers with checkpoint/resume, replacing serial 500-capped jobs (`seeder.py:38, 449-451`) | Days of wall-clock per pass otherwise |
 | 7.4 | **LLM metering**: token accounting, $/row, concurrency cap, per-batch hard budget (`llm.py:150-180`) | Unbounded, unmetered spend today |
 | 7.5 | **Write path**: chunked writes, keep per-row commits, raise/queue past `busy_timeout` (`db.py:152-165`); move to Postgres only if concurrent writers grow (D5) | "database is locked" backoff under batch load |
 | 7.6 | **Identity/dedupe**: populate `canonical_domain`, add aliases, replace the O(n) `normalize_url` scan (`db.py:236-262`), add a merge tool | Duplicates at 10k are unrecoverable by hand |
-| 7.7 | **Sitemap + indexable product pages** (`sitemap.ts:6-15`): emit all `/products/<slug>`, split the sitemap, make the pages crawlable | 10k pages that search engines cannot see is the point of the directory, lost |
+| 7.7 | **Sitemap + indexable product pages** (`sitemap.ts:6-15`): emit all `/products/<slug>`, split the sitemap, make the pages crawlable — **partly done 2026-09-24**: the sitemap walks the paged envelope and emits every slug (verified against the same endpoint the 10k test walks); **still open: split the file, and server-render the product pages with per-page metadata** (they remain `"use client"`) | 10k pages that search engines cannot see is the point of the directory, lost |
 | 7.8 | **Batch approval endpoint** for the admin path (`main.py:420-479`) and a narrowed queue payload | The admin queue must stay reviewable, not become a 10k-row wall |
 | 7.9 | **Evidence hygiene**: de-dupe on re-capture, retention rule, set `reviewed_at`, use the unused evidence types (`evidence.py:20-31, 67`) | The evidence table is the product's asset; unbounded duplicates erode it |
 | 7.10 | **Process-local rate limiting** (`main.py:198-261`) → shared store, if/when multiple workers exist | Silent under-enforcement after any horizontal scale |
@@ -384,7 +384,7 @@ lighter identity fields elsewhere) — never cutting the evidence rules.
 | **B** | Funnel v2 dry-run over the **existing** 1,258 rows, publishing nothing | reproduces the 2026-09-18 outcome (the 8 dead/repurposed + Magdrive walled); auto-approval changes nothing about the current verified set; auditor `selftest` 50/50 | nothing published, nothing deleted |
 | **C** | Sourcing harness + `candidates` staging; pull 3,000 candidates, **no publishes** | per-channel yield report; zero duplicates by `canonical_domain`; >95% of staged rows carry `source_url`+`captured_at` | truncate staging table |
 | **D** | Enrichment pilot, 200 rows, six fields, end-to-end | measured s/row, tokens/row, $/row; per-field accuracy vs human labels; 100% of claims have evidence rows; **reports the real 10k budget (D3)** | delete pilot enrichment, keep rows |
-| **P** | Platform unblock: §7.1 paging, §7.2 FTS5 search, §7.7 sitemap+indexable pages | 10k-row synthetic fixture served correctly by paged read; search p95 sane; sitemap lists every product page | revert frontend/API |
+| **P** | Platform unblock: §7.1 paging, §7.2 FTS5 search, §7.7 sitemap+indexable pages — **DONE 2026-09-24** | ✅ 10k-row synthetic fixture served correctly by paged read (10,070 rows walked, no dupes/gaps, 1.3 s); ✅ search p95 sane (523 ms measured at 10k, 88–107 ms narrow tokens, parity vs linear); ⚠️ sitemap lists every product page (walked via the envelope) but is still a **single** file, not split | revert frontend/API |
 | **E** | Enrichment v2 + batch driver: use cases, negatives, competitors, reviews, metering, evidence hygiene | batch teardown with checkpoint/resume; budget hard-stop works; negatives all trace to enumerating pages; reviews quoted not scored; walls "listed but not fetched" | per-field revert |
 | **F** | Scale to 10k in batches of 500–1,000 | every batch inside both error budgets; stop-the-line honoured; verified backup per batch; §7.3/7.4/7.5 proven under load | restore batch backup |
 | **G** | Product surface at 10k: search UX, pagination, badges, performance budget | 10k pages build inside budget; badges render per §8.1 rules | revert frontend |
@@ -416,7 +416,7 @@ is not a polish item, it is the difference between a 10k archive and a 3k one wi
 2. **Phase A + B**: approval model, then the funnel dry-run over the existing 1,258 rows.
 3. **Phase C**: staging + 3,000 candidates, publishing nothing, reporting yield per channel.
 4. **Phase D**: the 200-row pilot that turns "10k enrichment" from a guess into a number.
-5. Then **P** (platform) → **E** → **F** (batches to 10k) → **G**.
+5. ~~**P** (platform)~~ **DONE 2026-09-24** → then **E** → **F** (batches to 10k) → **G**. Two §7.7 strands came out of P unfinished and are worth doing before F: the product pages are still client-rendered with no per-page metadata (§0.1 blocker 9) and the sitemap is one unsplit file (fine to 50k URLs, worth splitting before then).
 
 Nothing here requires deleting data or weakening the evidence rules. The one thing it changes is
 *who admits a row* — and that is recorded on the row, not lost.

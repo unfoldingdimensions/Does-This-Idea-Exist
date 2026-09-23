@@ -718,13 +718,13 @@ def health() -> dict:
 # The client holds everything and filters client-side (Fuse). The knee where
 # that architecture stops feeling instant is ~3,000 rows (measured: 22ms/term
 # at 1,292, 35ms at 2,500, 70ms at 5,000 on desktop) — so the default ceiling
-# sits at the knee, with MAX as an explicit opt-in. When the limit bites, the
-# response is truncated with HTTP 200: the frontend detects it via
-# startups.length < /api/stats.total and banners it (search/filters only cover
-# the rows shown).
-# ponytail: when the archive outgrows ~3,000 rows, move SEARCH server-side
-# (SQLite FTS5 + bm25) — not offset pagination, which the directory UX doesn't
-# need. This marker shows up in /ponytail-debt.
+# sits at the knee, with MAX as an explicit opt-in.
+#
+# A limit that bites still truncates with HTTP 200 (that response shape is
+# pinned additively by `X-Total-Count`), but the truncation is no longer a
+# dead end: `/api/startups/page` walks the archive in `total`-carrying
+# envelope windows, and the frontend switches to it past the client window.
+# Done 2026-09-24 (Phase P task 1); see docs/scale-to-10000-plan.md §7.1.
 LIST_LIMIT_DEFAULT, LIST_LIMIT_MAX = 3000, 5000
 
 
@@ -871,9 +871,16 @@ def search(
     (F-22). It reads stored data only — a search that fetched pages and called
     the LLM would be slow, non-deterministic and expensive on every keystroke.
 
-    ponytail: linear scan in Python (app.search). Pleasant to ~3,000 rows, the
-    same knee as the client path (LIST_LIMIT_DEFAULT); FTS5 + bm25 is the next
-    step when the archive outgrows it, not a bigger scan.
+    Candidates come from the raw-word table (`fts.candidate_ids`), which is a
+    superset BY CONSTRUCTION of the ladder's own admission bands; the ladder
+    below still classifies and ranks, so reasons stay F-18-frozen and the
+    endpoint is parity-pinned against the linear scan on every rung.
+
+    Done 2026-09-24 (Phase P task 4), replacing the linear-scan marker: the
+    scan is now the FALLBACK (index unavailable, or a query whose candidate
+    band exceeds `SEARCH_CANDIDATE_CAP` — broad terms cost more to narrow than
+    to scan). Measured at 10k: p95 523 ms over 8 query classes, narrow tokens
+    88-107 ms; docs/scale-to-10000-plan.md §7.2.
     """
     if not search_mod.query_terms(q):
         return []  # the documented empty-query contract

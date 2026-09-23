@@ -79,11 +79,13 @@ LLM would be slow, non-deterministic and expensive on every keystroke, and it
 would make "why did this match?" depend on the network.  Search reads stored
 data only — do not "fix" this by wiring capture in here.
 
-ponytail: this is a linear scan in Python (one pass over the rows, a substring
-probe per field per term).  That is the honest implementation at this size and
-the same knee as the client path: pleasant to ~3,000 rows (see
-main.LIST_LIMIT_DEFAULT).  When the archive outgrows it, the next step is FTS5 +
-bm25 in SQLite — not a bigger scan.  This marker shows up in /ponytail-debt.
+Done 2026-09-24 (Phase P task 4): the candidate path lives in `fts.py` (+ the
+`sx_words` UDF in `udf.py`), which reproduces these exact admission bands so no
+match this module would have admitted can be missed — the ranker below is
+unchanged, so reasons stay F-18-frozen.  The scan in `rank` is no longer the
+only path but is still the REFERENCE the fast path is parity-tested against,
+and the live fallback (index unavailable, or a band over the candidate cap).
+Measured at 10k: p95 523 ms over 8 query classes, narrow tokens 88-107 ms.
 """
 from __future__ import annotations
 

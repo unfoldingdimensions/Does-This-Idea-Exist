@@ -6,6 +6,45 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added — Phase P: the platform unblock (2026-09-24)
+
+Paging and FTS5, so the directory can serve 10k rows without lying about it.
+Everything here is additive: the old `/api/startups` shape is frozen and
+pinned by a regression test, and the home page behaves identically until the
+archive outgrows a 3,000-row client window.
+
+- **`GET /api/startups/page`** — a paged envelope
+  `{total, limit, offset, rows}` where `total` is the **filtered** count, so a
+  client can walk every window instead of trusting a truncated `200`. Filters
+  `?q=` `?category=` `?year=` (founded-year prefix) `?status=` (validated →
+  `422`). Both list endpoints now share one query builder, so the two truths
+  cannot drift; tombstones (`dead`, `pivoted`) sink to the end of the paging
+  order in every window.
+- **`X-Total-Count`** on `/api/startups` — the filtered total as a header,
+  which keeps the bare-array body byte-identical.
+- **Server-side search.** `/api/search` builds candidates from a
+  trigger-synced raw-word table plus an FTS5 index (external-content,
+  `porter unicode61`) and then runs the **existing** F-18 ladder over them, so
+  reasons are unchanged and the fast path is parity-pinned against the linear
+  scan on every admission rung. The scan remains the fallback: index
+  unavailable, or a candidate band over `SEARCH_CANDIDATE_CAP` (broad terms
+  cost more to narrow than to scan). The `sx_words` SQL UDF reproduces the
+  ladder's own tokenizer so no admission can be missed by construction.
+- **The frontend pages past the window.** Below 3,000 rows nothing changes —
+  one fetch, client Fuse, client facets. Past it the grid renders 24-row
+  envelope windows with the filtered total driving the pager, server-supplied
+  search reasons, and the old "search only covers the rows shown" truncation
+  banner retired (the count is now structural, so the lie has nothing left to
+  describe).
+- **`sitemap.ts`** walks the envelope instead of stopping at the read
+  ceiling, so every `/products/<slug>` is listed; a failed page keeps what was
+  collected (a partial sitemap beats a broken build).
+
+Measured at 10,070 rows: the pager walks the whole archive in 1.3 s with no
+duplicates or gaps; search p95 is **523 ms** over eight query classes with
+narrow single-token queries at **88–107 ms**. Functional checks 270 → 341,
+e2e 231 → 238.
+
 ### Added — Sequence 4: sampled QA and the error budget (2026-09-22)
 
 - `site_liveness_audit.py qa`: a deterministic, seeded, stratified sample of a
