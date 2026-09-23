@@ -64,6 +64,47 @@ export function fetchStartups(): Promise<Startup[]> {
   return json<Startup[]>(`${API_BASE}/api/startups`, { cache: "no-store" });
 }
 
+/** Phase P: the paged envelope from `GET /api/startups/page`. `total` is the
+ * FILTERED count, so a pager can render exact page counts per facet set. */
+export interface StartupPage {
+  total: number;
+  limit: number;
+  offset: number;
+  rows: Startup[];
+}
+
+/** Filters the envelope endpoint understands server-side. `q` mirrors the
+ * ladder's word matching; the facets are exact matches (category) or
+ * prefixes (year on `founded`). */
+export interface PageFilters {
+  q?: string;
+  category?: string | null;
+  year?: string | null;
+  status?: string | null;
+}
+
+/** One window of the archive through the envelope. Below the client window
+ * size nothing calls this (the single fetch above stays the path of record);
+ * past it, this is how the grid pages without hauling 10k rows over the wire. */
+export async function fetchStartupsPage(
+  offset: number,
+  filters: PageFilters = {},
+  limit = 24,
+): Promise<StartupPage> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(Math.max(0, offset)),
+  });
+  const q = filters.q?.trim();
+  if (q) params.set("q", q);
+  if (filters.category) params.set("category", filters.category);
+  if (filters.year && filters.year !== "all") params.set("year", filters.year);
+  if (filters.status && filters.status !== "all") params.set("status", filters.status);
+  return json<StartupPage>(`${API_BASE}/api/startups/page?${params}`, {
+    cache: "no-store",
+  });
+}
+
 export function fetchCategories(): Promise<CategoryCount[]> {
   return json<CategoryCount[]>(`${API_BASE}/api/categories`, { cache: "no-store" });
 }

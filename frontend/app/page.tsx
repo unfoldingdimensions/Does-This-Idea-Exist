@@ -39,6 +39,7 @@ import { SplitButton } from "@/components/ui/split-button";
 import { ContinuousPagination } from "@/components/ui/continuous-pagination";
 import {
   fetchStartups,
+  fetchStartupsPage,
   fetchCategories,
   fetchStats,
   markVerified,
@@ -63,6 +64,12 @@ import { useAdminToken } from "@/lib/use-admin-token";
 import type { CategoryCount, Startup, Stats } from "@/lib/types";
 
 const PAGE_SIZE = 24;
+/** The client window: archives up to this many rows behave exactly as before
+ * (one fetch, client Fuse, client facets/sort/paging). Past it, the page
+ * switches to SERVER mode — the envelope endpoint pages the grid and search
+ * runs server-side (rows + reasons in one response). The Fuse knee the
+ * comments below cite (~3,000 rows) is the threshold. */
+const CLIENT_WINDOW = 3000;
 
 /** Read filter state from the URL (client-only — called from a mount effect). */
 function readInitialParams(): {
@@ -133,6 +140,13 @@ export default function HomePage() {
   const [online, setOnline] = React.useState(true);
   const [detail, setDetail] = React.useState<Startup | null>(null);
   const [addOpen, setAddOpen] = React.useState(false);
+  // --- Phase P server mode (archive > CLIENT_WINDOW) -----------------------
+  // serverTotal: the envelope's filtered total for the CURRENT facet set.
+  // serverRows: the one 24-row window on screen. serverPaging: an in-flight
+  // window fetch (drives the same skeleton the initial load uses).
+  const [serverTotal, setServerTotal] = React.useState(0);
+  const [serverRows, setServerRows] = React.useState<Startup[]>([]);
+  const [serverPaging, setServerPaging] = React.useState(false);
   const [addTab, setAddTab] = React.useState<"github" | "website">("github");
   const [density, setDensity] = React.useState<DensityMode>("gallery");
   const [cmdOpen, setCmdOpen] = React.useState(false);
@@ -212,6 +226,12 @@ export default function HomePage() {
     });
   }, []);
 
+  // Phase P: the mode switch. `stats.total` is the archive's whole size —
+  // known as soon as the first load settles. Below the window this page is
+  // byte-identical to its pre-Phase-P behavior; past it, the envelope
+  // endpoint takes over paging and search.
+  const serverMode = !loading && (stats?.total ?? 0) > CLIENT_WINDOW;
+
   // Truncation is detectable on the wire: the list fetch carries no limit, so
   // startups.length < stats.total means the ceiling bit (HTTP 200, short body,
   // no error). Banner it honestly with both real numbers — and only when the
@@ -247,12 +267,55 @@ export default function HomePage() {
     return () => window.clearTimeout(t);
   }, [query]);
 
+  // --- Phase P server mode: the window fetch --------------------------------
+  // When the archive outgrows CLIENT_WINDOW, the grid shows ONE 24-row window
+  // from the envelope endpoint (which applies the same facets server-side and
+  // returns the filtered total). The reasons effect above still runs and
+  // stays the single reasons source — the envelope returns archive rows, not
+  // search results.
+  // Debounced (150ms) so a filter burst fires one request; the cleanup
+  // cancels the stale timer, and a sequence counter guards a late response
+  // from overwriting a newer window.
+  const serverFetchSeq = React.useRef(0);
+  React.useEffect(() => {
+    if (!serverMode) return undefined;
+    const seq = ++serverFetchSeq.current;
+    // The busy state moves INSIDE the timer callback (react-hooks v7: no
+    // synchronous setState in the effect body) — the 150ms debounce means a
+    // fast burst never flashes the status line at all.
+    const t = window.setTimeout(() => {
+      setServerPaging(true);
+      fetchStartupsPage((page - 1) * PAGE_SIZE, {
+        q: query,
+        category,
+        year,
+        status,
+      })
+        .then((pg) => {
+          if (seq !== serverFetchSeq.current) return; // a newer window won
+          setServerRows(pg.rows);
+          setServerTotal(pg.total);
+          setServerPaging(false);
+          setOnline(true);
+        })
+        .catch(() => {
+          if (seq !== serverFetchSeq.current) return;
+          setServerPaging(false);
+          setOnline(false);
+        });
+    }, 150);
+    return () => window.clearTimeout(t);
+  }, [serverMode, page, query, category, year, status]);
+
   // Stable identity for AdminPanel's onSeeded — an inline lambda here changed
   // on every render and cascaded new callback identities into the admin
   // polling chain (interval teardown, HealthCheckSection effect churn).
   const handleSeeded = React.useCallback(() => void loadAll(), [loadAll]);
 
-  // Debounced client-side search + facets (dataset is small — no backend round-trip per keystroke)
+  // Debounced client-side search + facets. BELOW the client window this is
+  // the whole story (Fuse over the fetched archive). IN server mode the grid
+  // renders `serverRows` (one envelope window) and pages on the envelope's
+  // filtered total — see the branch right after.
   const results = React.useMemo(() => {
     const filtered = filterStartups(startups, {
       q: query,
@@ -268,7 +331,10 @@ export default function HomePage() {
     return searching && sort === "top" ? filtered : sortStartups(filtered, sort);
   }, [startups, query, category, year, status, sort]);
 
-  const totalPages = Math.max(1, Math.ceil(results.length / PAGE_SIZE));
+  // Server mode: the envelope owns the counts and the window.
+  const totalPages = serverMode
+    ? Math.max(1, Math.ceil(serverTotal / PAGE_SIZE))
+    : Math.max(1, Math.ceil(results.length / PAGE_SIZE));
   // Clamp during render (no setState-in-effect): a URL page beyond the last page
   // after filtering shows the last page. While loading, keep the raw deep-linked
   // page so ?page=5 survives the empty-results skeleton.
@@ -276,9 +342,12 @@ export default function HomePage() {
   // Self-heal `page` to the clamp (React's adjust-state-during-render): without
   // it the stale value resurfaces when filters later widen totalPages again.
   if (!loading && page !== currentPage) setPage(currentPage);
-  const paged = React.useMemo(
-    () => results.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
-    [results, currentPage],
+  // The grid's rows: server mode renders the fetched envelope window (while
+  // its window fetch is in flight, the previous window stays up — the pager
+  // shows the busy state); client mode slices the in-memory results.
+  const paged = serverMode ? serverRows : results.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE,
   );
 
   // Page switch = content swap + glide back to the top, so the reader never
@@ -656,14 +725,17 @@ export default function HomePage() {
           status={status}
           onStatus={changeStatus}
           years={years}
-          count={results.length}
+          count={serverMode ? serverTotal : results.length}
           onClear={clearFilters}
           showClear={hasAnyFilter}
           searching={query.trim().length > 0}
         />
 
-        {/* Truncation banner — the ceiling bit and the frontend knows it */}
-        {truncated && (
+        {/* Truncation banner — CLIENT MODE ONLY. The envelope makes the count
+            structural: server mode pages the real filtered total, so the old
+            "Showing X of Y, search only covers the shown" lie has nothing to
+            describe (in server mode `startups` is just the first window). */}
+        {truncated && !serverMode && (
           <div
             role="status"
             className="mb-4 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-xl border border-border/40 bg-background/60 px-4 py-2 text-xs text-muted-foreground"
@@ -678,7 +750,7 @@ export default function HomePage() {
 
         {/* Freshness highlights — only on the unfiltered landing view */}
         <AnimatePresence>
-          {!hasAnyFilter && !loading && results.length > 0 && (
+          {!hasAnyFilter && !loading && (serverMode ? serverTotal > 0 : results.length > 0) && (
             <motion.div
               key="home-sections"
               initial={{ opacity: 0, y: reduce ? 0 : 8 }}
@@ -769,6 +841,11 @@ export default function HomePage() {
                 </div>
               ))}
             </div>
+            {serverMode && serverPaging && (
+              <div role="status" aria-live="polite" className="mt-3 text-center text-xs text-muted-foreground">
+                Fetching page {currentPage.toLocaleString()} of {totalPages.toLocaleString()}…
+              </div>
+            )}
             <ContinuousPagination currentPage={currentPage} totalPages={totalPages} onPageChange={changePage} />
           </>
         )}
