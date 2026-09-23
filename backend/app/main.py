@@ -34,7 +34,7 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 
-from . import capture, compare as compare_mod, db, enrich, evidence as evidence_mod, founder, funnel, gateways, search as search_mod, seeder, verify  # noqa: E402
+from . import capture, compare as compare_mod, db, enrich, evidence as evidence_mod, founder, fts, funnel, gateways, search as search_mod, seeder, verify  # noqa: E402
 
 log = logging.getLogger("ideasexist")
 
@@ -83,12 +83,19 @@ async def lifespan(app: FastAPI):
         _conn = db.connect()
         try:
             _filled = enrich.backfill_canonical_domains(_conn)
+            # Phase P: the FTS index (a candidate generator for /api/search).
+            # ensure() is a no-op in the steady state; it rebuilds only when the
+            # schema version moved (a deploy) or the index is missing. A build
+            # without FTS5 logs and keeps the linear scan.
+            _rebuilt = fts.ensure(_conn)
+            if _rebuilt:
+                log.info("fts index rebuilt (schema version %s)", fts.FTS_SCHEMA_VERSION)
         finally:
             _conn.close()
         if _filled:
             log.info("canonical_domain backfill: %d rows filled", _filled)
     except Exception as exc:  # noqa: BLE001 — a backfill failure must not block boot
-        log.warning("canonical_domain backfill skipped: %s", exc)
+        log.warning("canonical_domain/fts boot step skipped: %s", exc)
     # F-10: the founder store is its own file and its own schema. Creating it at
     # boot (not lazily on first write) means a broken FOUNDER_DB_PATH fails here,
     # loudly, instead of on a founder's first request.

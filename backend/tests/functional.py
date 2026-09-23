@@ -2454,6 +2454,111 @@ try:
           and "funnel run" in _slug_payload["approval_note"],
           str(_slug_payload.get("approval_note"))[:100])
 
+    # --- Phase P Task 3: the FTS index (schema, sync, rebuild, fallback) ------
+    # The index is an OPTIMISATION with a contract: available() gates callers,
+    # triggers keep it in sync with every writer, and a version bump (or a
+    # dropped table) rebuilds/falls back — search results never depend on it.
+    # The app's boot lifespan already ran ensure() inside TestClient's context,
+    # so the steady-state assertions are about the SECOND call being a no-op.
+    from app import fts as fts_mod
+
+    _fts_live = insert_startup("Fts Quillwind Co", "https://fts-quillwind.example",
+                               tagline="Local-first parchment scrolls",
+                               description="A parchment grimoire that files plain scrolls",
+                               category="wax-sealing",
+                               aliases='["qw", "quillwind scrolls"]')
+    insert_startup("Fts Noise Co", "https://fts-noise.example",
+                   tagline="Cloud spreadsheet sync")
+    _fts_conn = db.connect()
+    try:
+        check("fts: boot lifespan created the index",
+              fts_mod.available(_fts_conn) is True
+              and fts_mod.version_ok(_fts_conn) is True,
+              "lifespan ran fts.ensure()")
+        check("fts: steady-state ensure() is a no-op (no second rebuild)",
+              fts_mod.ensure(_fts_conn) is False, "version marker trusted")
+        check("fts: version_ok true after ensure",
+              fts_mod.version_ok(_fts_conn) is True, str(fts_mod.FTS_SCHEMA_VERSION))
+
+        check("fts: a term in name matches",
+              fts_mod.search_ids(_fts_conn, ["quillwind"]) == [_fts_live]
+              and fts_mod.search_ids(_fts_conn, ["obsidian"]) != [_fts_live],
+              str(fts_mod.search_ids(_fts_conn, ["quillwind"])))
+        check("fts: AND across terms (both must hit the same row)",
+              fts_mod.search_ids(_fts_conn, ["parchment", "grimoire"]) == [_fts_live]
+              and fts_mod.search_ids(_fts_conn, ["parchment", "spreadsheet"]) == [],
+              "AND gate mirrors the ladder's")
+        check("fts: porter stems (files matches filing in the doc)",
+              _fts_live in fts_mod.search_ids(_fts_conn, ["files"])
+              and _fts_live in fts_mod.search_ids(_fts_conn, ["filing"]),
+              "tokenize=porter unicode61: doc has 'files', both forms hit")
+        check("fts: aliases column is searchable",
+              fts_mod.search_ids(_fts_conn, ["quillwind scrolls"]) == [_fts_live], "aliases indexed")
+        check("fts: FTS5 metacharacters in a term cannot alter the query",
+              fts_mod.search_ids(_fts_conn, ['quillwind" NOT (']) == []
+              and fts_mod.search_ids(_fts_conn, ['"']) == []
+              and fts_mod.search_ids(_fts_conn, ["*"]) in ([], [_fts_live]),
+              "quoted phrases only; no syntax error, no injection")
+        check("fts: empty terms -> no candidates (caller's empty-query contract)",
+              fts_mod.search_ids(_fts_conn, []) == [] and fts_mod.search_ids(_fts_conn, ["  "]) == [],
+              "[]")
+
+        # sync: a write through the app's own writer lands in the index
+        _fts_second = insert_startup("Fts Second Co", "https://fts-second.example",
+                                     tagline="Portable tic-tac-toe clock")
+        check("fts: INSERT trigger indexes a new row",
+              fts_mod.search_ids(_fts_conn, ["tic-tac-toe"]) == [_fts_second],
+              str(fts_mod.search_ids(_fts_conn, ["tic-tac-toe"])))
+        _fts_conn.execute("UPDATE startups SET tagline = 'Warm bread delivery' WHERE id = ?",
+                          (_fts_second,))
+        _fts_conn.commit()
+        check("fts: UPDATE trigger replaces the old doc (old words gone, new found)",
+              fts_mod.search_ids(_fts_conn, ["bread"]) == [_fts_second]
+              and fts_mod.search_ids(_fts_conn, ["tic-tac-toe"]) == [],
+              "external-content delete+insert pair")
+        _fts_conn.execute("DELETE FROM startups WHERE id = ?", (_fts_second,))
+        _fts_conn.commit()
+        check("fts: DELETE trigger removes the doc",
+              fts_mod.search_ids(_fts_conn, ["bread"]) == [], "no ghost candidates")
+
+        # repair: a drifted index (ghost mapping with no real row) is rebuilt,
+        # not trusted. (Probe-verified: an external-content FTS table re-reads
+        # text from `startups`, so a bare 'delete' wipe does NOT hide real
+        # rows — the failure mode that matters is ghost/stale entries.)
+        _fts_conn.execute(
+            "INSERT INTO startups_fts(rowid, name, tagline, description,"
+            " category, aliases, canonical_domain)"
+            " VALUES (999999, 'ghost co', 'spectralwobble', '', '', '', '')")
+        _fts_conn.commit()
+        check("fts: a ghost mapping is findable (that's the drift danger)",
+              fts_mod.search_ids(_fts_conn, ["spectralwobble"]) == [999999],
+              "stale index lies — rebuild must be the fix")
+        fts_mod.rebuild(_fts_conn)
+        _fts_conn.commit()
+        check("fts: rebuild() is the repair path (ghost gone, real row back)",
+              fts_mod.search_ids(_fts_conn, ["spectralwobble"]) == []
+              and fts_mod.search_ids(_fts_conn, ["quillwind"]) == [_fts_live],
+              "delete-all + reseed from startups")
+        check("fts: force ensure() rebuilds and re-stamps the version",
+              fts_mod.ensure(_fts_conn, force=True) is True
+              and fts_mod.version_ok(_fts_conn) is True, "deploy marker refreshed")
+        check("fts: stats snapshot",
+              fts_mod.stats(_fts_conn)["available"] is True
+              and fts_mod.stats(_fts_conn)["indexed"] >= 1,
+              json.dumps(fts_mod.stats(_fts_conn)))
+    finally:
+        _fts_conn.close()
+
+    # --- the candidate path through the real endpoint -------------------------
+    # Task 4 wires /api/search to prefer fts.search_ids; until then the linear
+    # scan remains the only path, and this endpoint-level check pins that the
+    # FTS work so far changed nothing about responses.
+    _lin = client.get("/api/search", params={"q": "Fts Quillwind"}).json()
+    check("fts: /api/search still answers identically (linear path untouched)",
+          any(r["name"] == "Fts Quillwind Co" for r in _lin)
+          and all("reason" in r for r in _lin),
+          f"{len(_lin)} rows, reasons intact")
+
     # --- Phase P Task 1: the paged envelope endpoint --------------------------
     # /api/startups keeps its bare-list shape (pinned); /api/startups/page is
     # the additive envelope {total, limit, offset, rows} — scale-plan §7.1,
