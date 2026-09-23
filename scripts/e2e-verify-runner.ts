@@ -2087,6 +2087,126 @@ async function phasePServerMode(): Promise<void> {
   }
 }
 
+// --- Phase P task 7b: the sitemap's URL hygiene -----------------------------
+// The sitemap had NO coverage before this. Three states are pinned: the happy
+// two-page walk (with tombstones and a name collision in the data), a backend
+// that is down entirely, and a backend that dies mid-walk.
+async function phasePSitemap(): Promise<void> {
+  const { siteUrl } = await import("../frontend/lib/site");
+  const sitemapFn = (await import("../frontend/app/sitemap")).default;
+
+  const row = (id: number, name: string, status = "active") => ({
+    id,
+    name,
+    status,
+    tagline: `tagline ${id}`,
+    description: `description ${id}`,
+    category: "productivity",
+    founded: "2024-01-01",
+    website_url: `https://s${id}.example`,
+    verified: 1,
+    stars: null,
+    last_checked: null,
+    check_failures: 0,
+  });
+
+  // 500 rows on page 1 (the endpoint's limit is asked as 500): 496 plainly
+  // live, 2 tombstones, and a name PAIR that collides on slug.
+  const page1 = [
+    ...Array.from({ length: 496 }, (_, i) => row(i + 1, `Alpha Co ${i + 1}`)),
+    row(600, "Beta Retired", "dead"),
+    row(601, "Gamma Pivoted", "pivoted"),
+    row(602, "Delta Twin"),
+    row(603, "Delta Twin"),
+  ];
+  const page2 = [row(700, "Epsilon Co"), row(701, "Zeta Co")];
+  const TOTAL = page1.length + page2.length;
+
+  const savedFetch = globalThis.fetch;
+  const calls: string[] = [];
+  const installStub = (opts: { failFrom?: string; throwOnAll?: boolean }) => {
+    calls.length = 0;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      calls.push(url);
+      if (opts.throwOnAll) throw new Error("backend is down");
+      if (opts.failFrom && url.includes(opts.failFrom)) {
+        return { ok: false, status: 503, json: async () => ({}) } as Response;
+      }
+      const offset = Number.parseInt(
+        new URLSearchParams(url.split("?")[1] ?? "").get("offset") ?? "0",
+        10,
+      );
+      const rows = offset === 0 ? page1 : offset === page1.length ? page2 : [];
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ total: TOTAL, limit: 500, offset, rows }),
+      } as Response;
+    }) as typeof globalThis.fetch;
+  };
+
+  try {
+    // 1. The happy walk.
+    installStub({});
+    const entries = await sitemapFn();
+    const urls = entries.map((e) => e.url);
+    const productUrls = urls.filter((u) => u.includes("/products/"));
+
+    assert(urls.includes(`${siteUrl}/`), "P.P7.1: the home page is always listed");
+    assert(
+      new Set(urls).size === urls.length,
+      "P.P7.2: not one duplicate <loc> in the sitemap",
+    );
+    assert(
+      urls.length === 1 + 496 + 1 + 2,
+      `P.P7.3: every live row is listed once (got ${urls.length}, want ${1 + 496 + 1 + 2})`,
+    );
+    assert(
+      productUrls.includes(`${siteUrl}/products/alpha-co-1`) &&
+        productUrls.includes(`${siteUrl}/products/alpha-co-496`) &&
+        productUrls.includes(`${siteUrl}/products/epsilon-co`) &&
+        productUrls.includes(`${siteUrl}/products/zeta-co`),
+      "P.P7.4: page 1 and page 2 slugs both land in the sitemap (the walk paginates)",
+    );
+    assert(
+      !productUrls.some(
+        (u) => u.endsWith("/beta-retired") || u.endsWith("/gamma-pivoted"),
+      ),
+      "P.P7.5: tombstones (dead, pivoted) are never advertised",
+    );
+    assert(
+      productUrls.filter((u) => u.endsWith("/delta-twin")).length === 1,
+      "P.P7.6: a name collision emits ONE url (the page resolves to one row)",
+    );
+    assert(
+      calls.some((u) => u.includes("offset=500")),
+      "P.P7.7: the second page was actually requested (offset=500)",
+    );
+
+    // 2. Backend down entirely: the home page alone, no throw.
+    installStub({ throwOnAll: true });
+    const down = await sitemapFn();
+    assert(
+      down.length === 1 && down[0].url === `${siteUrl}/`,
+      "P.P7.8: a backend that is down yields the home page alone (no broken build)",
+    );
+
+    // 3. Backend dies mid-walk: what page 1 collected survives.
+    installStub({ failFrom: "offset=500" });
+    const partial = await sitemapFn();
+    assert(
+      partial.length === 1 + 496 + 1,
+      `P.P7.9: a failed page keeps the rows already collected (got ${partial.length}, want ${1 + 496 + 1})`,
+    );
+  } catch (err) {
+    failedCount++;
+    console.error("  ✗ UNHANDLED EXCEPTION in the sitemap suite:", err);
+  } finally {
+    globalThis.fetch = savedFetch;
+  }
+}
+
 // --- run the Phase 7 suites ------------------------------------------------
 
 (async () => {
@@ -2104,6 +2224,7 @@ async function phasePServerMode(): Promise<void> {
   await suiteAsync("Tier 5: [12] founded honesty", area12FoundedHonesty);
   await suiteAsync("Tier 6: the non-happy states from the ledger", tier6NonHappyStates);
   await suiteAsync("Phase P: server mode (archive > client window)", phasePServerMode);
+  await suiteAsync("Phase P task 7b: sitemap URL hygiene", phasePSitemap);
 
   // Final Test Summary Output
   console.log("\n==========================================");

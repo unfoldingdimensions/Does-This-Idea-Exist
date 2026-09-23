@@ -38,7 +38,13 @@ archive outgrows a 3,000-row client window.
   describe).
 - **`sitemap.ts`** walks the envelope instead of stopping at the read
   ceiling, so every `/products/<slug>` is listed; a failed page keeps what was
-  collected (a partial sitemap beats a broken build).
+  collected (a partial sitemap beats a broken build). It also skips
+  **tombstones** (`dead` / `pivoted` rows are retired products, not results)
+  and emits **one URL per slug** — the live archive has 6 name-collision pairs
+  (Fathom the notetaker vs Fathom the medical coder, and five others), and the
+  slug endpoint resolves each collision to a single deterministic row, so a
+  repeated `<loc>` would be a duplicate rather than a second page. 1,258 rows
+  → **1,252 sitemap URLs**.
 
 Measured at 10,070 rows: the pager walks the whole archive in 1.3 s with no
 duplicates or gaps; search p95 is **523 ms** over eight query classes with
