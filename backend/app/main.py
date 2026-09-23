@@ -737,17 +737,40 @@ def list_startups(
     q: str | None = Query(default=None, max_length=200),
     limit: int = Query(LIST_LIMIT_DEFAULT, ge=1, le=LIST_LIMIT_MAX),
     offset: int = Query(0, ge=0),
+    response: Response = None,  # type: ignore[assignment]
     _rl: None = Depends(rate_limited("read", 120, 60)),
 ) -> list[dict]:
     """The archive. The frontend pulls this once and filters client-side, so
     the default limit is a growth ceiling rather than real pagination: once
     the row count passes LIST_LIMIT_DEFAULT the response is truncated (still
     HTTP 200) and the frontend detects it against /api/stats. Tombstones sink
-    first — both 'dead' AND 'pivoted' — so truncation never promotes them."""
+    first — both 'dead' AND 'pivoted' — so truncation never promotes them.
+
+    SHAPE CONTRACT (pinned by a functional test): a bare JSON list. The Phase P
+    envelope lives on /api/startups/page — this endpoint is deliberately left
+    untouched so every existing consumer keeps working. The only addition is
+    the X-Total-Count header (harmless, additive).
+    """
+    rows, total = _archive_page(category=category, q=q, limit=limit, offset=offset)
+    if response is not None:
+        response.headers["X-Total-Count"] = str(total)
+    return rows
+
+
+def _archive_page(
+    *, category: str | None, q: str | None, limit: int, offset: int,
+    year: str | None = None, status: str | None = None,
+) -> tuple[list[dict], int]:
+    """One query builder for BOTH list endpoints, so they cannot drift.
+
+    Returns (rows, total) where total is the filtered-row count (the envelope's
+    `total`, and the X-Total-Count header). Tombstones sink first — both 'dead'
+    AND 'pivoted' — so any window of the paging order leads with live rows.
+    """
     conn = db.connect()
     try:
-        sql = "SELECT * FROM startups"
-        conds, params = [], []
+        conds: list[str] = []
+        params: list = []
         if category:
             conds.append("category = ?")
             params.append(category)
@@ -757,14 +780,52 @@ def list_startups(
                 "OR description LIKE ? ESCAPE '\\')"
             )
             params += [f"%{_like_escape(q)}%"] * 3
-        if conds:
-            sql += " WHERE " + " AND ".join(conds)
-        sql += " ORDER BY CASE status WHEN 'dead' THEN 1 WHEN 'pivoted' THEN 1 ELSE 0 END, name COLLATE NOCASE"
-        sql += " LIMIT ? OFFSET ?"
-        params += [limit, offset]
-        return [dict(r) for r in conn.execute(sql, params).fetchall()]
+        if year:
+            conds.append("founded LIKE ? ESCAPE '\\'")  # year prefix: "2024" -> "2024%"
+            params.append(f"{_like_escape(year)}%")
+        if status:
+            conds.append("status = ?")
+            params.append(status)
+        where = (" WHERE " + " AND ".join(conds)) if conds else ""
+        order = (" CASE status WHEN 'dead' THEN 1 WHEN 'pivoted' THEN 1 ELSE 0 END,"
+                 " name COLLATE NOCASE")
+        total = conn.execute(
+            f"SELECT COUNT(*) AS c FROM startups{where}", params).fetchone()["c"]
+        rows = [dict(r) for r in conn.execute(
+            f"SELECT * FROM startups{where} ORDER BY{order} LIMIT ? OFFSET ?",
+            [*params, limit, offset]).fetchall()]
+        return rows, total
     finally:
         conn.close()
+
+
+@app.get("/api/startups/page")
+def list_startups_page(
+    category: str | None = Query(default=None, max_length=40),
+    q: str | None = Query(default=None, max_length=200),
+    year: str | None = Query(default=None, min_length=4, max_length=10),
+    status: str | None = Query(default=None, pattern="^(active|verified|unverified|dead|pivoted)$"),
+    limit: int = Query(300, ge=1, le=LIST_LIMIT_MAX),
+    offset: int = Query(0, ge=0),
+    _rl: None = Depends(rate_limited("read", 120, 60)),
+) -> dict:
+    """The paged archive (Phase P, scale-plan §7.1): an explicit envelope
+    instead of a truncation a client has to detect.
+
+    {total, limit, offset, rows} — `total` is the FILTERED row count, so a
+    pager renders exact page counts per facet combination, and offset+limit
+    walks the full set with stable ordering (tombstones sink). `year` filters
+    on the founded-year prefix and `status` on the row status — the facets the
+    home page applies client-side today, exposed server-side so Phase P's
+    frontend window can move them behind this endpoint later without a new
+    contract.
+
+    Additive by design: /api/startups is untouched (shape pinned by a test);
+    this endpoint is the only one a pager needs.
+    """
+    rows, total = _archive_page(
+        category=category, q=q, year=year, status=status, limit=limit, offset=offset)
+    return {"total": total, "limit": limit, "offset": offset, "rows": rows}
 
 
 @app.get("/api/search")

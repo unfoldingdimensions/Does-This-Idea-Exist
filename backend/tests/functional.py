@@ -2454,6 +2454,73 @@ try:
           and "funnel run" in _slug_payload["approval_note"],
           str(_slug_payload.get("approval_note"))[:100])
 
+    # --- Phase P Task 1: the paged envelope endpoint --------------------------
+    # /api/startups keeps its bare-list shape (pinned); /api/startups/page is
+    # the additive envelope {total, limit, offset, rows} — scale-plan §7.1,
+    # never truncate behind an HTTP 200.
+    _pg_ids = [insert_startup(f"Page Co {i:02d}", f"https://page{i}.example",
+                              founded="2024-01-01", category="paging")
+               for i in range(1, 13)]
+    patch_startup(_pg_ids[0], status="dead")   # tombstone sinks in the order
+    patch_startup(_pg_ids[11], status="pivoted")
+    _pg1 = client.get("/api/startups/page", params={"limit": 5, "offset": 0}).json()
+    check("paged envelope: {total, limit, offset, rows} with total = filtered count",
+          set(_pg1) == {"total", "limit", "offset", "rows"}
+          and _pg1["total"] >= 12 and _pg1["limit"] == 5 and _pg1["offset"] == 0
+          and len(_pg1["rows"]) == 5,
+          json.dumps({k: _pg1[k] for k in ("total", "limit", "offset")}))
+    _pg_all = []
+    _off = 0
+    while True:
+        _p = client.get("/api/startups/page", params={"limit": 5, "offset": _off}).json()
+        _pg_all.extend(_p["rows"])
+        _off += 5
+        if _off >= _p["total"] or not _p["rows"]:
+            break
+    # dedupe on ID, not name — names are not unique across the archive's
+    # fixtures, and the pager's contract is about rows, not name strings
+    _pg_names = [r["id"] for r in _pg_all]
+    # the archive carries other fixtures too — scope the tombstone order to
+    # OUR 12 rows: within the walk, the two dead/pivoted ones must come after
+    # the ten live ones (ordering is global; our block may be split by other
+    # rows sorting between, but never reordered within).
+    _pg_mine = [r for r in _pg_all if r["id"] in set(_pg_ids)]
+    _mine_live = [r for r in _pg_mine if r["status"] not in ("dead", "pivoted")]
+    _mine_dead = [r for r in _pg_mine if r["status"] in ("dead", "pivoted")]
+    check("a full pager walk collects every row exactly once",
+          len(_pg_names) == len(set(_pg_names)) == _pg1["total"]
+          and sum(1 for r in _pg_all if r["id"] in set(_pg_ids)) == 12,
+          f"{len(_pg_names)} rows walked")
+    check("tombstones sink: our dead/pivoted rows sort after our live ones",
+          len(_pg_mine) == 12 and len(_mine_live) == 10 and len(_mine_dead) == 2
+          and _pg_all.index(_mine_dead[0]) > _pg_all.index(_mine_live[-1])
+          and _pg_all.index(_mine_dead[1]) > _pg_all.index(_mine_live[-1]),
+          f"live block ends at {_pg_all.index(_mine_live[-1])}, "
+          f"dead at {_pg_all.index(_mine_dead[0])}/{_pg_all.index(_mine_dead[1])})")
+    _pg_q = client.get("/api/startups/page",
+                       params={"q": "Page Co 05"}).json()
+    check("paged envelope: q filters and total reflects the filter",
+          _pg_q["total"] >= 1 and all("Page Co 05" == r["name"] or "Page Co 05" in r["name"]
+                                      for r in _pg_q["rows"][:3]),
+          f"total={_pg_q['total']}")
+    _pg_cat = client.get("/api/startups/page",
+                         params={"category": "paging", "year": "2024", "status": "active"}).json()
+    check("paged envelope: category+year+status compose (10 live paging rows)",
+          _pg_cat["total"] == 10
+          and all(r["category"] == "paging" and r["status"] == "active"
+                  for r in _pg_cat["rows"]),
+          f"total={_pg_cat['total']}")
+    _pg_bad = client.get("/api/startups/page", params={"status": "bogus"})
+    check("paged envelope: a nonsense status is 422 (validation, not a lie)",
+          _pg_bad.status_code == 422, str(_pg_bad.status_code))
+    # the old endpoint's shape is a CONTRACT — pinned so it cannot drift
+    _old = client.get("/api/startups", params={"limit": 3})
+    check("the original /api/startups is still a bare list (shape pinned)",
+          isinstance(_old.json(), list) and len(_old.json()) == 3
+          and "X-Total-Count" in _old.headers
+          and int(_old.headers["X-Total-Count"]) >= 12,
+          f"islist={isinstance(_old.json(), list)} xtc={_old.headers.get('X-Total-Count')}")
+
     # --- Sequence 4: sampled QA and the error budget -------------------------
     # The full loop, exercised through the real CLI: qa samples a run into a
     # worksheet (deterministic for a seed), --record computes the false-
