@@ -135,14 +135,20 @@ def _record_attempt(
 ) -> None:
     """Write this attempt to the usage ledger. Never raises (meter.record's rule).
 
-    Cost is NOT priced here: the rate table is §7.4 Task 3, and until it exists
-    every row stores a NULL cost with `cost_complete` False, so nothing can quote
-    a partial sum as the bill. The budget check (§7.4 Task 4) also belongs at this
-    seam — right before an attempt is opened — which is why every attempt funnels
-    through one function.
+    The attempt is PRICED here from the rate table (§7.4 task 3): an unknown
+    model, an unfilled rate row or a response with no token counts is recorded
+    cost NULL with a reason in `price_used` — a $ figure is never estimated to
+    look measured. The budget check (§7.4 task 4) belongs at this same seam,
+    right before an attempt is opened, which is why every attempt funnels here.
     """
     where = meter.current_attribution()
     u = usage or {}
+    cost, price_used = meter.price_attempt(
+        gateway.get("model"),
+        u.get("prompt_tokens"),
+        u.get("completion_tokens"),
+        u.get("cached_tokens"),
+    )
     meter.record(
         model=gateway.get("model"),
         gateway_id=gateway.get("gateway_id"),
@@ -158,6 +164,8 @@ def _record_attempt(
         ok=failure is None,
         error=None if failure is None else str(failure),
         usage_missing=bool(u.get("missing", True)),
+        cost_usd=cost,
+        price_used=price_used,
     )
 
 

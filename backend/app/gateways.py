@@ -204,6 +204,21 @@ def _app_setting(key: str, value: str | None = None) -> str:
         conn.close()
 
 
+def get_setting(key: str) -> str:
+    """Read a plain app setting (public form of _app_setting's reader).
+
+    Callers outside this module — `meter`'s rate table, the budget, the admin
+    API — go through this pair rather than reaching for the private helper.
+    """
+    return _app_setting(key, None)
+
+
+def set_setting(key: str, value: str) -> str:
+    """Write a plain app setting. The settings store is its own file, so this
+    touches nothing in the archive."""
+    return _app_setting(key, value)
+
+
 # --- helpers ----------------------------------------------------------------
 
 def _require(gateway_id: str) -> dict:

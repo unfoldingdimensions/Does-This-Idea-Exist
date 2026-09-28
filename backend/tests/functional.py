@@ -3359,6 +3359,152 @@ try:
 except Exception as _meter_t2_exc:  # noqa: BLE001 — a crash must fail loudly, not skip checks
     check("meter: the choke-point block ran to completion", False, repr(_meter_t2_exc))
 
+# --- §7.4 Task 3: the rate table — cited, editable, never invented ------------
+# A $ figure is the whole point of §7.4, so these checks are about where the
+# number comes from: the built-in table carries a source and a date per row, an
+# unknown or unfilled rate prices NOTHING (NULL + a reason, never 0), the
+# arithmetic is hand-checkable, and an edit cannot rewrite history.
+try:
+    meter_mod.clear_rates()  # start from the cited built-ins
+    _rates = meter_mod.load_rates()
+    check("meter: the built-in rate table is in use again after a clear",
+          meter_mod.rates_source()["origin"] == "builtin"
+          and _rates["deepseek-v4-flash"]["input"] == 0.14
+          and _rates["deepseek-v4-flash"]["output"] == 0.28
+          and _rates["deepseek-v4-flash"]["cached_input"] == 0.028,
+          json.dumps(meter_mod.rates_source()))
+    check("meter: EVERY built-in row carries its source and the date it was read",
+          all(r.get("source") and r.get("as_of") for r in _rates.values())
+          and _rates["deepseek-v4-flash"]["source"] == meter_mod.DEFAULT_RATES_SOURCE,
+          json.dumps({k: [v.get("source"), v.get("as_of")] for k, v in _rates.items()}))
+    check("meter: the unconfirmed Gemini row is present but marked unverified with no rates",
+          _rates["gemini-2.5-flash"]["verified"] is False
+          and _rates["gemini-2.5-flash"]["input"] is None
+          and _rates["gemini-2.5-flash"]["source"].startswith("https://ai.google.dev")
+          and bool(_rates["gemini-2.5-flash"]["notes"]),
+          json.dumps({k: _rates["gemini-2.5-flash"][k]
+                      for k in ("verified", "input", "output", "as_of")}))
+
+    # --- the arithmetic, computed by hand in the check itself ----------------
+    # glm-5.3-flash is $0.15 in / $0.50 out / $0.03 cached per 1M:
+    #   750,000 uncached input * 0.15 = 0.1125
+    #   250,000 cached input   * 0.03 = 0.0075
+    #   100,000 output         * 0.50 = 0.0500   ->  0.17
+    _cost, _pu = meter_mod.cost_of("glm-5.3-flash", 1_000_000, 100_000, 250_000)
+    check("meter: cost of a cached call matches the hand-computed $0.17",
+          _cost is not None and abs(_cost - 0.17) < 1e-9, f"cost={_cost} ({_pu})")
+    _cost_nc, _ = meter_mod.cost_of("glm-5.3-flash", 1_000_000, 100_000, 0)
+    check("meter: the cache rate actually discounts the bill ($0.20 -> $0.17)",
+          abs(_cost_nc - 0.20) < 1e-9 and _cost < _cost_nc, f"no-cache={_cost_nc}")
+    _cost_ds, _pu_ds = meter_mod.cost_of("deepseek-v4-flash", 1_000, 500, 0)
+    check("meter: a small call prices to fractions of a cent ($0.00028)",
+          abs(_cost_ds - 0.00028) < 1e-12, f"cost={_cost_ds}")
+    check("meter: a priced row names the model AND the rate-table version it used",
+          _pu_ds == f"deepseek-v4-flash@{meter_mod.rates_source()['version']}",
+          _pu_ds)
+
+    # --- unpriced is a FACT with a reason, never a zero ---------------------
+    _u_reasons = {
+        "no-rate": meter_mod.cost_of("some-unlisted-model", 100, 10, 0),
+        "no-usage": meter_mod.cost_of("glm-5.3-flash", None, None, None),
+        "empty-rate": meter_mod.cost_of("gemini-2.5-flash", 100, 10, 0),
+        "cached>prompt": meter_mod.cost_of("glm-5.3-flash", 100, 10, 200),
+        "no-cached-rate": meter_mod.cost_of(
+            "no-cache-rate-model", 100, 10, 5,
+            {"no-cache-rate-model": {"input": 1.0, "output": 2.0, "cached_input": None}}),
+    }
+    check("meter: every unpriceable case returns NULL cost with a stated reason",
+          all(cost is None and used == f"unpriced:{reason}"
+              for reason, (cost, used) in _u_reasons.items()),
+          json.dumps({k: v for k, v in _u_reasons.items()}))
+    check("meter: an unpriced cost is NULL, never 0 (0 would read as 'free')",
+          all(v[0] is not None or v[0] is None for v in _u_reasons.values())
+          and _u_reasons["no-rate"][0] is None
+          and meter_mod.cost_of("glm-5.3-flash", 0, 0, 0)[0] == 0.0,
+          "NULL is unknown; a genuine 0-token call is 0.0")
+
+    # --- edits change future rows only --------------------------------------
+    _v1 = meter_mod.rates_source()["version"]
+    meter_mod.save_rates({
+        **meter_mod.load_rates(),
+        "glm-5.3-flash": {"input": 0.30, "output": 0.50, "cached_input": 0.03,
+                          "source": "operator override (test)", "as_of": "2026-09-28"},
+    })
+    _src2 = meter_mod.rates_source()
+    check("meter: saving an edit flips the table to 'stored' and mints a new version",
+          _src2["origin"] == "stored" and _src2["version"] != _v1,
+          f"{_v1} -> {_src2['version']} ({_src2['origin']})")
+    _cost2, _pu2 = meter_mod.cost_of("glm-5.3-flash", 1_000_000, 100_000, 250_000)
+    check("meter: the edited rate is what new rows are priced at ($0.30/1M -> $0.2825)",
+          abs(_cost2 - 0.2825) < 1e-9 and _pu2.endswith(f"@{_src2['version']}"),
+          f"cost={_cost2} ({_pu2})")
+    check("meter: rows priced before the edit still name the OLD version (history is immutable)",
+          _pu == f"glm-5.3-flash@{_v1}" and _pu != _pu2, f"{_pu} vs {_pu2}")
+    meter_mod.clear_rates()
+    check("meter: clearing the override returns to the cited built-ins",
+          meter_mod.rates_source()["origin"] == "builtin"
+          and meter_mod.cost_of("glm-5.3-flash", 1_000_000, 100_000, 250_000)[0] == _cost,
+          json.dumps(meter_mod.rates_source()))
+    meter_mod.gateways.set_setting(meter_mod.RATES_KEY, "{not json at all")
+    _junk_rates = meter_mod.load_rates()
+    _junk_cost, _ = meter_mod.cost_of("glm-5.3-flash", 1_000_000, 100_000, 0)
+    check("meter: a junk stored table falls back to the built-ins rather than pricing nothing",
+          isinstance(_junk_rates, dict) and _junk_rates.get("glm-5.3-flash")
+          and _junk_cost is not None and meter_mod.load_rates(stored_only=True) is None,
+          f"models={len(_junk_rates or {})} cost={_junk_cost}")
+    meter_mod.clear_rates()
+
+    # --- pricing reaches the ledger from the real path -----------------------
+    _price_rows_before = meter_mod.count()
+    with meter_mod.attributing(job_id="t3-job", startup_id=4242):
+        _t3_parsed, _t3_n = _t2_call([_ok_payload])
+    _priced = meter_mod.rows(limit=1, job_id="t3-job")[0]
+    # _ok_payload is 900 prompt (512 cached) + 100 completion on the suite's
+    # active model, deepseek-v4-flash ($0.14 / $0.28 / $0.028):
+    #   388 * 0.14 + 512 * 0.028 + 100 * 0.28  =  0.00005432 + 0.000014336 + 0.000028
+    _expect = round((388 / 1e6) * 0.14 + (512 / 1e6) * 0.028 + (100 / 1e6) * 0.28, 8)
+    check("meter: llm_json's row carries a price computed from the rate table",
+          meter_mod.count() == _price_rows_before + 1 and _priced["cost_usd"] == _expect
+          and _priced["price_used"].startswith("deepseek-v4-flash@"),
+          f"cost={_priced['cost_usd']} expected={_expect} used={_priced['price_used']}")
+    # The Phase D number, on a one-row job: $/row and tokens/row are real
+    # numbers because the call was attributed to the row it produced.
+    _t3_summary = meter_mod.job_summary("t3-job")
+    check("meter: a priced, attributed row makes $/row and tokens/row real numbers",
+          _t3_summary["rows_touched"] == 1 and _t3_summary["cost_per_row"] == _expect
+          and _t3_summary["tokens_per_row"] == 1000 and _t3_summary["cost_complete"] is True,
+          json.dumps({k: _t3_summary[k] for k in
+                      ("rows_touched", "cost_usd", "cost_per_row", "tokens_per_row")}))
+
+    # The no-usage attempt from task 2 must STILL be unpriced and say why: the
+    # model is known, the tokens are not.
+    _nu2 = meter_mod.rows(limit=1, job_id="t2-job-nousage")[0]
+    check("meter: a known model with unknown tokens is unpriced:no-usage, not $0.00",
+          _nu2["cost_usd"] is None and _nu2["price_used"] == "unpriced:no-usage",
+          f"cost={_nu2['cost_usd']} used={_nu2['price_used']}")
+
+    # An unpriceable model end to end: store a table without the active model.
+    meter_mod.save_rates({"some-other-model": {"input": 1.0, "output": 1.0,
+                                               "cached_input": 0.1}})
+    with meter_mod.attributing(job_id="t3-job-norate"):
+        _t2_call([_ok_payload])
+    _nr = meter_mod.rows(limit=1, job_id="t3-job-norate")[0]
+    check("meter: a call on an unlisted model is recorded unpriced:no-rate with its tokens kept",
+          _nr["cost_usd"] is None and _nr["price_used"] == "unpriced:no-rate"
+          and _nr["total_tokens"] == 1000,
+          f"cost={_nr['cost_usd']} used={_nr['price_used']} tokens={_nr['total_tokens']}")
+    check("meter: an unpriced row makes the job's cost_complete False",
+          meter_mod.job_summary("t3-job-norate")["cost_complete"] is False,
+          json.dumps({k: meter_mod.job_summary("t3-job-norate")[k]
+                      for k in ("cost_usd", "unpriced_attempts", "cost_complete")}))
+    meter_mod.clear_rates()
+    check("meter: the suite's settings store is left on the built-in table",
+          meter_mod.rates_source()["origin"] == "builtin"
+          and meter_mod.load_rates(stored_only=True) is None,
+          json.dumps(meter_mod.rates_source()))
+except Exception as _meter_t3_exc:  # noqa: BLE001 — a crash must fail loudly, not skip checks
+    check("meter: the rate-table block ran to completion", False, repr(_meter_t3_exc))
+
 # ===========================================================================
 print("\n" + "=" * 78)
 _passed = _total - len(_fails)

@@ -34,12 +34,14 @@ guessed.
 
 `ts` is UTC (`datetime('now')`), like every other timestamp in this app.
 """
+import hashlib
+import json
 import logging
 import sqlite3
 from contextlib import contextmanager
 from contextvars import ContextVar
 
-from . import db
+from . import db, gateways
 
 log = logging.getLogger("meter")
 
@@ -188,8 +190,12 @@ def reset_failure_counter() -> None:
 
 
 def _sum_or_none(value):
-    """SQL SUM() is NULL over zero rows — that is the honest answer, not 0."""
-    return None if value is None else round(float(value), 6)
+    """SQL SUM() is NULL over zero rows — that is the honest answer, not 0.
+
+    Rounded to 8 decimals to match `cost_of`'s precision: a single small call is
+    ~$0.0001, and rounding a per-row figure to 6dp would report $0.000097 where
+    the rate table says $0.00009666."""
+    return None if value is None else round(float(value), 8)
 
 
 def record(
@@ -414,7 +420,7 @@ def job_summary(job_id: str) -> dict:
     attempts = int(row["attempts"] or 0)
     touched = int(row["rows_touched"] or 0)
     tokens = None if row["total_tokens"] is None else int(row["total_tokens"])
-    cost = None if row["cost"] is None else round(float(row["cost"]), 6)
+    cost = _sum_or_none(row["cost"])
     return {
         "job_id": job_id,
         "attempts": attempts,
@@ -444,6 +450,262 @@ def count(job_id: str | None = None) -> int:
         return int(conn.execute(f"SELECT COUNT(*) AS c FROM llm_usage{where}", params).fetchone()["c"])
     finally:
         conn.close()
+
+
+# --- the rate table ----------------------------------------------------------
+# Where the $ comes from. A tiny editable table in the settings store (one JSON
+# blob under one key), because prices change and code shouldn't have to.
+#
+# THE HONESTY RULES, in order of importance:
+#   * An unknown model is UNPRICED (NULL cost) — never estimated, never zero.
+#   * A call whose tokens are unknown is UNPRICED, whatever the model costs.
+#   * Every row records the rate it used (`price_used`), so editing a rate
+#     changes future rows only and an old figure stays reproducible.
+#   * A $ figure from this table is the MARGINAL COST at published list prices,
+#     not an invoice: a flat-rate subscription (OpenCode Go, $10/month) bills
+#     nothing per token, and a provider discount, a batch tier or a routed
+#     fallback will not appear here. The panel and the report say so.
+RATES_KEY = "llm_rates"
+
+# The published prices, cited. `as_of` is the date the page was read, and the
+# source URL is stored per row so an operator can re-check it. Cache columns are
+# per 1M tokens in USD: `cached_input` is what a cache READ costs (our calls
+# only ever read) and `cached_write` is recorded when the provider publishes it.
+DEFAULT_RATES_SOURCE = "https://opencode.ai/docs/zen"
+DEFAULT_RATES_AS_OF = "2026-09-28"
+DEFAULT_RATES: dict[str, dict] = {
+    # OpenCode Zen's published table, transcribed 2026-09-28. The project's
+    # default gateway (opencode-go) serves the same model ids.
+    "deepseek-v4-flash": {"input": 0.14, "output": 0.28, "cached_input": 0.028},
+    "deepseek-v4-pro": {"input": 1.74, "output": 3.48, "cached_input": 0.145},
+    "glm-5.3-flash": {"input": 0.15, "output": 0.50, "cached_input": 0.03},
+    "glm-5.3": {"input": 1.40, "output": 4.40, "cached_input": 0.26},
+    "kimi-k2.5": {"input": 0.60, "output": 3.00, "cached_input": 0.10},
+    "qwen3.7-plus": {"input": 0.40, "output": 1.60, "cached_input": 0.04,
+                     "cached_write": 0.50},
+    "claude-sonnet-4-5": {"input": 3.00, "output": 15.00, "cached_input": 0.30,
+                          "cached_write": 3.75,
+                          "notes": "the published <=200K-token tier only; the "
+                                   ">200K tier is $6.00/$22.50/$0.60 and is NOT "
+                                   "what this row prices"},
+    "gemini-3.5-flash": {"input": 1.50, "output": 9.00, "cached_input": 0.15},
+    # The Google gateway's own default model. Left UNPRICED on purpose: the
+    # pricing page read on 2026-09-28 no longer names 2.5 Flash in its tables
+    # (its Flash blocks are unnamed in the captured text), and a guessed rate is
+    # exactly the fabricated number this module exists to prevent. Fill these two
+    # numbers in from the console and every Gemini-routed call prices itself.
+    "gemini-2.5-flash": {
+        "input": None, "output": None, "cached_input": None,
+        "source": "https://ai.google.dev/gemini-api/docs/pricing",
+        "as_of": DEFAULT_RATES_AS_OF,
+        "verified": False,
+        "notes": "confirm the current 2.5 Flash input/output/cached rates in the "
+                 "Google AI console, then edit this row (Admin -> Usage) — until "
+                 "then Gemini calls are recorded unpriced, which is honest",
+    },
+}
+
+_RATES_MEMO: dict = {"raw": None, "parsed": None}
+
+
+def _rate_version(rates: dict) -> str:
+    """A short stable id for a rate table, so a row can name the rates it used."""
+    canonical = json.dumps(rates, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:8]
+
+
+def _clean_rate_row(row: dict) -> dict:
+    """Normalise one stored row; keep only the fields the pricer reads."""
+    out = {}
+    for field in ("input", "output", "cached_input", "cached_write"):
+        value = row.get(field)
+        if value is None or value == "":
+            out[field] = None
+        else:
+            try:
+                out[field] = float(value)
+            except (TypeError, ValueError):
+                out[field] = None
+    for field in ("source", "as_of", "notes"):
+        text = row.get(field)
+        out[field] = (str(text).strip() or None) if text else None
+    out["verified"] = bool(row.get("verified", True))
+    return out
+
+
+def _parse_stored(raw: str) -> dict | None:
+    """The stored table, or None when there is none / it is unreadable.
+
+    None is the answer for BOTH "never edited" and "the stored blob is junk":
+    callers that ask for the effective table fall back to the built-ins either
+    way, and `rates_source` reports the origin as built-in — because pricing off
+    a table nobody can read would be worse than pricing off the cited defaults.
+    """
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+        if not isinstance(parsed, dict):
+            raise ValueError("rate table is not an object")
+        return {str(k): _clean_rate_row(v if isinstance(v, dict) else {})
+                for k, v in parsed.items()}
+    except Exception as exc:  # noqa: BLE001 — bad JSON must not break every call
+        log.warning("stored rate table is unreadable (%s); using the built-ins", exc)
+        return None
+
+
+def load_rates(stored_only: bool = False) -> dict | None:
+    """The active rate table: the operator's stored edits, else the built-ins.
+
+    Defaults live in code (cited, dated) so pricing works on a fresh install
+    without a boot-time write; `save_rates` persists an edit and from then on the
+    stored table wins. `clear_rates()` removes the override.
+
+    `stored_only=True` answers "has anyone edited this?" — the stored table, or
+    **None** when nothing valid is stored (an empty dict is a deliberate "no
+    rates", which is a different thing from "never edited").
+    """
+    raw = ""
+    try:
+        raw = gateways.get_setting(RATES_KEY)
+    except Exception as exc:  # noqa: BLE001 — a settings read must not break pricing
+        log.warning("rate table unreadable (%s); using built-ins", exc)
+    stored = _parse_stored(raw)
+    if stored_only:
+        return stored
+    if _RATES_MEMO["raw"] == raw and _RATES_MEMO["parsed"] is not None:
+        return _RATES_MEMO["parsed"]
+    effective = stored if stored is not None else _default_table()
+    _RATES_MEMO.update({"raw": raw, "parsed": effective})
+    return effective
+
+
+def _default_table() -> dict:
+    """The built-in table with the citation stamped onto EVERY row.
+
+    The source and the date it was read are per-row, not global, because a table
+    can mix providers (Zen's list prices for the coding models, Google's page for
+    the Gemini one) and a figure without its source is not verifiable later.
+    """
+    out = {}
+    for model, row in DEFAULT_RATES.items():
+        clean = _clean_rate_row(row)
+        clean["source"] = clean["source"] or DEFAULT_RATES_SOURCE
+        clean["as_of"] = clean["as_of"] or DEFAULT_RATES_AS_OF
+        out[model] = clean
+    return out
+
+
+def save_rates(rates: dict) -> dict:
+    """Persist an edited rate table. Returns the stored form.
+
+    Invalid JSON never gets in: every row is normalised first, and a rate that
+    cannot be read as a number becomes NULL (unpriced) rather than 0 (free).
+    """
+    clean = {str(k): _clean_rate_row(v if isinstance(v, dict) else {})
+             for k, v in (rates or {}).items()}
+    payload = json.dumps(clean, sort_keys=True, indent=2)
+    gateways.set_setting(RATES_KEY, payload)
+    _RATES_MEMO.update({"raw": None, "parsed": None})
+    return clean
+
+
+def clear_rates() -> None:
+    """Drop the stored override, returning to the cited built-in table."""
+    gateways.set_setting(RATES_KEY, "")
+    _RATES_MEMO.update({"raw": None, "parsed": None})
+
+
+def rates_source(rates: dict | None = None) -> dict:
+    """"builtin" or "stored", plus the version id — what a $ figure cites."""
+    stored = load_rates(stored_only=True)
+    table = load_rates() if rates is None else rates
+    return {
+        "origin": "stored" if stored is not None else "builtin",
+        "version": _rate_version(table or {}),
+        "models": len(table or {}),
+        "as_of": _max_as_of(table or {}),
+        "source": DEFAULT_RATES_SOURCE,
+    }
+
+
+def _max_as_of(table: dict) -> str | None:
+    dates = [r.get("as_of") for r in table.values() if r.get("as_of")]
+    return max(dates) if dates else None
+
+
+def rate_for(model: str | None, rates: dict | None = None) -> dict | None:
+    """The rate row for a model id, or None. Never invents one."""
+    if not model:
+        return None
+    table = (load_rates() if rates is None else rates) or {}
+    return table.get(str(model))
+
+
+def cost_of(
+    model: str | None,
+    prompt_tokens: int | None,
+    completion_tokens: int | None,
+    cached_tokens: int | None = None,
+    rates: dict | None = None,
+) -> tuple[float | None, str]:
+    """Price one attempt. Returns (cost_usd | None, price_used).
+
+    `price_used` is "<model>@<version>" when the row was priced, and
+    "unpriced:<reason>" when it was not — so a NULL cost always states WHY. The
+    reasons are the facts a reader needs to fix it:
+
+      unpriced:no-usage        the provider sent no token counts
+      unpriced:no-rate         this model has no row in the rate table
+      unpriced:empty-rate      the row exists but its rates are not filled in
+      unpriced:no-cached-rate  cache hits happened and no cache rate is known
+      unpriced:cached>prompt   the counts disagree (cache cannot exceed input)
+
+    Cache accounting: `cached_tokens` are a SUBSET of `prompt_tokens` in the
+    OpenAI-compatible APIs this app talks to, so cache reads are billed at the
+    cache rate and the rest of the prompt at the input rate. Anything that does
+    not fit that shape is left unpriced rather than billed wrongly.
+    """
+    table = (load_rates() if rates is None else rates) or {}
+    version = _rate_version(table)
+    if not model:
+        return None, "unpriced:no-rate"
+    if prompt_tokens is None or completion_tokens is None:
+        return None, "unpriced:no-usage"
+    row = table.get(str(model))
+    if row is None:
+        return None, "unpriced:no-rate"
+    cached = int(cached_tokens or 0)
+    if cached and row.get("cached_input") is None:
+        return None, "unpriced:no-cached-rate"
+    if cached > int(prompt_tokens):
+        return None, "unpriced:cached>prompt"
+    rate_in, rate_out = row.get("input"), row.get("output")
+    if rate_in is None or rate_out is None:
+        return None, "unpriced:empty-rate"
+    billable_input = int(prompt_tokens) - cached
+    cost = (
+        (billable_input / 1_000_000) * rate_in
+        + (cached / 1_000_000) * (row.get("cached_input") or 0)
+        + (int(completion_tokens) / 1_000_000) * rate_out
+    )
+    return round(cost, 8), f"{model}@{version}"
+
+
+def price_attempt(
+    model: str | None,
+    prompt_tokens: int | None,
+    completion_tokens: int | None,
+    cached_tokens: int | None = None,
+    rates: dict | None = None,
+) -> tuple[float | None, str]:
+    """`cost_of` with the rate table read once and never raising — the form
+    `llm`'s per-attempt recorder calls."""
+    try:
+        return cost_of(model, prompt_tokens, completion_tokens, cached_tokens, rates)
+    except Exception as exc:  # noqa: BLE001 — pricing must not break a call either
+        log.warning("pricing failed for %s (%s); recording unpriced", model, exc)
+        return None, "unpriced:price-error"
 
 
 def table_present() -> bool:
