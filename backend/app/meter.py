@@ -24,10 +24,20 @@ THE RULES THIS MODULE KEEPS
 4. **History is immutable.** Every row stores the rate it was priced with
    (`price_used`), so editing a rate changes future rows only.
 
+ATTRIBUTION
+-----------
+The ledger knows WHICH row and job a call served only because the caller says
+so: `with meter.attributing(job_id=..., purpose=...):`. Contexts nest and merge,
+so the seeder can stamp the job while `enrich` stamps the purpose, and neither
+has to know about the other. Unset means `unattributed` — visible as such, never
+guessed.
+
 `ts` is UTC (`datetime('now')`), like every other timestamp in this app.
 """
 import logging
 import sqlite3
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 from . import db
 
@@ -61,6 +71,99 @@ CREATE INDEX IF NOT EXISTS idx_llm_usage_job ON llm_usage(job_id);
 # --- write-failure telemetry (rule 1) ---------------------------------------
 _failures = 0
 _last_failure: str | None = None
+
+# --- attribution (which row/job a call served) -------------------------------
+# A ContextVar, not a parameter: llm_json's signature stays put, so the ~8
+# existing call sites and the injected-llm_fn test seam keep working untouched.
+_ATTRIBUTION: ContextVar[dict] = ContextVar("llm_attribution", default={})
+
+
+@contextmanager
+def attributing(
+    *,
+    purpose: str | None = None,
+    startup_id: int | None = None,
+    job_id: str | None = None,
+):
+    """Stamp the calls made inside this block. Contexts nest and merge.
+
+        with meter.attributing(job_id=job["id"]):        # the seeder
+            with meter.attributing(purpose="enrich:website"):   # enrich
+                llm.llm_json(...)                        # both stamped
+
+    Only the fields passed are set, so an inner block cannot erase an outer
+    one's attribution by omission.
+    """
+    merged = dict(_ATTRIBUTION.get())
+    if purpose is not None:
+        merged["purpose"] = purpose
+    if startup_id is not None:
+        merged["startup_id"] = startup_id
+    if job_id is not None:
+        merged["job_id"] = job_id
+    token = _ATTRIBUTION.set(merged)
+    try:
+        yield merged
+    finally:
+        _ATTRIBUTION.reset(token)
+
+
+def current_attribution() -> dict:
+    """What a call made right now would be stamped with (a copy)."""
+    return dict(_ATTRIBUTION.get())
+
+
+def usage_from_response(data) -> dict:
+    """Pull token counts out of an OpenAI-compatible response. Never guesses.
+
+    Returns {"prompt_tokens", "completion_tokens", "cached_tokens",
+    "total_tokens", "missing"} where every count is None when the provider did
+    not send it, and `missing` is True when no `usage` block arrived at all.
+
+    Shapes handled, because this was written without a paid probe (the gateway's
+    usage block is unverified — §7.4 Open Question 4):
+      * `usage.prompt_tokens` / `completion_tokens` / `total_tokens` (OpenAI-compatible)
+      * `usage.prompt_tokens_details.cached_tokens` (OpenAI/DeepSeek cache read)
+      * `usage.prompt_cache_hit_tokens` (DeepSeek's older field name)
+    A count that arrives as a string is coerced; anything unparseable is NULL,
+    because 0 and "unknown" are different facts.
+    """
+    out = {
+        "prompt_tokens": None,
+        "completion_tokens": None,
+        "cached_tokens": None,
+        "total_tokens": None,
+        "missing": True,
+    }
+    if not isinstance(data, dict):
+        return out
+    usage = data.get("usage")
+    if not isinstance(usage, dict) or not usage:
+        return out
+
+    def _int(value):
+        if isinstance(value, bool) or value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    out["prompt_tokens"] = _int(usage.get("prompt_tokens"))
+    out["completion_tokens"] = _int(usage.get("completion_tokens"))
+    out["total_tokens"] = _int(usage.get("total_tokens"))
+    details = usage.get("prompt_tokens_details")
+    if isinstance(details, dict):
+        out["cached_tokens"] = _int(details.get("cached_tokens"))
+    if out["cached_tokens"] is None:
+        out["cached_tokens"] = _int(usage.get("prompt_cache_hit_tokens"))
+    # "missing" means NO token count at all came back. A response with a usage
+    # block but no prompt_tokens is a provider quirk, not a missing block: it is
+    # recorded with whatever arrived, and the NULLs still block a cost figure.
+    out["missing"] = all(
+        out[k] is None for k in ("prompt_tokens", "completion_tokens", "total_tokens")
+    )
+    return out
 
 
 def failure_count() -> int:

@@ -6,7 +6,7 @@ import logging
 import sqlite3
 from urllib.parse import urlparse
 
-from . import db, github as gh, llm, website as ws
+from . import db, github as gh, llm, meter, website as ws
 from .liveness_rules import load_config as _lr_load_config, regdom as _lr_regdom
 
 log = logging.getLogger("ideasexist")
@@ -182,7 +182,11 @@ def draft_from_page(page: dict, domain: str, name_hint: str | None = None) -> di
     user = "Generate a startup profile from this website evidence:\n" + evidence
     if name_hint:
         user = f"The startup's name is: {name_hint}\n" + user
-    profile = _clean_profile(llm.llm_json(user))
+    # Stamp the ledger: this is the seed path's one LLM call per candidate. The
+    # startup_id is unknown here (the row is upserted from this profile), so the
+    # job id from the seeder's outer context is what ties the spend to a batch.
+    with meter.attributing(purpose="enrich:website"):
+        profile = _clean_profile(llm.llm_json(user))
     name = _text(profile.get("name")) or _text(name_hint) or domain or ""
     if not name:
         raise RuntimeError("LLM returned no name")
@@ -277,11 +281,12 @@ def seed_from_github(github_url: str, reuse_profile: bool = False) -> dict:
             "repo_created_at": repo["created_at"],
             "homepage": repo["homepage"],
         })
-        profile = _clean_profile(
-            llm.llm_json(
-                "Generate a startup profile from this GitHub repo evidence:\n" + evidence
+        with meter.attributing(purpose="enrich:github"):
+            profile = _clean_profile(
+                llm.llm_json(
+                    "Generate a startup profile from this GitHub repo evidence:\n" + evidence
+                )
             )
-        )
         name = _text(profile.get("name")) or _text(repo["name"]) or ""
         if not name:
             raise RuntimeError("LLM returned no name")

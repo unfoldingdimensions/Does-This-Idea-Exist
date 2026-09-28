@@ -3043,18 +3043,29 @@ try:
           json.dumps(_sp))
 
     # 5. A priced window aggregates; grouping falls back to 'unattributed'.
+    _unattr_count_before = next(
+        (p["attempts"] for p in meter_mod.by_purpose() if p["purpose"] == "unattributed"), 0)
     meter_mod.record(model="deepseek-v4-flash", ok=True, cost_usd=0.5,
                      prompt_tokens=10, completion_tokens=5, purpose=None,
                      price_used="deepseek-v4-flash@2026-09-24")
     _purposes = {p["purpose"]: p for p in meter_mod.by_purpose()}
+    # Other real calls earlier in this suite are unattributed too (the gateway
+    # checks exercise the live llm_json), so the check is on MY row landing in
+    # the group — not on the group's absolute size.
     check("meter: an un-attributed call is grouped as 'unattributed', not dropped",
-          "unattributed" in _purposes and _purposes["unattributed"]["attempts"] == 1,
-          json.dumps(list(_purposes)))
+          "unattributed" in _purposes
+          and _purposes["unattributed"]["attempts"] == _unattr_count_before + 1,
+          json.dumps({k: v["attempts"] for k, v in _purposes.items()}))
     _models = {m["model"]: m for m in meter_mod.by_model()}
-    check("meter: grouping by model reports its unpriced attempts",
+    # The gateway checks earlier in this suite call the live llm_json, so the
+    # configured model's group holds unpriced rows (no rate table yet — task 3).
+    # What is asserted here is that MY rows landed: the mystery model's own
+    # unpriced attempt, and the priced row's cost inside its model's group.
+    check("meter: grouping by model reports its unpriced attempts and its priced cost",
           _models["mystery-model"]["unpriced_attempts"] == 1
-          and _models["deepseek-v4-flash"]["unpriced_attempts"] == 0,
-          json.dumps(list(_models)))
+          and (_models["deepseek-v4-flash"]["cost_usd"] or 0) >= 0.5,
+          json.dumps({k: [v["attempts"], v["unpriced_attempts"], v["cost_usd"]]
+                      for k, v in _models.items()}))
 
     # 6. A write failure is contained (never raises) and COUNTED (never silent).
     _real_connect = meter_mod.db.connect
@@ -3116,6 +3127,237 @@ CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, kind TEXT NOT NULL,
         config.DB_PATH = _saved_db_path
 except Exception as _meter_exc:  # noqa: BLE001 — a ledger crash must fail loudly, not silently skip checks
     check("meter: the ledger block ran to completion", False, repr(_meter_exc))
+
+# --- §7.4 Task 2: the choke point records what it spent ----------------------
+# llm_json is the single place every call goes through, so it is the single
+# place the ledger can be fed. These checks pin: one row per ATTEMPT (including
+# the ones that fail and are still billed), NULL-never-zero when the response
+# carries no usage block, attribution that survives nesting, and a ledger
+# failure that cannot break an enrichment.
+try:
+    # --- usage_from_response: the shapes, since no paid probe was run ---------
+    _u_openai = meter_mod.usage_from_response({
+        "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120,
+                  "prompt_tokens_details": {"cached_tokens": 64}},
+    })
+    check("meter: an OpenAI-style usage block yields all four counts",
+          _u_openai == {"prompt_tokens": 100, "completion_tokens": 20, "cached_tokens": 64,
+                        "total_tokens": 120, "missing": False},
+          json.dumps(_u_openai))
+    _u_deepseek = meter_mod.usage_from_response({
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15,
+                  "prompt_cache_hit_tokens": 32},
+    })
+    check("meter: DeepSeek's prompt_cache_hit_tokens is read as the cache count",
+          _u_deepseek["cached_tokens"] == 32, json.dumps(_u_deepseek))
+    _u_none = meter_mod.usage_from_response({"choices": [{"message": {"content": "{}"}}]})
+    check("meter: a response with no usage block reports missing, with NULLs not zeros",
+          _u_none["missing"] is True and _u_none["prompt_tokens"] is None
+          and _u_none["total_tokens"] is None,
+          json.dumps(_u_none))
+    check("meter: a non-dict body (or a junk count) cannot be turned into a number",
+          meter_mod.usage_from_response("not a dict")["missing"] is True
+          and meter_mod.usage_from_response({"usage": {"prompt_tokens": "abc"}})["prompt_tokens"] is None
+          and meter_mod.usage_from_response({"usage": {"prompt_tokens": "12"}})["prompt_tokens"] == 12,
+          "coerce the parseable, NULL the rest")
+
+    # --- llm_json feeds the ledger: one row per attempt ----------------------
+    _gw_t2 = gw_mod.resolve()
+
+    class _T2Resp:
+        def __init__(self, payload, status=200):
+            self._payload, self.status_code = payload, status
+            self.text = payload if isinstance(payload, str) else json.dumps(payload)
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(f"HTTP {self.status_code}")
+
+        def json(self):
+            return self._payload
+
+    def _t2_call(payloads, **call_kwargs):
+        """Run the REAL llm_json against a scripted sequence of responses."""
+        sent: list = []
+
+        def _post(url, **kw):
+            sent.append({"url": url, **kw})
+            return _T2Resp(payloads[min(len(sent) - 1, len(payloads) - 1)])
+
+        _restore = (llm.httpx.post, llm.llm_json, gw_mod.guard_outbound)
+        llm.httpx.post = _post
+        llm.llm_json = _real_llm_json
+        gw_mod.guard_outbound = lambda url: None
+        try:
+            return llm.llm_json("meter task 2", **call_kwargs), len(sent)
+        finally:
+            llm.httpx.post, llm.llm_json, gw_mod.guard_outbound = _restore
+
+    _ok_payload = {"choices": [{"message": {"content": '{"name": "Spend Co"}'}}],
+                   "usage": {"prompt_tokens": 900, "completion_tokens": 100,
+                             "total_tokens": 1000,
+                             "prompt_tokens_details": {"cached_tokens": 512}}}
+    _t2_rows_before = meter_mod.count()
+    with meter_mod.attributing(job_id="t2-job", purpose="enrich:website", startup_id=777):
+        _parsed, _n = _t2_call([_ok_payload])
+    _t2_new = meter_mod.rows(limit=1)[0]
+    check("meter: a successful call writes exactly ONE ledger row",
+          _n == 1 and meter_mod.count() == _t2_rows_before + 1 and _parsed == {"name": "Spend Co"},
+          f"attempts={_n} rows+={meter_mod.count() - _t2_rows_before}")
+    check("meter: the row carries the model, gateway, tokens and the attempt number",
+          _t2_new["model"] == _gw_t2["model"] and _t2_new["gateway_id"] == _gw_t2["gateway_id"]
+          and _t2_new["prompt_tokens"] == 900 and _t2_new["completion_tokens"] == 100
+          and _t2_new["cached_tokens"] == 512 and _t2_new["total_tokens"] == 1000
+          and _t2_new["attempt"] == 1 and _t2_new["ok"] == 1 and _t2_new["error"] is None,
+          json.dumps({k: _t2_new[k] for k in ("model", "gateway_id", "total_tokens", "attempt", "ok")}))
+    check("meter: the row is attributed to the job, the purpose and the row it served",
+          _t2_new["job_id"] == "t2-job" and _t2_new["purpose"] == "enrich:website"
+          and _t2_new["startup_id"] == 777,
+          json.dumps({k: _t2_new[k] for k in ("job_id", "purpose", "startup_id")}))
+    check("meter: an elapsed time is recorded for the attempt (>= 0ms)",
+          isinstance(_t2_new["duration_ms"], int) and _t2_new["duration_ms"] >= 0,
+          str(_t2_new["duration_ms"]))
+    check("meter: attribution does not leak out of its with-block",
+          meter_mod.current_attribution() == {}, json.dumps(meter_mod.current_attribution()))
+
+    # A response whose usage block never arrived: recorded, flagged, not guessed.
+    _t2_rows_before = meter_mod.count()
+    with meter_mod.attributing(job_id="t2-job-nousage"):
+        _t2_call([{"choices": [{"message": {"content": '{"name": "No Usage"}'}}]}])
+    _nu = meter_mod.rows(limit=1)[0]
+    check("meter: a response with no usage block is recorded with usage_missing=1",
+          meter_mod.count() == _t2_rows_before + 1 and _nu["usage_missing"] == 1
+          and _nu["total_tokens"] is None and _nu["cost_usd"] is None,
+          json.dumps({k: _nu[k] for k in ("usage_missing", "total_tokens", "cost_usd")}))
+    check("meter: the no-usage call still counts as an OK call (it did the work)",
+          _nu["ok"] == 1, f"ok={_nu['ok']}")
+
+    # Retry: attempt 1 empty content, attempt 2 fine — TWO rows, both billed.
+    _t2_rows_before = meter_mod.count()
+    with meter_mod.attributing(job_id="t2-job-retry"):
+        _parsed2, _n2 = _t2_call([
+            {"choices": [{"message": {"content": ""}, "finish_reason": "length"}]},
+            _ok_payload,
+        ])
+    _retry_rows = meter_mod.rows(limit=2, job_id="t2-job-retry")
+    _first, _second = _retry_rows[1], _retry_rows[0]  # rows() is newest-first
+    check("meter: a retried call writes TWO rows (the retry is billed too)",
+          _n2 == 2 and meter_mod.count() == _t2_rows_before + 2 and _parsed2 == {"name": "Spend Co"},
+          f"posts={_n2} rows+={meter_mod.count() - _t2_rows_before}")
+    check("meter: attempt 1 is recorded as a failure with the provider's reason",
+          _first["attempt"] == 1 and _first["ok"] == 0
+          and "empty content" in (_first["error"] or "") and _first["usage_missing"] == 1,
+          json.dumps({k: _first[k] for k in ("attempt", "ok", "error", "usage_missing")}))
+    check("meter: attempt 2 is recorded as the success that ended the call",
+          _second["attempt"] == 2 and _second["ok"] == 1 and _second["total_tokens"] == 1000,
+          json.dumps({k: _second[k] for k in ("attempt", "ok", "total_tokens")}))
+    _rjs = meter_mod.job_summary("t2-job-retry")
+    check("meter: the job summary separates 2 attempts from 1 row touched",
+          _rjs["attempts"] == 2 and _rjs["retried_attempts"] == 1,
+          json.dumps({k: _rjs[k] for k in ("attempts", "retried_attempts")}))
+
+    # Unusable JSON on both attempts: two failures, the error text is preserved.
+    _t2_rows_before = meter_mod.count()
+    _t2_raised = None
+    try:
+        _t2_call([{"choices": [{"message": {"content": "not json at all"}}]}])
+    except RuntimeError as exc:
+        _t2_raised = str(exc)
+    check("meter: a call that never parsed still raises the same RuntimeError shape",
+          bool(_t2_raised) and "failed after retries" in _t2_raised,
+          str(_t2_raised))
+    check("meter: both unparseable attempts are recorded (they were paid for)",
+          meter_mod.count() == _t2_rows_before + 2
+          and all(r["ok"] == 0 for r in meter_mod.rows(limit=2)),
+          f"rows+={meter_mod.count() - _t2_rows_before}")
+
+    # A ledger write that fails must not fail the enrichment.
+    _t2_rows_before = meter_mod.count()
+    _fails_before = meter_mod.failure_count()
+    _real_connect_t2 = meter_mod.db.connect
+
+    def _boom_connect_t2():
+        raise sqlite3.OperationalError("ledger unavailable (simulated)")
+
+    meter_mod.db.connect = _boom_connect_t2
+    try:
+        _still, _ = _t2_call([_ok_payload])
+    finally:
+        meter_mod.db.connect = _real_connect_t2
+    check("meter: an unwritable ledger cannot break the LLM call it was recording",
+          _still == {"name": "Spend Co"} and meter_mod.failure_count() == _fails_before + 1,
+          f"failures {_fails_before} -> {meter_mod.failure_count()}")
+    check("meter: the failed write left no row behind (no half-recorded attempt)",
+          meter_mod.count() == _t2_rows_before, f"rows={meter_mod.count()}")
+
+    # --- attribution reaches the choke point from the REAL call paths --------
+    # The chain: a seeded job (job_id) -> enrich (purpose) -> llm_json. Proven
+    # offline by recording what the choke point would see at call time.
+    _attr_seen: list = []
+
+    def _attr_llm_json(user_content, **kwargs):
+        _attr_seen.append(meter_mod.current_attribution())
+        return {"name": "Attr Notes", "tagline": "t", "description": "d",
+                "category": "ai", "founded": None}
+
+    _attr_page = {"title": "Attr Notes", "meta_description": "notes",
+                  "text": "Attr Notes is a note-taking app. " * 20,
+                  "final_url": "https://attr-seed.example/"}
+    _attr_ingest_backup = seeder._ingest
+    _attr_source_backup = seeder.SOURCES["url_list"]
+    _attr_llm_backup = llm.llm_json
+
+    def _attr_producer(params):
+        yield "https://attr-seed.example"
+
+    def _attr_ingest(candidate, params):
+        # The real enrich path, one step in from the seeder's own context.
+        enrich.draft_from_page(_attr_page, "attr-seed.example")
+        return "new"
+
+    llm.llm_json = _attr_llm_json
+    seeder.SOURCES["url_list"] = _attr_producer
+    seeder._ingest = _attr_ingest
+    try:
+        _attr_job_id = seeder.start_job("url_list", {"cap": 1})
+        _attr_deadline = time.time() + 10.0
+        while time.time() < _attr_deadline and seeder.JOBS[_attr_job_id]["status"] not in ("done", "failed"):
+            time.sleep(0.02)
+        _attr_status = seeder.JOBS[_attr_job_id]["status"]
+    finally:
+        llm.llm_json = _attr_llm_backup
+        seeder.SOURCES["url_list"] = _attr_source_backup
+        seeder._ingest = _attr_ingest_backup
+    check("meter: a seeded job's spend is stamped with the JOB id from the seeder's context",
+          _attr_status == "done" and bool(_attr_seen)
+          and _attr_seen[0].get("job_id") == _attr_job_id,
+          f"status={_attr_status} seen={json.dumps(_attr_seen[:1])}")
+    check("meter: enrich stamps its own purpose inside the job's context (contexts merge)",
+          _attr_seen[0].get("purpose") == "enrich:website",
+          json.dumps(_attr_seen[0] if _attr_seen else {}))
+    check("meter: the job's attribution does not leak into the next call (worker threads are reused)",
+          meter_mod.current_attribution() == {},
+          json.dumps(meter_mod.current_attribution()))
+
+    # The teardown path knows the row, so its spend carries a startup_id.
+    # Reuses the suite's already-capturable competitor rather than inventing a
+    # second fixture host; this block runs last, so nothing observes the recapture.
+    _attr_teardown_seen: list = []
+
+    def _attr_teardown(brief):
+        _attr_teardown_seen.append(meter_mod.current_attribution())
+        return dict(TEARDOWN_FIXTURE)
+
+    capture.capture_teardown(_comp_id, fetcher=fake_fetch, llm_fn=_attr_teardown)
+    check("meter: the teardown call is stamped purpose=teardown + the row it was bought for",
+          bool(_attr_teardown_seen)
+          and _attr_teardown_seen[0].get("purpose") == "teardown"
+          and _attr_teardown_seen[0].get("startup_id") == _comp_id,
+          json.dumps(_attr_teardown_seen[:1]))
+    check("meter: the suite's global llm stub is restored after the attribution checks",
+          llm.llm_json is fake_llm_json, "fake_llm_json back in place")
+except Exception as _meter_t2_exc:  # noqa: BLE001 — a crash must fail loudly, not skip checks
+    check("meter: the choke-point block ran to completion", False, repr(_meter_t2_exc))
 
 # ===========================================================================
 print("\n" + "=" * 78)

@@ -17,7 +17,7 @@ import uuid
 
 import httpx
 
-from . import config, db, enrich
+from . import config, db, enrich, meter
 
 log = logging.getLogger("ideasexist")
 
@@ -312,31 +312,37 @@ def _run(job: dict) -> None:
         return
     job["status"] = "running"
     job["started_at"] = time.time()
+    purpose = f"seed:{job['source']}"
     try:
         producer = SOURCES[job["source"]]
         cap = job["params"]["cap"]
-        for i, candidate in enumerate(producer(job["params"])):
-            if i >= cap:
-                break
-            job["total"] = min(i + 1, cap)
-            job["current"] = str(candidate)
-            try:
-                outcome = _ingest(candidate, job["params"])
-                if outcome == "existing":
-                    job["skipped"] += 1
-                    job["skipped_urls"].append(str(candidate))
-                    log.info("seed skip (%s): %s — already filed", job["id"], candidate)
-                else:
-                    job["ok"] += 1
-                    job["ok_urls"].append(str(candidate))
-                    log.info("seed ok   (%s): %s", job["id"], candidate)
-            except Exception as exc:  # noqa: BLE001 — per-entry failure is data, not a crash
-                job["failed"] += 1
-                job["errors"].append(f"{candidate}: {exc}")
-                log.error("seed FAIL (%s): %s — %s", job["id"], candidate, exc)
-            job["done"] += 1
-            job["current"] = ""
-            _persist_job(job)
+        # One attribution for the whole batch: every call this job makes is
+        # stamped with the job id, which is what makes a per-job $ figure and
+        # the budget brake (§7.4 tasks 4-6) possible. enrich stamps its own
+        # `purpose` inside this block — nested contexts merge.
+        with meter.attributing(job_id=job["id"], purpose=purpose):
+            for i, candidate in enumerate(producer(job["params"])):
+                if i >= cap:
+                    break
+                job["total"] = min(i + 1, cap)
+                job["current"] = str(candidate)
+                try:
+                    outcome = _ingest(candidate, job["params"])
+                    if outcome == "existing":
+                        job["skipped"] += 1
+                        job["skipped_urls"].append(str(candidate))
+                        log.info("seed skip (%s): %s — already filed", job["id"], candidate)
+                    else:
+                        job["ok"] += 1
+                        job["ok_urls"].append(str(candidate))
+                        log.info("seed ok   (%s): %s", job["id"], candidate)
+                except Exception as exc:  # noqa: BLE001 — per-entry failure is data, not a crash
+                    job["failed"] += 1
+                    job["errors"].append(f"{candidate}: {exc}")
+                    log.error("seed FAIL (%s): %s — %s", job["id"], candidate, exc)
+                job["done"] += 1
+                job["current"] = ""
+                _persist_job(job)
         job["status"] = "done"
         _persist_job(job)
         log.info(

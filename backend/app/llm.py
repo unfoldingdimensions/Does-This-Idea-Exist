@@ -7,10 +7,11 @@ tolerant JSON parse (strip fences), one retry per call.
 """
 import json
 import re
+import time
 
 import httpx
 
-from . import config, gateways, netguard
+from . import config, gateways, meter, netguard
 
 SYSTEM_PROMPT = (
     "You are an expert startup researcher. You receive evidence about a startup "
@@ -125,6 +126,41 @@ def _client_config() -> dict:
     return gateway
 
 
+def _record_attempt(
+    gateway: dict,
+    attempt: int,
+    usage: dict | None,
+    started: float,
+    failure: Exception | None,
+) -> None:
+    """Write this attempt to the usage ledger. Never raises (meter.record's rule).
+
+    Cost is NOT priced here: the rate table is §7.4 Task 3, and until it exists
+    every row stores a NULL cost with `cost_complete` False, so nothing can quote
+    a partial sum as the bill. The budget check (§7.4 Task 4) also belongs at this
+    seam — right before an attempt is opened — which is why every attempt funnels
+    through one function.
+    """
+    where = meter.current_attribution()
+    u = usage or {}
+    meter.record(
+        model=gateway.get("model"),
+        gateway_id=gateway.get("gateway_id"),
+        purpose=where.get("purpose"),
+        startup_id=where.get("startup_id"),
+        job_id=where.get("job_id"),
+        attempt=attempt,
+        prompt_tokens=u.get("prompt_tokens"),
+        completion_tokens=u.get("completion_tokens"),
+        cached_tokens=u.get("cached_tokens"),
+        total_tokens=u.get("total_tokens"),
+        duration_ms=int((time.perf_counter() - started) * 1000),
+        ok=failure is None,
+        error=None if failure is None else str(failure),
+        usage_missing=bool(u.get("missing", True)),
+    )
+
+
 def llm_json(
     user_content: str,
     max_tokens: int = 8000,
@@ -169,7 +205,7 @@ def llm_json(
     # empty/invalid completions; a second attempt usually succeeds). Attempt 2 drops
     # response_format for gateways that reject structured output.
     last_error: Exception | None = None
-    for with_response_format in (True, False):
+    for attempt, with_response_format in enumerate((True, False), start=1):
         body = {
             "model": gateway["model"],
             "messages": messages,
@@ -178,19 +214,33 @@ def llm_json(
         }
         if with_response_format:
             body["response_format"] = {"type": "json_object"}
+        started = time.perf_counter()
+        usage: dict | None = None
+        parsed: dict | None = None
+        failure: Exception | None = None
         try:
             r = httpx.post(url, headers=headers, json=body, timeout=timeout)
             r.raise_for_status()
             data = r.json()
+            usage = meter.usage_from_response(data)
             choice = (data.get("choices") or [{}])[0]
             content = (choice.get("message") or {}).get("content") or ""
             if not content:
                 raise RuntimeError(
                     f"LLM returned empty content (finish_reason={choice.get('finish_reason')})"
                 )
-            return _parse_json(content)
+            parsed = _parse_json(content)  # a billed call that returned unusable JSON
         except Exception as exc:  # noqa: BLE001 — retry once, then surface the real error
-            last_error = exc
+            failure = exc
+        finally:
+            # Exactly one ledger row per ATTEMPT, whatever happened: the provider
+            # bills an attempt that failed, an attempt that returned empty
+            # content, and an attempt whose JSON did not parse. Recording only
+            # the successes would understate every retried call.
+            _record_attempt(gateway, attempt, usage, started, failure)
+        if failure is None and parsed is not None:
+            return parsed
+        last_error = failure
     raise RuntimeError(
         f"LLM call to {gateway['label']} failed after retries: {last_error}"
     ) from last_error

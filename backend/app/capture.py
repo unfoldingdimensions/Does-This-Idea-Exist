@@ -29,7 +29,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 
-from . import config, db, llm, negatives, pages as pages_mod, reviews as reviews_mod
+from . import config, db, llm, meter, negatives, pages as pages_mod, reviews as reviews_mod
 from . import teardown as td
 
 log = logging.getLogger("ideasexist")
@@ -193,7 +193,10 @@ def capture_teardown(
         raw: dict = {}
         try:
             call = llm_fn or llm.llm_teardown
-            raw = call(llm.teardown_brief(pages_mod.brief(pages), pages_mod.urls(pages))) or {}
+            # This path DOES know the row, so the ledger gets a startup_id: the
+            # teardown spend is attributable to the competitor it was bought for.
+            with meter.attributing(purpose="teardown", startup_id=startup_id):
+                raw = call(llm.teardown_brief(pages_mod.brief(pages), pages_mod.urls(pages))) or {}
         except Exception as exc:  # noqa: BLE001 — a failed call means unknown, never a retry
             log.warning("capture %s: teardown LLM failed (%s) — fields stay unknown", startup_id, exc)
 
