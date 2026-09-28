@@ -285,17 +285,19 @@ export default function HomePage() {
   // lands mid-page (pagination sits at the bottom; without the scroll the next
   // page opens at its own bottom — reported jank). Driven through Lenis so the
   // glide matches the app's inertial feel; instant under reduced motion.
-  const changePage = (p: number) => {
+  // ⚡ Bolt: Memoized with useCallback to preserve reference equality for child components
+  const changePage = React.useCallback((p: number) => {
     if (p === currentPage) return;
     setPage(p);
     scrollPageToTop();
-  };
+  }, [currentPage]);
 
   // Filter/sort changes reset to page 1 — done in the setters (no effects).
   // Typing is debounced: Fuse over the archive is ~20ms/term and rebuilding its
   // index per keystroke measured 120-180ms of input jank. Clearing is instant.
   const queryTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const changeQuery = (q: string) => {
+  // ⚡ Bolt: Memoized changeQuery as it is passed down to StartupCard components
+  const changeQuery = React.useCallback((q: string) => {
     if (q === "") {
       if (queryTimer.current) clearTimeout(queryTimer.current);
       setQuery("");
@@ -307,29 +309,29 @@ export default function HomePage() {
       setQuery(q);
       setPage(1);
     }, 150);
-  };
+  }, []);
   React.useEffect(
     () => () => {
       if (queryTimer.current) clearTimeout(queryTimer.current);
     },
     [],
   );
-  const changeCategory = (c: string | null) => {
+  const changeCategory = React.useCallback((c: string | null) => {
     setCategory(c);
     setPage(1);
-  };
-  const changeYear = (y: string) => {
+  }, []);
+  const changeYear = React.useCallback((y: string) => {
     setYear(y);
     setPage(1);
-  };
-  const changeStatus = (s: string) => {
+  }, []);
+  const changeStatus = React.useCallback((s: string) => {
     setStatus(s);
     setPage(1);
-  };
-  const changeSort = (k: SortKey) => {
+  }, []);
+  const changeSort = React.useCallback((k: SortKey) => {
     setSort(k);
     setPage(1);
-  };
+  }, []);
 
   const years = React.useMemo(() => {
     const set = new Set<string>();
@@ -374,12 +376,12 @@ export default function HomePage() {
     }
   };
 
-  const clearFilters = () => {
+  const clearFilters = React.useCallback(() => {
     changeQuery("");
     changeCategory(null);
     changeYear("all");
     changeStatus("all");
-  };
+  }, [changeQuery, changeCategory, changeYear, changeStatus]);
 
   // Global keyboard shortcut: press "/" to focus the archive search input.
   React.useEffect(() => {
@@ -423,7 +425,7 @@ export default function HomePage() {
     window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
   }, [urlApplied, query, category, year, status, sort, currentPage]);
 
-  const handleAdded = (entry: Startup) => {
+  const handleAdded = React.useCallback((entry: Startup) => {
     setStartups((prev) => {
       // Null URLs must not match each other — a GitHub-only entry (null
       // website_url) would otherwise evict every other null-website row.
@@ -439,9 +441,10 @@ export default function HomePage() {
     setCategory(null);
     setPage(1);
     void refreshCounts();
-  };
+  }, [refreshCounts]);
 
-  const handleStatusChange = async (s: Startup, choice: StatusChoice) => {
+  // ⚡ Bolt: Memoized handleStatusChange so StartupCard doesn't fail React.memo equality checks
+  const handleStatusChange = React.useCallback(async (s: Startup, choice: StatusChoice) => {
     try {
       const updated =
         choice === "verified"
@@ -465,7 +468,7 @@ export default function HomePage() {
         description: err instanceof Error ? err.message : undefined,
       });
     }
-  };
+  }, [refreshCounts]);
 
   const discoveryCategories: DiscoveryCategory[] = React.useMemo(
     () =>

@@ -1,0 +1,3 @@
+## 2026-09-28 - [React Memoization for StartupCard]
+**Learning:** In a highly interactive page like `page.tsx` displaying hundreds of `StartupCard` components, any state change in the parent (like query string changes on keystroke) causes the entire list to re-render. Since `StartupCard` relies on relatively stable props but is complex, wrapping it and `StatusPill` in `React.memo` is a huge performance win, reducing unnecessary component updates significantly.
+**Action:** Always consider `React.memo` for complex components rendered in large lists, especially when the parent component has frequent state updates (like search input or filtering).

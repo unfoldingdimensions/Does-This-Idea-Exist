@@ -85,7 +85,8 @@ const CONFIRM_COPY: Record<
  * three trust states (Verified / Unverified / Dead); picking one raises a
  * themed confirm dialog so the human gate never flips on a stray click.
  */
-export function StatusPill({
+// ⚡ Bolt: Wrapped in React.memo() to prevent unnecessary re-renders when the parent list updates
+export const StatusPill = React.memo(function StatusPill({
   startup,
   onStatusChange,
 }: {
@@ -292,9 +293,10 @@ export function StatusPill({
       </Dialog>
     </>
   );
-}
+});
 
-export function StartupCard({
+// ⚡ Bolt: Memoized StartupCard to skip re-rendering hundreds of cards when filtering/search state changes in page.tsx
+export const StartupCard = React.memo(function StartupCard({
   startup,
   onStatusChange,
   onDetails,
@@ -331,14 +333,14 @@ export function StartupCard({
   const showToggle = description.length > 200;
   const reduce = useReducedMotion();
 
-  const handleWrappedStatus = (s: Startup, choice: StatusChoice) => {
+  const handleWrappedStatus = React.useCallback((s: Startup, choice: StatusChoice) => {
     if (choice === "verified") {
       setStampChoreo("verified");
     } else if (choice === "dead") {
       setStampChoreo("dead");
     }
     onStatusChange?.(s, choice);
-  };
+  }, [onStatusChange]);
 
   // Clamped (3-line) height of the description, measured on first toggle so the
   // expand/collapse animates between the preview and the full text instead of
@@ -611,5 +613,5 @@ export function StartupCard({
     </motion.div>
     </HolographicCard>
   );
-}
+});
 
