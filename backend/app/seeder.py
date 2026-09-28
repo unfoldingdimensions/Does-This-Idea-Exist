@@ -319,8 +319,10 @@ def _run(job: dict) -> None:
         # One attribution for the whole batch: every call this job makes is
         # stamped with the job id, which is what makes a per-job $ figure and
         # the budget brake (§7.4 tasks 4-6) possible. enrich stamps its own
-        # `purpose` inside this block — nested contexts merge.
-        with meter.attributing(job_id=job["id"], purpose=purpose):
+        # `purpose` inside this block — nested contexts merge. A job may carry its
+        # own `budget_usd`, which the brake prefers over the configured cap.
+        with meter.attributing(job_id=job["id"], purpose=purpose,
+                               budget_usd=job["params"].get("budget_usd")):
             for i, candidate in enumerate(producer(job["params"])):
                 if i >= cap:
                     break
@@ -336,6 +338,13 @@ def _run(job: dict) -> None:
                         job["ok"] += 1
                         job["ok_urls"].append(str(candidate))
                         log.info("seed ok   (%s): %s", job["id"], candidate)
+                except meter.BudgetExceeded:
+                    # The brake is the JOB's business, not a candidate failure:
+                    # counting it here would burn through the remaining
+                    # candidates one refusal at a time and report them all as
+                    # failures. It goes up to the job handler, which stops the
+                    # batch with the numbers recorded.
+                    raise
                 except Exception as exc:  # noqa: BLE001 — per-entry failure is data, not a crash
                     job["failed"] += 1
                     job["errors"].append(f"{candidate}: {exc}")
@@ -349,6 +358,21 @@ def _run(job: dict) -> None:
             "seed job %s done: %s ok, %s skipped, %s failed",
             job["id"], job["ok"], job["skipped"], job["failed"],
         )
+    except meter.BudgetExceeded as exc:
+        # §7.4 task 4: the brake stopped the batch at a candidate boundary.
+        # Everything already written STAYS — nothing rolls back — and the
+        # numbers ride on the job's result so the panel can show them.
+        job["status"] = "failed"
+        job["result"] = {
+            **(job.get("result") or {}),
+            "stop_reason": "budget",
+            "spend_usd": exc.spend_usd,
+            "cap_usd": exc.cap_usd,
+            "rate_version": exc.rate_version,
+            "cost_complete": exc.cost_complete,
+        }
+        job["errors"].append(f"budget: {exc}")
+        log.warning("seed job %s stopped by the budget brake: %s", job["id"], exc)
     except Exception as exc:  # noqa: BLE001 — job-level crash is a loud failure
         job["status"] = "failed"
         job["errors"].append(f"job: {exc}")

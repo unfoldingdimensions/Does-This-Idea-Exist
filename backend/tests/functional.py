@@ -3505,6 +3505,276 @@ try:
 except Exception as _meter_t3_exc:  # noqa: BLE001 — a crash must fail loudly, not skip checks
     check("meter: the rate-table block ran to completion", False, repr(_meter_t3_exc))
 
+# --- §7.4 Task 4: the spend brake — per job, refused before any socket --------
+# The user's rules: the cap is per job/batch, NULL by default (so an install that
+# configures nothing behaves EXACTLY as before), and a breach stops the batch
+# without rolling anything back. These checks pin all three, plus the property
+# that matters most operationally: a braked call must not reach the network.
+try:
+    # --- unlimited by default: the pre-§7.4 product, pinned ------------------
+    meter_mod.set_budget(None)
+    check("meter: the budget is UNSET by default (unlimited, source reported)",
+          meter_mod.budget_setting() == {"budget_usd": None, "raw": "",
+                                         "source": "unset", "parse_error": None}
+          and meter_mod.effective_budget() is None,
+          json.dumps(meter_mod.budget_setting()))
+    # t3-job has spend in the ledger; with no cap, nothing may refuse.
+    _unlimited_ok = True
+    try:
+        with meter_mod.attributing(job_id="t3-job"):
+            meter_mod.check_budget()
+    except meter_mod.BudgetExceeded:
+        _unlimited_ok = False
+    _t4_hits: list = []
+    _real_post_t4 = llm.httpx.post
+
+    def _t4_post(url, **kw):
+        """Records that a request was opened, and answers like a healthy gateway.
+        The counters are the point: with a budget the list must stay empty."""
+        _t4_hits.append(url)
+        return _T2Resp(_ok_payload)
+
+    llm.httpx.post = _t4_post
+    _real_llm_t4 = llm.llm_json
+    llm.llm_json = _real_llm_json
+    _real_guard_t4 = gw_mod.guard_outbound
+    gw_mod.guard_outbound = lambda url: None
+    try:
+        with meter_mod.attributing(job_id="t3-job"):
+            _t4_unlimited = llm.llm_json("unlimited call")
+    finally:
+        llm.httpx.post = _real_post_t4
+        llm.llm_json = _real_llm_t4
+        gw_mod.guard_outbound = _real_guard_t4
+    check("meter: with no budget set, a job that has already spent still proceeds",
+          _unlimited_ok and _t4_unlimited == {"name": "Spend Co"} and len(_t4_hits) == 1,
+          f"guard_ok={_unlimited_ok} requests_opened={len(_t4_hits)}")
+
+    # --- the brake fires, before the socket ---------------------------------
+    _t4_spend = meter_mod.spend_usd(job_id="t3-job")["cost_usd"]
+    meter_mod.set_budget(round(_t4_spend / 2, 8))  # already over
+    _t4_raised = None
+    _t4_rows_before = meter_mod.count()
+    _t4_hits.clear()
+    llm.httpx.post = _t4_post
+    llm.llm_json = _real_llm_json
+    gw_mod.guard_outbound = lambda url: None
+    try:
+        with meter_mod.attributing(job_id="t3-job"):
+            llm.llm_json("braked call")
+    except meter_mod.BudgetExceeded as exc:
+        _t4_raised = exc
+    finally:
+        llm.httpx.post = _real_post_t4
+        llm.llm_json = _real_llm_t4
+        gw_mod.guard_outbound = _real_guard_t4
+    check("meter: a job past its cap is refused BEFORE any request is opened",
+          _t4_raised is not None and not _t4_hits,
+          f"raised={type(_t4_raised).__name__} requests_opened={len(_t4_hits)}")
+    check("meter: a refused call writes no ledger row (no attempt was made)",
+          meter_mod.count() == _t4_rows_before, f"rows={meter_mod.count()}")
+    check("meter: BudgetExceeded carries spend, cap, job and the rate version",
+          isinstance(_t4_raised, meter_mod.BudgetExceeded)
+          and _t4_raised.job_id == "t3-job" and _t4_raised.scope == "job"
+          and _t4_raised.spend_usd == _t4_spend
+          and _t4_raised.rate_version == meter_mod.rates_source()["version"]
+          and "$" in str(_t4_raised) and "budget reached" in str(_t4_raised),
+          str(_t4_raised))
+    check("meter: the refusal names the cap it hit, not just 'budget exceeded'",
+          f"{_t4_raised.cap_usd:.4f}" in str(_t4_raised)
+          and f"{_t4_raised.spend_usd:.4f}" in str(_t4_raised),
+          str(_t4_raised))
+
+    # --- scope: per JOB, so an un-jobbed call is recorded but not braked -----
+    _t4_detached_ok = True
+    try:
+        meter_mod.check_budget()  # no job in context, cap still set
+    except meter_mod.BudgetExceeded:
+        _t4_detached_ok = False
+    _t4_status_detached = meter_mod.budget_status()
+    check("meter: the cap is PER JOB — a call that belongs to no job is not refused",
+          _t4_detached_ok and meter_mod.budget_status()["enforced"] is False,
+          json.dumps({k: _t4_status_detached[k] for k in ("job_id", "enforced", "spend_window")}))
+    check("meter: an un-jobbed status reports its window as all-time, never blurred",
+          _t4_status_detached["spend_window"] == "all-time"
+          and _t4_status_detached["spend_usd"] is not None,
+          json.dumps({k: _t4_status_detached[k] for k in ("spend_window", "spend_usd")}))
+
+    # --- a job's own limit wins over the setting ----------------------------
+    _t4_override_ok = True
+    try:
+        with meter_mod.attributing(job_id="t3-job", budget_usd=1000.0):
+            meter_mod.check_budget()
+    except meter_mod.BudgetExceeded:
+        _t4_override_ok = False
+    _t4_zero_tripped = False
+    try:
+        with meter_mod.attributing(job_id="never-spent-job", budget_usd=0):
+            meter_mod.check_budget()
+    except meter_mod.BudgetExceeded:
+        _t4_zero_tripped = True
+    check("meter: a job's own budget overrides the setting, in both directions",
+          _t4_override_ok and _t4_zero_tripped,
+          f"generous_override_ran={_t4_override_ok} zero_cap_stopped={_t4_zero_tripped}")
+    check("meter: the effective cap's source is reported as the job's own limit",
+          meter_mod.budget_status(job_id="x", job_budget=5.0)["budget_source"] == "job",
+          json.dumps(meter_mod.budget_status(job_id="x", job_budget=5.0)["budget_source"]))
+
+    # --- a junk stored budget is visible, not silently unlimited ------------
+    meter_mod.gateways.set_setting(meter_mod.BUDGET_KEY, "ten dollars")
+    _t4_junk = meter_mod.budget_setting()
+    check("meter: a budget that is not a number is reported as invalid, not applied",
+          _t4_junk["budget_usd"] is None and _t4_junk["source"] == "invalid"
+          and "not a number" in (_t4_junk["parse_error"] or ""),
+          json.dumps(_t4_junk))
+    check("meter: the invalid setting surfaces through the status read",
+          meter_mod.budget_status()["parse_error"] is not None,
+          str(meter_mod.budget_status()["parse_error"]))
+    _t4_neg = None
+    try:
+        meter_mod.set_budget(-1)
+    except ValueError as exc:
+        _t4_neg = str(exc)
+    check("meter: setting a negative budget raises instead of clamping",
+          bool(_t4_neg) and "must be >= 0" in _t4_neg, str(_t4_neg))
+    meter_mod.set_budget(None)
+
+    # --- the floor is stated when the ledger is incomplete -------------------
+    # NOTE the explicit job_id on each row: attribution is the CHOKE POINT's
+    # contract (llm._record_attempt reads the context) — the low-level writer
+    # takes what the caller hands it, and never reads the ambient context itself.
+    meter_mod.record(model="mystery-model", ok=True, usage_missing=True,
+                     job_id="t4-floor-job", prompt_tokens=None, completion_tokens=None)
+    meter_mod.record(model="deepseek-v4-flash", ok=True, prompt_tokens=100,
+                     completion_tokens=10, cost_usd=0.5, job_id="t4-floor-job",
+                     price_used="deepseek-v4-flash@test")
+    _t4_floor_msg = ""
+    try:
+        with meter_mod.attributing(job_id="t4-floor-job"):
+            meter_mod.check_budget(job_budget=0.1)
+    except meter_mod.BudgetExceeded as exc:
+        _t4_floor_msg = str(exc)
+    check("meter: a refusal from an incomplete ledger says its $ is a FLOOR",
+          "FLOOR" in _t4_floor_msg and "unpriced" in _t4_floor_msg,
+          _t4_floor_msg)
+    check("meter: that job's spend is reported as a floor, not a total",
+          meter_mod.budget_status(job_id="t4-floor-job")["spend_is_floor"] is True,
+          json.dumps(meter_mod.budget_status(job_id="t4-floor-job")))
+
+    # --- a real seed job stops AT A BOUNDARY and keeps what it wrote ---------
+    # 5 candidates, a $0.02 job budget, and an ingest that spends $0.01 each —
+    # checking the budget FIRST, exactly as llm_json does. Two candidates must
+    # land, the third must be refused before it spends, and the job must stop
+    # with the candidates after the trip never attempted at all.
+    _t4_attempted: list = []
+    _t4_ingest_backup = seeder._ingest
+    _t4_source_backup = seeder.SOURCES["url_list"]
+
+    def _t4_producer(params):
+        for i in range(5):
+            yield f"https://t4-seed-{i}.example"
+
+    def _t4_ingest(candidate, params):
+        meter_mod.check_budget()  # llm_json's first act, at the candidate boundary
+        _t4_attempted.append(candidate)
+        where = meter_mod.current_attribution()
+        meter_mod.record(model="deepseek-v4-flash", ok=True, job_id=where.get("job_id"),
+                         startup_id=len(_t4_attempted), prompt_tokens=10,
+                         completion_tokens=1, cost_usd=0.01,
+                         price_used="deepseek-v4-flash@test")
+        return "new"
+
+    seeder.SOURCES["url_list"] = _t4_producer
+    seeder._ingest = _t4_ingest
+    try:
+        _t4_job_id = seeder.start_job("url_list", {"cap": 5, "budget_usd": 0.02})
+        _t4_deadline = time.time() + 10.0
+        while time.time() < _t4_deadline and seeder.JOBS[_t4_job_id]["status"] not in ("done", "failed"):
+            time.sleep(0.02)
+        _t4_job = seeder.JOBS[_t4_job_id]
+    finally:
+        seeder.SOURCES["url_list"] = _t4_source_backup
+        seeder._ingest = _t4_ingest_backup
+    check("meter: a seed job stops at a candidate boundary when the cap is reached",
+          _t4_job["status"] == "failed" and len(_t4_attempted) == 2
+          and _t4_job["ok"] == 2 and _t4_job["done"] == 2,
+          f"status={_t4_job['status']} attempted={len(_t4_attempted)} ok={_t4_job['ok']}")
+    check("meter: the stopped job keeps the rows it already wrote (nothing rolls back)",
+          _t4_job["ok_urls"] == ["https://t4-seed-0.example", "https://t4-seed-1.example"]
+          and meter_mod.count(job_id=_t4_job_id) == 2,
+          json.dumps(_t4_job["ok_urls"]))
+    check("meter: the stopped job records WHY and the figures, not just a failure",
+          _t4_job.get("result", {}).get("stop_reason") == "budget"
+          and _t4_job["result"]["spend_usd"] == 0.02
+          and _t4_job["result"]["cap_usd"] == 0.02
+          and _t4_job.get("errors", [])[-1].startswith("budget: "),
+          json.dumps({k: _t4_job.get("result", {}).get(k)
+                      for k in ("stop_reason", "spend_usd", "cap_usd")}))
+    check("meter: a braked candidate is NOT counted as a failed candidate",
+          _t4_job["failed"] == 0, f"failed={_t4_job['failed']}")
+
+    # --- a capture job's brake is handled too -------------------------------
+    _t4_cap_job = {"id": "t4-cap", "kind": "capture", "source": "capture", "params": {},
+                   "status": "queued", "total": 0, "done": 0, "ok": 0, "skipped": 0,
+                   "failed": 0, "errors": [], "ok_urls": [], "skipped_urls": [],
+                   "current": "", "created_at": time.time(), "started_at": None,
+                   "finished_at": None}
+    _t4_cap_backup = capture.capture_teardown
+
+    def _t4_cap_raise(startup_id, **kw):
+        raise meter_mod.BudgetExceeded(spend_usd=0.02, cap_usd=0.02,
+                                       rate_version="deadbeef", job_id="t4-cap")
+
+    capture.capture_teardown = _t4_cap_raise
+    try:
+        capture.run_capture_job(_t4_cap_job)
+    finally:
+        capture.capture_teardown = _t4_cap_backup
+    check("meter: a capture job stopped by the brake records the same stop_reason",
+          _t4_cap_job["status"] == "failed"
+          and _t4_cap_job["result"]["stop_reason"] == "budget"
+          and _t4_cap_job["result"]["spend_usd"] == 0.02,
+          json.dumps(_t4_cap_job.get("result")))
+
+    # --- the admin endpoints -------------------------------------------------
+    with TestClient(api) as _t4_client:
+        _t4_get = _t4_client.get("/api/admin/llm/budget", headers=MUT)
+        check("admin: GET /api/admin/llm/budget reports the brake's state",
+              _t4_get.status_code == 200
+              and set(("budget_usd", "spend_usd", "spend_window", "enforced",
+                       "rate_version", "rates_origin", "scope")) <= set(_t4_get.json()),
+              f"{_t4_get.status_code} {sorted(_t4_get.json()) if _t4_get.status_code == 200 else ''}")
+        _t4_put = _t4_client.put("/api/admin/llm/budget", headers=MUT,
+                                 json={"budget_usd": 2.5})
+        check("admin: PUT /api/admin/llm/budget sets the cap and echoes the state",
+              _t4_put.status_code == 200 and _t4_put.json()["budget_usd"] == 2.5
+              and _t4_put.json()["budget_source"] == "setting",
+              f"{_t4_put.status_code} {json.dumps(_t4_put.json())}")
+        check("admin: the cap survives a re-read (it is stored, not held in memory)",
+              _t4_client.get("/api/admin/llm/budget", headers=MUT).json()["budget_usd"] == 2.5,
+              "2.5")
+        _t4_clear = _t4_client.put("/api/admin/llm/budget", headers=MUT,
+                                   json={"budget_usd": None})
+        check("admin: PUT null clears the cap back to unlimited",
+              _t4_clear.status_code == 200 and _t4_clear.json()["budget_usd"] is None
+              and _t4_clear.json()["budget_source"] == "unset",
+              json.dumps(_t4_clear.json()["budget_source"]))
+        check("admin: a negative budget is refused 422, not clamped to zero",
+              _t4_client.put("/api/admin/llm/budget", headers=MUT,
+                             json={"budget_usd": -5}).status_code == 422,
+              "422")
+        check("admin: the budget endpoints sit behind the admin token (403 without it)",
+              _t4_client.get("/api/admin/llm/budget").status_code == 403
+              and _t4_client.put("/api/admin/llm/budget",
+                                 json={"budget_usd": 1}).status_code == 403,
+              "403")
+    meter_mod.set_budget(None)
+    check("meter: the suite leaves the budget unset (the default state)",
+          meter_mod.budget_setting()["source"] == "unset",
+          json.dumps(meter_mod.budget_setting()))
+except Exception as _meter_t4_exc:  # noqa: BLE001 — a crash must fail loudly, not skip checks
+    check("meter: the budget-brake block ran to completion", False, repr(_meter_t4_exc))
+
 # ===========================================================================
 print("\n" + "=" * 78)
 _passed = _total - len(_fails)

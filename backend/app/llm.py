@@ -214,6 +214,12 @@ def llm_json(
     # response_format for gateways that reject structured output.
     last_error: Exception | None = None
     for attempt, with_response_format in enumerate((True, False), start=1):
+        # The spend brake (§7.4 task 4), checked before EVERY attempt and OUTSIDE
+        # the try: a retry must not slip past a cap the first attempt just
+        # reached, and a braked call must never be mistaken for a failed attempt
+        # (its own exception has to reach the job loop that parks the batch).
+        # No socket is opened before this returns.
+        meter.check_budget()
         body = {
             "model": gateway["model"],
             "messages": messages,

@@ -32,7 +32,12 @@ Next task: **Task 4 — the budget setting + `BudgetExceeded`** (Phase 2 begins 
 |---|---|---|---|
 | 1 | `7a039f8` | `backend/app/meter.py` + the `llm_usage` table (one additive table; `db.init_db()` runs its DDL by late import). `record()` never raises but never swallows; reads: `spend_usd`, `rows`, `by_purpose`, `by_model`, `job_summary`, `count`, `table_present`. | functional 341→**358**; live-archive additivity probe PASS (1,258 rows / 43 cols / identical digest → +1 table) |
 | 2 | `57b8f35` | `llm_json` records **one row per ATTEMPT** (finally block: a failed attempt, empty content and unparseable JSON are all billed and all recorded). `meter.usage_from_response` tolerates OpenAI + DeepSeek cache shapes and returns NULL for junk. Attribution by ContextVar: seeder stamps `job_id`, enrich stamps `purpose`, capture stamps `startup_id`. | functional 358→**382**; smoke ALL PASS |
-| 3 | *(this commit)* | The rate table: cited built-in defaults in `meter.DEFAULT_RATES`, operator edits stored in the settings store (`load_rates`/`save_rates`/`clear_rates`/`rates_source`), `cost_of`/`price_attempt` returning `(cost_usd, price_used)` where `price_used` is `<model>@<version>` or `unpriced:<reason>`. `gateways.get_setting/set_setting` are the public settings accessors. | functional 382→**402**; smoke ALL PASS |
+| 3 | `27bccb2` | The rate table: cited built-in defaults in `meter.DEFAULT_RATES`, operator edits stored in the settings store (`load_rates`/`save_rates`/`clear_rates`/`rates_source`), `cost_of`/`price_attempt` returning `(cost_usd, price_used)` where `price_used` is `<model>@<version>` or `unpriced:<reason>`. `gateways.get_setting/set_setting` are the public settings accessors. | functional 382→**402**; smoke ALL PASS |
+| 4 | *(this commit)* | **The spend brake.** `llm_budget_usd` in the settings store (NULL default = unlimited), a per-job `params["budget_usd"]` override, `meter.BudgetExceeded` raised by `meter.check_budget()` **before every attempt and before any socket**, `GET`/`PUT /api/admin/llm/budget`. Seeder and capture job loops refuse to count a braked candidate as a failure and stop the batch instead, recording `result.stop_reason="budget"` + spend/cap/rate version. | functional 402→**429**; smoke ALL PASS |
+
+### Task 4's interim status (Task 5 will change this)
+
+A braked job currently ends as `status="failed"` with `result.stop_reason="budget"` and the figures in `result` (+ an `errors` entry starting `budget: `). That is an honest stop, not a lie about what happened — but **Task 5 replaces it with the parked `paused` state** that an operator can Resume. Everything already written stays in both versions; nothing rolls back.
 
 ## The three rules the ledger keeps (each pinned by a test)
 

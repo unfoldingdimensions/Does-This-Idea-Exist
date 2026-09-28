@@ -34,7 +34,7 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 
-from . import capture, compare as compare_mod, db, enrich, evidence as evidence_mod, founder, fts, funnel, gateways, search as search_mod, seeder, verify  # noqa: E402
+from . import capture, compare as compare_mod, db, enrich, evidence as evidence_mod, founder, fts, funnel, gateways, meter, search as search_mod, seeder, verify  # noqa: E402
 
 log = logging.getLogger("ideasexist")
 
@@ -436,6 +436,32 @@ def seed_jobs() -> list[dict]:
     """Every seed job — active first (running, then queued), then finished.
     The panel re-attaches to live progress on open via this list."""
     return seeder.list_jobs()
+
+
+class BudgetIn(BaseModel):
+    """The per-job LLM budget in USD. `null` clears it (= unlimited), which is
+    the default: an install that configures nothing behaves exactly as it did
+    before §7.4 existed."""
+
+    budget_usd: float | None = Field(default=None, ge=0, le=1_000_000)
+
+
+@admin.get("/llm/budget", dependencies=[Depends(rate_limited("admin_llm_budget", 60, 60))])
+def get_llm_budget() -> dict:
+    """The spend brake's state: the cap, what has been spent against it, and the
+    rate table that $ came from. Read-only, additive."""
+    return meter.budget_status()
+
+
+@admin.put("/llm/budget", dependencies=[Depends(rate_limited("admin_llm_budget_put", 20, 60))])
+def put_llm_budget(body: BudgetIn) -> dict:
+    """Set (or clear) the per-job LLM budget. A negative value is refused 422 by
+    the model, not silently clamped."""
+    try:
+        meter.set_budget(body.budget_usd)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return meter.budget_status()
 
 
 class ApproveIn(BaseModel):

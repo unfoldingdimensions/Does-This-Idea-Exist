@@ -227,7 +227,12 @@ def run_capture_job(job: dict) -> None:
     job["started_at"] = time.time()
     try:
         startup_id = int((job.get("params") or {}).get("startup_id") or 0)
-        result = capture_teardown(startup_id)
+        # Same attribution contract as a seed job: the batch id (so its spend is
+        # measurable and braked) and, if this particular capture carries one, its
+        # own budget. capture_teardown then stamps purpose+startup_id inside.
+        with meter.attributing(job_id=job["id"],
+                               budget_usd=(job.get("params") or {}).get("budget_usd")):
+            result = capture_teardown(startup_id)
         job["result"] = result
         job["done"] = 1
         if result.get("state") == "captured":
@@ -240,6 +245,21 @@ def run_capture_job(job: dict) -> None:
             job["failed"] = 1
             job["errors"].append(f"startup:{startup_id}: {result.get('state')}")
         job["status"] = "done"
+    except meter.BudgetExceeded as exc:
+        # The brake stopped the capture before it spent past its cap. A capture
+        # is one candidate, so this is already the per-candidate boundary; the
+        # job records what it spent and why it stopped.
+        job["status"] = "failed"
+        job["result"] = {
+            **(job.get("result") or {}),
+            "stop_reason": "budget",
+            "spend_usd": exc.spend_usd,
+            "cap_usd": exc.cap_usd,
+            "rate_version": exc.rate_version,
+            "cost_complete": exc.cost_complete,
+        }
+        job["errors"].append(f"budget: {exc}")
+        log.warning("capture job %s stopped by the budget brake: %s", job["id"], exc)
     except Exception as exc:  # noqa: BLE001 — a job-level crash is a loud failure
         job["status"] = "failed"
         job["errors"].append(f"job: {exc}")

@@ -86,6 +86,7 @@ def attributing(
     purpose: str | None = None,
     startup_id: int | None = None,
     job_id: str | None = None,
+    budget_usd: float | None = None,
 ):
     """Stamp the calls made inside this block. Contexts nest and merge.
 
@@ -94,7 +95,9 @@ def attributing(
                 llm.llm_json(...)                        # both stamped
 
     Only the fields passed are set, so an inner block cannot erase an outer
-    one's attribution by omission.
+    one's attribution by omission. `budget_usd` is a per-job override of the
+    configured cap (§7.4 task 4) — the seeder passes its job's own limit here so
+    the brake does not have to reach back into the job registry.
     """
     merged = dict(_ATTRIBUTION.get())
     if purpose is not None:
@@ -103,6 +106,8 @@ def attributing(
         merged["startup_id"] = startup_id
     if job_id is not None:
         merged["job_id"] = job_id
+    if budget_usd is not None:
+        merged["budget_usd"] = budget_usd
     token = _ATTRIBUTION.set(merged)
     try:
         yield merged
@@ -222,6 +227,11 @@ def record(
     Never raises (rule 1). `total_tokens` is filled from prompt+completion when
     the provider did not send it and the parts are known; when nothing is known
     it stays NULL and `usage_missing` is set by the caller.
+
+    Attribution (`job_id`, `purpose`, `startup_id`) is the CALLER's to pass: this
+    writer records what it is handed and never reads the ambient attribution
+    context itself. `llm._record_attempt` is the place that context is read, so
+    the record is always explicit at the point it is written.
     """
     global _failures, _last_failure
     if total_tokens is None and prompt_tokens is not None and completion_tokens is not None:
@@ -706,6 +716,157 @@ def price_attempt(
     except Exception as exc:  # noqa: BLE001 — pricing must not break a call either
         log.warning("pricing failed for %s (%s); recording unpriced", model, exc)
         return None, "unpriced:price-error"
+
+
+# --- the pacemaker: a per-job budget that PARKS, not a suggestion ------------
+# §7.4's "per-batch hard budget". The design rule from the user's answers: on
+# breach the job PARKS at the next per-candidate boundary with everything already
+# written left in place — it does not fail, roll back, or silently carry on.
+#
+# SCOPE IS PER JOB, and that is a decision, not an oversight: a call that belongs
+# to no job is not braked by this, because the configured cap describes a batch.
+# The panel shows spend for both, so an un-jobbed call is visible even though it
+# is unbudgeted.
+BUDGET_KEY = "llm_budget_usd"
+
+
+class BudgetExceeded(RuntimeError):
+    """The spend brake fired. Carries the numbers: "budget exceeded" with no
+    figures is not actionable, and neither is a $ that hides what it covers."""
+
+    def __init__(
+        self,
+        *,
+        spend_usd: float,
+        cap_usd: float,
+        rate_version: str,
+        job_id: str | None,
+        scope: str = "job",
+        cost_complete: bool = True,
+    ):
+        self.spend_usd = spend_usd
+        self.cap_usd = cap_usd
+        self.rate_version = rate_version
+        self.job_id = job_id
+        self.scope = scope
+        self.cost_complete = cost_complete
+        floor = "" if cost_complete else " (a FLOOR — this job has unpriced calls)"
+        super().__init__(
+            f"LLM budget reached for {scope} {job_id}: spent ${spend_usd:.4f}{floor} "
+            f"of a ${cap_usd:.4f} {scope} cap (rates {rate_version})"
+        )
+
+
+def budget_setting() -> dict:
+    """The configured per-job cap. Unset = unlimited = the pre-metering product."""
+    raw = ""
+    try:
+        raw = (gateways.get_setting(BUDGET_KEY) or "").strip()
+    except Exception as exc:  # noqa: BLE001 — a settings read must not break a call
+        log.warning("budget setting unreadable (%s); treating it as unlimited", exc)
+        return {"budget_usd": None, "raw": "", "source": "unreadable", "parse_error": str(exc)}
+    if not raw:
+        return {"budget_usd": None, "raw": "", "source": "unset", "parse_error": None}
+    try:
+        value = float(raw)
+    except ValueError:
+        # NOT silently unlimited-with-no-trace: the read endpoint reports it, so
+        # an operator who typed "ten dollars" can see why nothing is braked.
+        return {"budget_usd": None, "raw": raw, "source": "invalid",
+                "parse_error": f"{raw!r} is not a number of USD"}
+    if value < 0:
+        return {"budget_usd": None, "raw": raw, "source": "invalid",
+                "parse_error": "a budget cannot be negative"}
+    return {"budget_usd": value, "raw": raw, "source": "setting", "parse_error": None}
+
+
+def set_budget(value) -> dict:
+    """Set the per-job cap; None or "" clears it. Raises ValueError on junk."""
+    if value is None or value == "":
+        gateways.set_setting(BUDGET_KEY, "")
+        return budget_setting()
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"budget_usd must be a number of USD or null, got {value!r}") from None
+    if number < 0:
+        raise ValueError("budget_usd must be >= 0 (use null for unlimited)") from None
+    gateways.set_setting(BUDGET_KEY, str(number))
+    return budget_setting()
+
+
+def effective_budget(job_budget=None) -> float | None:
+    """The cap for this call: a job's own limit wins, else the setting."""
+    if job_budget is not None and job_budget != "":
+        try:
+            value = float(job_budget)
+        except (TypeError, ValueError):
+            log.warning("job budget %r is not a number — falling back to the setting", job_budget)
+        else:
+            if value >= 0:
+                return value
+            log.warning("job budget %r is negative — falling back to the setting", job_budget)
+    return budget_setting()["budget_usd"]
+
+
+def budget_status(job_id: str | None = None, job_budget=None) -> dict:
+    """Where the brake stands — what the admin endpoint and panel report."""
+    where = current_attribution()
+    resolved_job = job_id if job_id is not None else where.get("job_id")
+    resolved_override = job_budget if job_budget is not None else where.get("budget_usd")
+    setting = budget_setting()
+    cap = effective_budget(resolved_override)
+    spend = spend_usd(job_id=resolved_job)
+    cost = spend.get("cost_usd")
+    rates = rates_source()
+    return {
+        "scope": "job",
+        "job_id": resolved_job,
+        # Which window the spend figure covers: a job's own ledger rows, or (with
+        # no job in context) this install's whole history. Never blurred.
+        "spend_window": "job" if resolved_job else "all-time",
+        "budget_usd": cap,
+        "budget_source": ("job" if resolved_override is not None and cap is not None
+                          else setting["source"]),
+        "parse_error": setting["parse_error"],
+        # A $ from a ledger with unpriced rows is a floor and says so. An EMPTY
+        # window is not a floor — there is nothing there to be incomplete.
+        "spend_usd": cost,
+        "spend_is_floor": bool(spend.get("attempts")) and not bool(spend.get("cost_complete")),
+        "attempts": spend.get("attempts"),
+        "unpriced_attempts": spend.get("unpriced_attempts"),
+        "remaining_usd": None if cap is None else round(max(0.0, cap - (cost or 0.0)), 8),
+        "over_budget": None if cap is None else (cost or 0.0) >= cap,
+        # Enforcement needs BOTH a cap and a job: this is a per-job brake.
+        "enforced": bool(cap is not None and resolved_job),
+        "rate_version": rates["version"],
+        "rates_origin": rates["origin"],
+    }
+
+
+def check_budget(job_id: str | None = None, job_budget=None) -> None:
+    """Raise BudgetExceeded if this job has spent its cap. Called before every
+    attempt, so a retry cannot slip past a cap the first attempt just reached.
+
+    Unlimited (the default) returns immediately — that path is pinned by a test
+    to be byte-identical to the product before §7.4 existed.
+    """
+    where = current_attribution()
+    resolved_job = job_id if job_id is not None else where.get("job_id")
+    resolved_override = job_budget if job_budget is not None else where.get("budget_usd")
+    cap = effective_budget(resolved_override)
+    if cap is None or not resolved_job:
+        return
+    spend = spend_usd(job_id=resolved_job)
+    cost = spend.get("cost_usd") or 0.0
+    if cost >= cap:
+        raise BudgetExceeded(
+            spend_usd=cost,
+            cap_usd=cap,
+            rate_version=rates_source()["version"],
+            job_id=resolved_job,
+            cost_complete=bool(spend.get("cost_complete")),
+        )
 
 
 def table_present() -> bool:
