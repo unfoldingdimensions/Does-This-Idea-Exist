@@ -73,6 +73,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from app import capture, compare as cmp, config, db  # noqa: E402
 from app import enrich, evidence as ev, founder, llm, negatives  # noqa: E402
+from app import meter as meter_mod  # noqa: E402
 from app import pages as pages_mod, reviews, search as search_mod, seeder  # noqa: E402
 from app import teardown as td, verify  # noqa: E402
 from app.main import app as api  # noqa: E402
@@ -2972,6 +2973,149 @@ finally:
             os.environ.pop(_k, None)
         else:
             os.environ[_k] = _v
+
+# --- §7.4 Task 1: the LLM usage ledger (schema, record, reads) --------------
+# The ledger's job is to make a $ figure a MEASUREMENT. These checks pin the
+# three rules the module promises: per-attempt rows, NULL-never-zero, and a
+# write failure that is contained but never silent.
+_meter_fresh = Path(_tmp.name) / "meter-legacy.db"
+try:
+    meter_mod.reset_failure_counter()
+
+    # 1. A fresh DB has the table (init_db runs it via the late import).
+    db.init_db()
+    check("meter: the ledger table exists after init_db",
+          meter_mod.table_present() is True,
+          "llm_usage")
+
+    # 2. A row round-trips, and total_tokens is filled from its parts.
+    _m_before = meter_mod.count()
+    _rec = meter_mod.record(
+        model="deepseek-v4-flash", gateway_id="opencode-go", purpose="seed:website",
+        startup_id=4242, job_id="job-meter-1", attempt=1,
+        prompt_tokens=1000, completion_tokens=250, cached_tokens=600,
+        duration_ms=1234, ok=True, cost_usd=0.000123,
+        price_used="deepseek-v4-flash@2026-09-24",
+    )
+    check("meter: record() reports success and appends exactly one row",
+          _rec.get("recorded") is True and meter_mod.count() == _m_before + 1,
+          json.dumps(_rec))
+    _row = meter_mod.rows(limit=1)[0]
+    check("meter: the row keeps model/gateway/purpose/attribution and the price used",
+          _row["model"] == "deepseek-v4-flash" and _row["gateway_id"] == "opencode-go"
+          and _row["purpose"] == "seed:website" and _row["startup_id"] == 4242
+          and _row["job_id"] == "job-meter-1" and _row["price_used"].startswith("deepseek"),
+          json.dumps({k: _row[k] for k in ("model", "gateway_id", "purpose", "price_used")}))
+    check("meter: total_tokens is derived from prompt+completion when absent",
+          _row["total_tokens"] == 1250, f"total_tokens={_row['total_tokens']}")
+
+    # 3. A second ATTEMPT on the same call is its own row (retries are billed).
+    meter_mod.record(model="deepseek-v4-flash", gateway_id="opencode-go",
+                     purpose="seed:website", startup_id=4242, job_id="job-meter-1",
+                     attempt=2, prompt_tokens=1000, completion_tokens=300,
+                     duration_ms=900, ok=True, cost_usd=0.00013,
+                     price_used="deepseek-v4-flash@2026-09-24")
+    _js = meter_mod.job_summary("job-meter-1")
+    check("meter: attempts are recorded separately (a retry is a second row)",
+          _js["attempts"] == 2 and _js["retried_attempts"] == 1,
+          json.dumps({k: _js[k] for k in ("attempts", "retried_attempts")}))
+    check("meter: rows_touched counts DISTINCT rows, so a retry cannot inflate $/row",
+          _js["rows_touched"] == 1, f"rows_touched={_js['rows_touched']}")
+    check("meter: tokens/row and $/row are computed from the distinct row count",
+          _js["tokens_per_row"] == 2550 and abs(_js["cost_per_row"] - 0.000253) < 1e-9,
+          f"tokens/row={_js['tokens_per_row']} $/row={_js['cost_per_row']}")
+    check("meter: a fully-priced job reports cost_complete",
+          _js["cost_complete"] is True and _js["unpriced_attempts"] == 0,
+          json.dumps({"cost_usd": _js["cost_usd"], "complete": _js["cost_complete"]}))
+
+    # 4. NULL is "not known", never zero: a call with no usage block is flagged.
+    meter_mod.record(model="mystery-model", purpose="teardown", startup_id=99,
+                     job_id="job-meter-2", attempt=1, ok=True, usage_missing=True)
+    _m2 = meter_mod.job_summary("job-meter-2")
+    check("meter: a response with no usage block stores NULL tokens + a missing flag",
+          _m2["total_tokens"] is None and _m2["usage_missing_attempts"] == 1
+          and _m2["cost_per_row"] is None,
+          json.dumps({k: _m2[k] for k in ("total_tokens", "usage_missing_attempts", "cost_per_row")}))
+    _sp = meter_mod.spend_usd(job_id="job-meter-2")
+    check("meter: spend_usd states its own incompleteness (cost_complete False, unpriced counted)",
+          _sp["cost_complete"] is False and _sp["unpriced_attempts"] == 1
+          and _sp["cost_usd"] is None and _sp["usage_missing_attempts"] == 1,
+          json.dumps(_sp))
+
+    # 5. A priced window aggregates; grouping falls back to 'unattributed'.
+    meter_mod.record(model="deepseek-v4-flash", ok=True, cost_usd=0.5,
+                     prompt_tokens=10, completion_tokens=5, purpose=None,
+                     price_used="deepseek-v4-flash@2026-09-24")
+    _purposes = {p["purpose"]: p for p in meter_mod.by_purpose()}
+    check("meter: an un-attributed call is grouped as 'unattributed', not dropped",
+          "unattributed" in _purposes and _purposes["unattributed"]["attempts"] == 1,
+          json.dumps(list(_purposes)))
+    _models = {m["model"]: m for m in meter_mod.by_model()}
+    check("meter: grouping by model reports its unpriced attempts",
+          _models["mystery-model"]["unpriced_attempts"] == 1
+          and _models["deepseek-v4-flash"]["unpriced_attempts"] == 0,
+          json.dumps(list(_models)))
+
+    # 6. A write failure is contained (never raises) and COUNTED (never silent).
+    _real_connect = meter_mod.db.connect
+    try:
+        def _boom():
+            raise sqlite3.OperationalError("disk I/O error (simulated)")
+
+        meter_mod.db.connect = _boom
+        _fail = meter_mod.record(model="x", ok=True)
+        check("meter: a failed write returns a flag instead of raising",
+              _fail.get("recorded") is False and "simulated" in str(_fail.get("error")),
+              json.dumps(_fail))
+        check("meter: a failed write bumps the visible failure counter",
+              meter_mod.failure_count() == 1 and "simulated" in (meter_mod.last_failure() or ""),
+              f"failures={meter_mod.failure_count()}")
+    finally:
+        meter_mod.db.connect = _real_connect
+
+    # 7. ADDITIVE PROOF: a pre-meter database gains the table and loses nothing.
+    #    Built as a synthetic legacy store (startups + jobs, no llm_usage), so
+    #    the check is deterministic; the live archive is probed the same way
+    #    out-of-band.
+    if _meter_fresh.exists():
+        _meter_fresh.unlink()
+    _legacy = sqlite3.connect(_meter_fresh)
+    _legacy.executescript(db._STARTUPS_TABLE + """
+CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, kind TEXT NOT NULL,
+  source TEXT NOT NULL, status TEXT NOT NULL);
+""")
+    for _i in range(3):
+        _legacy.execute(
+            "INSERT INTO startups (name, website_url, source) VALUES (?, ?, 'website')",
+            (f"Legacy Co {_i}", f"https://legacy{_i}.example"),
+        )
+    _legacy.commit()
+    _legacy_cols = [r[1] for r in _legacy.execute("PRAGMA table_info(startups)")]
+    _legacy_count = _legacy.execute("SELECT COUNT(*) FROM startups").fetchone()[0]
+    _legacy.close()
+
+    _saved_db_path = config.DB_PATH
+    try:
+        config.DB_PATH = _meter_fresh
+        db.init_db()
+        _after = sqlite3.connect(_meter_fresh)
+        _after_cols = [r[1] for r in _after.execute("PRAGMA table_info(startups)")]
+        _after_count = _after.execute("SELECT COUNT(*) FROM startups").fetchone()[0]
+        _has_usage = _after.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='llm_usage'"
+        ).fetchone()
+        _after.close()
+        check("meter: a legacy DB gains the ledger WITHOUT touching its rows",
+              _after_count == _legacy_count == 3, f"{_legacy_count} -> {_after_count}")
+        check("meter: a legacy DB's startups COLUMNS are unchanged (additions appended, none dropped)",
+              _after_cols[:len(_legacy_cols)] == _legacy_cols
+              and all(c not in _legacy_cols for c in _after_cols[len(_legacy_cols):]),
+              f"{len(_legacy_cols)} -> {len(_after_cols)} (F-01 approval columns are the delta)")
+        check("meter: the ledger exists on the upgraded legacy DB", _has_usage is not None)
+    finally:
+        config.DB_PATH = _saved_db_path
+except Exception as _meter_exc:  # noqa: BLE001 — a ledger crash must fail loudly, not silently skip checks
+    check("meter: the ledger block ran to completion", False, repr(_meter_exc))
 
 # ===========================================================================
 print("\n" + "=" * 78)

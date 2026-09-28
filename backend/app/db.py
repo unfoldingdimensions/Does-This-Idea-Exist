@@ -240,6 +240,12 @@ def init_db() -> None:
     conn = connect()
     try:
         conn.executescript(SCHEMA)  # CREATE ... IF NOT EXISTS: fresh DBs get the full schema
+        # The LLM usage ledger's DDL lives in app/meter.py (the module that owns
+        # it) and is executed here by late import — meter imports db, so a
+        # module-level import would be circular. Same pattern as udf.register.
+        from . import meter  # noqa: PLC0415 — deliberate late import (cycle)
+
+        conn.executescript(meter.ATTEMPT_ROWS_DDL)
         migrate(conn)               # existing DBs get the new columns; no-op on a fresh one
     finally:
         conn.close()
