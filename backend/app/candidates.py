@@ -37,7 +37,7 @@ import time
 from pathlib import Path
 from typing import Any, Iterable
 
-from . import config, db
+from . import config, db, liveness
 from .enrich import canonical_domain
 
 CANDIDATES_DDL = """
@@ -70,7 +70,7 @@ CREATE INDEX IF NOT EXISTS idx_candidates_domain ON candidates(canonical_domain)
 # `admitted` — reserved for the Phase D/E admission path; nothing writes it yet
 STATES = frozenset({"new", "known", "duplicate", "admitted"})
 
-LIVENESS_STATES = frozenset({"LIVE", "WALLED", "DEAD", "UNKNOWN", "MOVED", "BANNED", "NO_URL"})
+LIVENESS_STATES = frozenset({"LIVE"}) | liveness.STRIKE_STATES | liveness.SKIP_STATES
 
 
 def store_path() -> Path:
@@ -289,14 +289,20 @@ def set_liveness(key_or_id: int | str, state: str, *, conn: sqlite3.Connection |
 
 
 def pending_liveness(*, limit: int = 500, conn: sqlite3.Connection | None = None) -> list[dict]:
-    """Candidates with no liveness verdict yet, newest first."""
+    """Candidates with no liveness verdict yet, newest first.
+
+    `known` candidates are skipped: the archive already holds those rows and its
+    own verify pass owns their liveness, so re-checking them would spend HTTP
+    requests to re-learn something already recorded — and would flatter a
+    channel's yield with rows that channel did not contribute.
+    """
     own = conn is None
     conn = conn or connect()
     try:
         return [
             dict(r) for r in conn.execute(
                 "SELECT * FROM candidates WHERE liveness_state IS NULL "
-                "ORDER BY id DESC LIMIT ?", (int(limit),),
+                "AND state != 'known' ORDER BY id DESC LIMIT ?", (int(limit),),
             ).fetchall()
         ]
     finally:
@@ -333,6 +339,11 @@ def yield_report(*, conn: sqlite3.Connection | None = None) -> dict:
     there is no cost yet — no LLM has run — so that column is reported as
     `cost_unknown` with the reason, never as `$0.00`. What IS real here is the
     funnel: found → staged → duplicates → already-known → liveness → live yield.
+
+    YIELD IS COMPUTED OVER `new` ROWS ONLY. A candidate the archive already holds
+    (`known`) is not that channel's contribution, and counting it would let a
+    channel that merely re-lists products we already have out-rank one that
+    actually found something — the exact decision this table exists to make.
     """
     own = conn is None
     conn = conn or connect()
@@ -342,10 +353,14 @@ def yield_report(*, conn: sqlite3.Connection | None = None) -> dict:
                       COUNT(*) AS found,
                       SUM(CASE WHEN state = 'new' THEN 1 ELSE 0 END) AS staged,
                       SUM(CASE WHEN state = 'known' THEN 1 ELSE 0 END) AS known,
-                      SUM(CASE WHEN liveness_state IS NOT NULL THEN 1 ELSE 0 END) AS judged,
-                      SUM(CASE WHEN liveness_state = 'LIVE' THEN 1 ELSE 0 END) AS live,
-                      SUM(CASE WHEN liveness_state = 'WALLED' THEN 1 ELSE 0 END) AS walled,
-                      SUM(CASE WHEN liveness_state = 'DEAD' THEN 1 ELSE 0 END) AS dead
+                      SUM(CASE WHEN state = 'new' AND liveness_state IS NOT NULL
+                               THEN 1 ELSE 0 END) AS judged,
+                      SUM(CASE WHEN state = 'new' AND liveness_state = 'LIVE'
+                               THEN 1 ELSE 0 END) AS live,
+                      SUM(CASE WHEN state = 'new' AND liveness_state = 'WALLED'
+                               THEN 1 ELSE 0 END) AS walled,
+                      SUM(CASE WHEN state = 'new' AND liveness_state IN ('DEAD', 'REPURPOSED')
+                               THEN 1 ELSE 0 END) AS dead
                FROM candidates GROUP BY channel ORDER BY channel"""
             ).fetchall()
         per_channel = []

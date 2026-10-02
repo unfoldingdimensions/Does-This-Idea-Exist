@@ -172,10 +172,14 @@ def stage_liveness(*, limit: int, workers: int, timeout_s: float) -> dict:
            "--file", str(source), "--out", str(run_dir), "--workers", str(workers),
            "--timeout", str(timeout_s), "--quiet"]
     proc = subprocess.run(cmd, capture_output=True, text=True)
-    states_path = run_dir / "states.json"
-    if not states_path.is_file():
+    # The auditor writes its run into a TIMESTAMPED subdirectory of --out
+    # (<out>/liveness-YYYY-MM-DD-HHMM/states.json), so the states file is looked up
+    # rather than assumed - which is what a first run got wrong.
+    found = sorted(run_dir.rglob("states.json"))
+    if not found:
         raise SystemExit("the auditor produced no states.json — nothing was judged:\n"
                          + (proc.stderr or proc.stdout or "")[-800:])
+    states_path = found[-1]
     states = json.loads(states_path.read_text(encoding="utf-8"))
     by_state: dict[str, int] = {}
     for row in states:

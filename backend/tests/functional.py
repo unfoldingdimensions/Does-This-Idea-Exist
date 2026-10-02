@@ -4885,6 +4885,25 @@ try:
           _c1_bad_state is not None and "LIVENESS" in _c1_bad_state.upper()
           or "unknown liveness state" in (_c1_bad_state or ""),
           _c1_bad_state)
+    # ...and the vocabulary the store accepts is DERIVED from the product's own
+    # liveness module, not typed out again. It must also equal the auditor CLI's
+    # STATE_ORDER, or the sourcing tool would refuse a verdict the auditor
+    # legitimately produces (REPURPOSED was exactly that: it cost a run).
+    import re as _c1_re
+
+    _c1_repo = Path(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))))
+    _c1_order_src = (_c1_repo / "scripts" / "site_liveness_audit.py").read_text(encoding="utf-8")
+    _c1_order_match = _c1_re.search(r"STATE_ORDER = \[(.*?)\]", _c1_order_src, _c1_re.S)
+    _c1_auditor_states = set(_c1_re.findall(r"\"([A-Z_]+)\"", _c1_order_match.group(1)))
+    check("candidates: the liveness vocabulary is DERIVED from liveness.py, not re-typed",
+          cand_mod.LIVENESS_STATES == ({"LIVE"} | liveness_mod.STRIKE_STATES
+                                       | liveness_mod.SKIP_STATES),
+          json.dumps(sorted(cand_mod.LIVENESS_STATES)))
+    check("candidates: and it EQUALS the auditor's STATE_ORDER (one vocabulary, pinned)",
+          _c1_auditor_states == set(cand_mod.LIVENESS_STATES),
+          json.dumps({"auditor_only": sorted(_c1_auditor_states - set(cand_mod.LIVENESS_STATES)),
+                      "store_only": sorted(set(cand_mod.LIVENESS_STATES) - _c1_auditor_states)}))
     check("candidates: pending_liveness lists only un-judged candidates",
           all(r["liveness_state"] is None for r in cand_mod.pending_liveness(conn=_c1_conn)),
           json.dumps([r["liveness_state"] for r in cand_mod.pending_liveness(conn=_c1_conn)]))
@@ -4907,6 +4926,25 @@ try:
     check("candidates: the cost note says why the column is empty",
           "unknown until Phase D" in _c1_report["cost_note"],
           _c1_report["cost_note"])
+
+    # A `known` candidate is not this channel's contribution, so its verdict must
+    # not move the yield. A harsh one is set here and the numbers must not budge.
+    _c1_known_rows = [r for r in cand_mod.list_candidates(conn=_c1_conn)
+                      if r["state"] == "known"]
+    if _c1_known_rows:
+        cand_mod.set_liveness(_c1_known_rows[0]["id"], "DEAD", conn=_c1_conn)
+        _c1_after_known = cand_mod.yield_report(conn=_c1_conn)["channels"][0]
+        check("candidates: a `known` row's liveness does NOT count toward the channel's yield",
+              _c1_after_known["judged"] == _c1_chan["judged"]
+              and _c1_after_known["live"] == _c1_chan["live"]
+              and _c1_after_known["dead"] == 0
+              and _c1_after_known["live_yield"] == _c1_chan["live_yield"],
+              json.dumps({"before": {"judged": _c1_chan["judged"], "dead": _c1_chan["dead"]},
+                          "after": {"judged": _c1_after_known["judged"],
+                                    "dead": _c1_after_known["dead"]}}))
+        check("candidates: and pending_liveness does not re-check what the archive already holds",
+              all(r["state"] != "known" for r in cand_mod.pending_liveness(conn=_c1_conn)),
+              json.dumps([r["state"] for r in cand_mod.pending_liveness(conn=_c1_conn)]))
 
     # Counts agree with the rows (one source of truth, not two).
     _c1_counts = cand_mod.counts(conn=_c1_conn)
@@ -5073,6 +5111,15 @@ try:
     check("sources: the GitHub request carries the token when the install has one",
           ("Authorization" in _c2_gh.calls[0]["headers"]) == bool(config.GITHUB_TOKEN),
           json.dumps(sorted(_c2_gh.calls[0]["headers"])))
+    _c2_401 = list(src_mod.github_topics(
+        {"query": "topic:x"}, _FakeClient(
+            {"https://api.github.com/search/repositories": _FakeResponse(401)}),
+        sleep=_t2_sleep))
+    check("sources: a 401 says the stored token was REJECTED, and nothing was staged",
+          len(_c2_401) == 1 and "REJECTED" in _c2_401[0]["_error"]
+          and "backend/.env" in _c2_401[0]["_error"]
+          and all("_error" in r for r in _c2_401),
+          json.dumps(_c2_401[0]["_error"]))
     _c2_403 = list(src_mod.github_topics(
         {"query": "topic:x"}, _FakeClient(
             {"https://api.github.com/search/repositories": _FakeResponse(403)}),

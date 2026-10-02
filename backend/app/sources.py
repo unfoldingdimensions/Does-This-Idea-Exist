@@ -145,6 +145,13 @@ def github_topics(spec: dict, client: Any, *, sleep: Callable[[float], None] = _
                    "_source_url": f"https://api.github.com/search/repositories?q={query}"}
             return
         status = getattr(response, "status_code", None)
+        if status == 401:
+            yield {"_error": "github_topics: HTTP 401 — the stored GITHUB_TOKEN was REJECTED "
+                             "(invalid, expired or revoked). Unauthenticated search still works "
+                             "but is capped at 10 requests/minute, so a big pull needs a fresh "
+                             "token in backend/.env. Nothing was staged for this source.",
+                   "_source_url": "https://api.github.com/search/repositories"}
+            return
         if status == 403:
             yield {"_error": "github_topics: HTTP 403 (rate limited) — set GITHUB_TOKEN for "
                              "anything beyond a handful of searches",
