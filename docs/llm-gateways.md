@@ -186,11 +186,169 @@ The panel is a `Dialog` with one collapsible `SectionHeader` per area (`componen
 
 * **No key read-back, ever** — not even masked-with-reveal. Rotation is "paste a new one".
 * **No query-parameter auth**, for the reason in §2.
-* **No multi-key rotation, no per-job gateway choice, no usage/cost accounting.** One active gateway, resolved per call.
+* **No multi-key rotation, no per-job gateway choice.** One active gateway, resolved per call. (Usage/cost accounting *used* to be on this list; it shipped in §7.4 — see §7 below for the ledger, the rate table and the spend brake.)
 * **No `enabled` flag.** An earlier draft stored one; it gated nothing, so it was removed rather than shipped as a knob that does nothing. If the panel wants a "hide the gateways I don't use" preference, keep it in the client.
 
 ---
 
-## 7. Coverage
+## 7. Metering, rates and the spend brake (§7.4)
+
+The other half of the gateway story: what the calls cost, where the number comes
+from, and how to stop it. Plan + full rationale: `docs/llm-metering-plan.md`.
+
+### 7.1 The ledger — `llm_usage`
+
+One row per **attempt**, not per call: a retry is a second row, because a retry is
+a second bill. Written at the single choke point (`llm.llm_json` → `llm._record_attempt`),
+never at the four call sites, so no path can spend without being recorded. The
+table is created by `db.init_db()` (a late import of `meter.ATTEMPT_ROWS_DDL`), so
+an existing archive gains it on the next boot with **zero column changes** —
+proven on a copy of the live archive by `scripts/probe_meter_additive.py`.
+
+Three rules, and they are the point:
+
+* **`record()` never raises.** A ledger write must not fail an enrichment. It is
+  never silent either: failures bump a counter the usage report and the CLI
+  surface (`metering_failures`, explicitly scoped as *process lifetime*).
+* **Each row carries the rates it was priced with** (`price_used` =
+  `<model>@<table-version>` or `unpriced:<reason>`), so editing a price cannot
+  rewrite history.
+* **NULL means "not known", never zero.** A model with no price, or a response with
+  no usage block, records a NULL cost — it must never read as free. There is a
+  separate `usage_missing` flag, because "the provider told me it cost $0" and
+  "the provider told me nothing" are different facts.
+
+### 7.2 The rate table
+
+Built-in, cited defaults in code (`DEFAULT_RATES`, each row with its `source` URL
+and `as_of` date) so a fresh install prices correctly out of the box, overridable
+by an edited table in the **settings store** (`backend/data/settings.db` — its own
+file, never the archive). Editing mints a new table version (a hash), so every
+row's `price_used` says which table priced it. `PUT /api/admin/llm/rates` saves an
+edit; `DELETE` goes back to the cited built-ins. A blank field is a deliberate
+"no price" — unpriced, never free.
+
+The $ is **marginal list-price cost, not an invoice**: it excludes the provider's
+commitments, credits and taxes.
+
+### 7.3 The brake
+
+`llm_budget_usd` (a setting, NULL = **unlimited**, which is exactly how the app
+behaved before §7.4) is a **per-batch** cap; a job may also be started with its own
+`budget_usd`, which wins for that batch. `meter.check_budget()` runs *before every
+attempt and before any socket is opened*, so a capped batch never makes the call it
+cannot afford.
+
+On breach the batch **parks** — it is not killed:
+
+* status `paused`, `finished_at` stays NULL, and it keeps **everything it already
+  wrote**;
+* it parks at a candidate boundary, never mid-write;
+* `GET /api/admin/llm/usage` lists parked batches with their reason;
+* `POST /api/admin/seed/{job_id}/resume` continues from where it stopped, **skipping
+  every candidate already handled** (nothing is re-paid for) and optionally raising
+  that job's cap; `POST .../cancel` ends it.
+
+**A parked batch does not block its kind.** Treating paused as active would
+deadlock: a parked capture would answer every later request "capture in progress"
+with no way to resume, and a parked seed would veto the next run until restart.
+
+The brake **fails closed**. If the ledger cannot be read, `check_budget()` raises
+`LedgerUnreadable` (a `BudgetExceeded` with `kind="metering"`) and no socket is
+opened — the batch records `stop_reason="metering"`, which is a different fact from
+a real cap (`stop_reason="budget"`). This is the state of a store that has not been
+migrated yet, and it is reported, never guessed at.
+
+### 7.4 Endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/admin/llm/usage` | the usage report: spend today/week/all-time, by purpose and model, the last batch's tokens/row and $/row, metering failures, the rate table with provenance, the budget state, and the parked batches. `?job_id=` narrows the per-job block |
+| `PUT /api/admin/llm/rates` | save the operator's rate table (all price fields optional; negative → `422`) |
+| `DELETE /api/admin/llm/rates` | drop the override, back to the cited built-ins |
+| `GET /api/admin/llm/budget` | the configured cap + what it is measured against |
+| `PUT /api/admin/llm/budget` | set the per-batch cap (`null` = unlimited; negative → `422`) |
+| `POST /api/admin/seed/{job_id}/cancel` | cancel a queued / parked / running batch |
+| `POST /api/admin/seed/{job_id}/resume` | resume a parked batch, optionally raising its cap |
+
+Rate-limited like the other admin surfaces; `X-Admin-Token` required (`403`
+otherwise). Spend windows are computed on the ledger's own clock (`datetime('now')`,
+i.e. UTC), so a window means the same thing on every machine.
+
+### 7.5 The $/row report
+
+`scripts/llm_cost_report.py` (read-only) prints what Phase D quotes:
+
+```
+python scripts/llm_cost_report.py --job <id>      # one batch
+python scripts/llm_cost_report.py --days 7        # a window
+python scripts/llm_cost_report.py --strict        # exit 1 unless confident
+```
+
+It prints the denominator it divided by, the shares it measured, the rate-table
+version(s) the rows used, and a verdict. **`--strict` exists so a Phase-D gate can
+refuse a floor number without a human remembering to check.**
+
+Two honesty rules are encoded here:
+
+* **The denominator is stated.** On the seed path the ledger cannot know a
+  `startup_id` (the row is upserted *from* the profile the call produces), so the
+  ledger's own row count under-counts exactly the path that matters. When the job's
+  own candidate tally (`ok + skipped`) is larger, that tally is the denominator and
+  `denominator_source` says so.
+* **A number that is not measured says so.** `confident` is true only when ≥90% of
+  attempts were priced *and* carried a usage block; otherwise the $ is labelled a
+  FLOOR with the counts and the unpriced reasons, and an empty window reports null
+  figures rather than `$0.00`.
+
+### 7.6 Job status vocabulary
+
+Adding `paused` and `cancelled` makes the full set:
+
+| Status | Meaning | Terminal? |
+|---|---|---|
+| `queued` | accepted, waiting for a worker | no |
+| `running` | a worker is on it | no |
+| `paused` | stopped at a boundary by the spend brake; keeps its rows; resumable | **no** — it is waiting for you |
+| `cancelled` | stopped by request at a boundary; keeps its rows | yes |
+| `done` | finished its work | yes |
+| `failed` | crashed or exhausted its error budget; see `errors[]` | yes |
+
+`finished_at` is stamped **only** on the three terminal statuses, which is why the
+panel files a parked batch under active rather than history. `IN_FLIGHT` is
+`queued | running` (what `has_active_job` means), `FINISHED` is `done | failed |
+cancelled`. Interrupted-work recovery (`recover_interrupted_jobs`) matches only
+`queued | running`, so it leaves parked batches alone.
+
+---
+
+## 8. Coverage
 
 `backend/tests/functional.py` covers this surface offline (32 checks): the five ids and their base URLs, the admin gate, the resolver's three-step precedence (settings → env → default), the single-env-key fallback, hint-not-key in every response, the switch guard for a keyless and a modelless gateway, unknown-id `404`s, base-URL validation (non-http, credentials, query string, trailing slash), unknown body fields, clearing an override, the settings file being separate from the archive and the founder store, that `llm_json` really posts to the **active** gateway's URL with the key in the `Authorization` header and the active model in the body, that a keyless gateway fails loudly naming its env var, and that testing a keyless gateway never opens a socket.
+
+**§7's metering surface is covered by the same suite** (functional 341 → **518**
+across §7.4), and by a dedicated e2e suite that renders the real panel section
+against a stubbed report:
+- the ledger's three rules — a write that fails cannot fail an enrichment, rows are
+  per attempt (a retry is a second row), and NULL never reads as zero;
+- additivity against a copy of the **live** archive (`scripts/probe_meter_additive.py`:
+  same row count, same column list, new table present);
+- the rate table: cited built-ins in use, every row's source and date, an edit that
+  cannot rewrite history, and every unpriced reason;
+- the brake: no budget means the call proceeds, a cap fires **before the socket**,
+  the cap is per batch, a real job stops at a boundary keeping its rows, and
+  `LedgerUnreadable` fails closed with `stop_reason="metering"` instead of burning
+  the batch;
+- the lifecycle: a braked batch parks, keeps its rows, has no `finished_at`, survives
+  a restart, files under active, and does not block its own kind; cancel and resume
+  work for all three job kinds (including the archive-wide verify pass, which records
+  a `partial` result), and a resume skips what it already handled;
+- the report: hand-checkable arithmetic, the printed denominator, the floor/empty
+  caveats, the unpriced reasons, the unreadable-ledger path, and the CLI's exit codes
+  (`--strict` = 1 on a floor);
+- the panel: the spend tiles, the $/row block with its floor note, the provenance,
+  the parked banner's two buttons, and the blind-ledger state (no `$0.00` anywhere).
+
+One measured number worth keeping: a committed ledger row costs **~6–9 ms**
+(fsync-bound; the INSERT itself is ~0.008 ms), i.e. **under 1% of a 1200 ms call** —
+so metering cannot dominate a batch, which is the risk the scale plan flagged.

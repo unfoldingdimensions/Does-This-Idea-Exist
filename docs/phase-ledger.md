@@ -2039,3 +2039,53 @@ Broad and multi-term queries fall back to the linear scan **by design** — thei
 **Phase P = PASS.** The scale plan's §7.1 and §7.2 are struck; the Phase P row is marked done with these measured numbers.
 
 **Date and who ran it:** 2026-09-24, the Hermes agent for this repo, on `DESKTOP-KV8OEKP`.
+
+---
+
+## §7.4 evidence — metering, rates and the spend brake (2026-09-25 … 09-26)
+
+**Branch:** `feat/liveness-admission` (continues from Phase P). **Plan:** `.hermes/plans/2026-09-24_llm-metering.md` (9 tasks, 3 checkpoints; tracked mirror `docs/llm-metering-plan.md`). **Commits:** `7a039f8` (ledger), `57b8f35` (the choke point), `27bccb2` (rate table), `059a72b` (the brake), `7d1ae53` (fail closed), `a06d342` (paused), `b6ab97e` (cancel + resume), `e3652b7` (the report + rate editor API), `0b2fde4` (the Usage section), `3f72baa`/`33f0330` (the $/row report).
+
+### 1. What this phase delivered
+
+| # | Deliverable | Where |
+|---|---|---|
+| 1 | `llm_usage` — one row per **attempt**, created by `db.init_db()` on any store (zero column changes), written at the single choke point | `backend/app/meter.py` (new), `backend/app/db.py`, `backend/app/llm.py` |
+| 2 | Attribution by context (`meter.attributing`) at the four call sites — `seed:website`, `enrich:github`, `teardown` (which knows its row) | `backend/app/enrich.py`, `backend/app/capture.py`, `backend/app/seeder.py` |
+| 3 | An editable, version-hashed **rate table** with cited built-ins; `price_used` per row; NULL = not known, never zero | `backend/app/meter.py`, `backend/app/gateways.py` |
+| 4 | A **per-batch spend cap** checked before every attempt and before any socket; `LedgerUnreadable` fails **closed** | `backend/app/meter.py`, `seeder.py`, `capture.py` |
+| 5 | The **paused** state — parks at a boundary, keeps its rows, no `finished_at`, listed as active, does not block its kind | `backend/app/seeder.py`, `capture.py` |
+| 6 | **Cancel** (a live flag read at a candidate/row boundary) and **resume** (skips what was already handled, may raise the cap) for all three job kinds | `seeder.py`, `capture.py`, `verify.py`, `main.py` |
+| 7 | The **usage report** (`GET /api/admin/llm/usage`), the **rate editor** (`PUT`/`DELETE .../rates`), the budget endpoints, and the **Usage** panel section with the parked-batch banner (Resume / Cancel) | `backend/app/main.py`, `frontend/components/admin-usage-section.tsx` (new), `admin-panel.tsx`, `admin-shared.tsx`, `lib/api.ts`, `lib/types.ts` |
+| 8 | The **$/row report** with its denominator and its verdict, `--strict` for gating | `scripts/llm_cost_report.py` (new) |
+
+### 2. The bugs found by executing rather than reading
+
+- **The blind brake** (`7d1ae53`). Booting the real app against copies of the live stores found `meter.spend_usd()` raising a raw `sqlite3.OperationalError: no such table: llm_usage` on the unmigrated archive — and inside `llm_json` that error would have been swallowed as a **failed LLM attempt** (a lying error), burning a whole batch. Fixed: `check_budget()` raises `LedgerUnreadable` (`kind="metering"`), opens no socket, and the report returns `ledger_error` instead of a 500.
+- **The CLI tracebacked on the live store.** Same root state, different entry point: `scripts/llm_cost_report.py` died with a traceback instead of saying what was wrong. Now it returns a report whose figures are all **unknown** (not zero), with a caveat naming the fix, and `--strict` exits 1 — verified against the real archive in both states.
+- **`db.connect()` outside the guard** in `_rate_versions`/`job_counters`: a store that could not be *opened* escaped as an exception. My own test caught it by breaking the layer where a real failure happens.
+- **A false claim in my own test label.** "A ledger write costs well under a millisecond" was contradicted by the measurement (9 ms). Rather than relax the bound until the label was true, the write was profiled: the INSERT is ~0.008 ms, connection setup ~0.85 ms, and the **commit ~5.5 ms** — the cost is durability, not the row. A shared connection does not help (the commit is the cost), so the per-attempt commit stays: a crash loses at most the row in flight. Against a 1200 ms call that is **<1% of a batch's clock**.
+- **Two patch slips caught by the e2e run** (task 7b): a patch that replaced the `ProductPage` import instead of adding to it, and one that dropped the `phasePServerMode` registration. The suite list, not a reading of it, is the source of truth.
+- **A snapshot race in the resume test** (`_t6_wait`): the check observed `status="done"` before the `finally` stamped `finished_at`. A test-side race, fixed by waiting for a *settled* job; three consecutive runs clean.
+
+### 3. Gate at close
+
+`npm test` ALL PASS: backend smoke ALL PASS · functional **518/518** · sort check · lint + prod build · e2e **266/266**. CLI `selftest` **50/50** (untouched — §7.4 changes no audit rules). Functional grew **341 → 518** across the phase; e2e **247 → 266** (a new Usage-surface suite, 19 checks, rendering the real component against a stubbed report — including the blind-ledger state, where it asserts **no `$0.00` appears anywhere**).
+
+Additivity, re-proven rather than asserted: `scripts/probe_meter_additive.py` runs the migration against a **copy** of the live archive (the sqlite online-backup API, never a file copy) and shows the same row count, the same column list and the same per-row data, plus the new table.
+
+### 4. The behaviour-preservation claim, stated plainly
+
+An install that configures nothing behaves exactly as it did before §7.4: no budget is set (NULL = unlimited), no rate table edit exists (cited built-ins are used), and no job is ever parked. The only new cost is one committed ledger row per attempt (~6–9 ms, <1% of a call). This is pinned by tests: with no budget set, a job that has already spent still proceeds and the call reaches the network.
+
+### 5. Known gaps, carried forward — not silently closed
+
+- **§7.4's concurrency clause did not ship here** and is not claimed: the brake is a *spend* limit. Parallelism arrives with §7.3 (batch/parallel orchestration), and the cap belongs with the workers. Recorded in the scale plan on both rows.
+- **The live install has not been migrated yet.** It has not booted since 2026-09-17, so its next boot creates the FTS tables **and** `llm_usage`, backfills `canonical_domain` (1,258 rows) and queues an auto-verify over 1,258 stale entries — deterministic, no LLM spend. Until then the usage surface and the CLI correctly report `ledger_error` / unknown figures rather than zeros.
+- **The live gateway (Gemini / `gemini-2.5-flash`) has a deliberately EMPTY rate row** (Google's pricing page no longer names that model's numbers), so calls on it are recorded **unpriced** until the operator pastes figures or the active gateway moves to one with cited rates. The report says so instead of guessing — and this is the intended behaviour, not a defect.
+- **The report's `confident` flag judges the rows present.** The write-failure counter is process-lifetime, so a failure from an earlier batch cannot be attributed to a later one; it is reported with its scope (`metering_failures_scope`) and as a share only where the scopes match (the unfiltered all-time report).
+- **Phase D's $/row is still unmeasured on real data** — that is Phase D's job, and this phase deliberately delivers the instrument, not the number. The `$0.00`-cap test proves a parked batch at zero spend records a *floor*, not a fake total.
+
+**§7.4 = PASS.** The scale plan's §7.4 is struck for token accounting, $/row and the per-batch budget, with its concurrency clause moved to §7.3.
+
+**Date and who ran it:** 2026-09-26, the Hermes agent for this repo, on `DESKTOP-KV8OEKP`.

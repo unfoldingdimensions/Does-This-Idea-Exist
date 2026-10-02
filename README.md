@@ -190,6 +190,13 @@ Admin routes are prefixed `/api/admin` and require the `X-Admin-Token` header:
 | `POST /api/admin/settings/gateways/active` | switch the active gateway |
 | `POST /api/admin/settings/gateways/active/reset` | back to the environment default |
 | `POST /api/admin/settings/gateways/{id}/test` | test a gateway's key |
+| `GET /api/admin/llm/usage` | what the LLM calls cost: spend today / 7 days / all time, per purpose and per model, the last batch's tokens-per-row and $/row, and any parked batch. Every $ says whether it is the whole bill (`cost_complete`) or a floor |
+| `PUT /api/admin/llm/rates` | edit the price table (per 1M tokens, each row with its source and date). Editing mints a new table version, so old rows keep the prices they were billed at |
+| `DELETE /api/admin/llm/rates` | back to the cited built-in prices |
+| `GET /api/admin/llm/budget` | the per-batch spend cap, and what it is measured against |
+| `PUT /api/admin/llm/budget` | set the cap (`null` = unlimited, the default) |
+| `POST /api/admin/seed/{job_id}/cancel` | stop a batch at its next candidate boundary — keeps everything it wrote |
+| `POST /api/admin/seed/{job_id}/resume` | continue a parked batch from where it stopped, skipping what it already handled, optionally raising its cap |
 
 ## Verification & the human gate
 

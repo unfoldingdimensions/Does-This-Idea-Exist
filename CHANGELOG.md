@@ -6,6 +6,57 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added — §7.4: metering, rates and the spend brake (2026-09-25 … 09-26)
+
+Every LLM call this app makes is now recorded, priced and attributable. This is
+the prerequisite Phase D needed: a measured $/row instead of an estimate.
+
+- **A usage ledger** (`llm_usage`, new table) written at the single choke point in
+  `llm.py` — **one row per attempt**, so a retry is a second row, because a retry
+  is a second bill. No code path can spend without being recorded. It is added to
+  an existing archive by the normal boot (`db.init_db()`), with **zero column
+  changes** — proven against a copy of the live archive, same rows, same columns.
+- **Three rules the ledger keeps:** a write that fails can never fail an
+  enrichment (and is never silent — failures are counted and surfaced); each row
+  carries the rate-table version it was priced with, so editing a price cannot
+  rewrite history; and **NULL means "not known", never zero** — a model with no
+  price, or a response that carried no usage block, is recorded unpriced rather
+  than free.
+- **An editable rate table** (per 1M tokens, USD) seeded with cited published
+  prices — each row carries its source URL and the date it was read. Editing or
+  clearing it is a two-click operation in the panel, and a blank field means
+  "no price", never $0.
+- **A per-batch spend cap** (`GET`/`PUT /api/admin/llm/budget`). Unset — the
+  default — means unlimited, i.e. exactly the behaviour before this change. It is
+  checked **before every attempt and before any socket is opened**, so a capped
+  batch never makes a call it cannot afford.
+- **A brake that parks instead of killing.** On breach the batch stops at a
+  candidate boundary with status `paused`, keeps **everything it already wrote**,
+  and waits. `POST /api/admin/seed/{job_id}/resume` continues from where it
+  stopped, **skipping every candidate it already handled** (nothing is re-paid
+  for, and the job's cap can be raised at the same time);
+  `POST /api/admin/seed/{job_id}/cancel` ends it. All three job kinds are covered,
+  including the archive-wide verification pass.
+- **A read that fails closed.** If the ledger cannot be read, the brake refuses to
+  spend (`LedgerUnreadable`) rather than guessing, and the batch records
+  `stop_reason="metering"` — a different fact from hitting a real cap
+  (`"budget"`).
+- **A usage surface** (a new panel section) and
+  `GET /api/admin/llm/usage`: spend for today / the last 7 days / all time, per
+  purpose (`seed:website`, `enrich:github`, `teardown`, …) and per model, the last
+  batch's tokens-per-row and $/row, the rate table with its provenance, the
+  current cap, and every parked batch with its reason. Any spend that is not the
+  whole bill is labelled a **floor** — a number that is not measured never looks
+  measured.
+- **`scripts/llm_cost_report.py`** — the $/row report as a command, for a batch or
+  a window. It prints the denominator it divided by (the job's own candidate tally
+  when the ledger's `startup_id`s under-count the seed path) and a verdict, and
+  `--strict` exits non-zero unless ≥90% of attempts were both priced and carried
+  usage, so a gate can refuse a floor number.
+- **New job statuses:** `paused` (a braked batch, waiting for you — it keeps its
+  rows and does not block its kind) and `cancelled` (stopped by request, rows
+  kept). `finished_at` is stamped only on terminal statuses.
+
 ### Added — Phase P: the platform unblock (2026-09-24)
 
 Paging and FTS5, so the directory can serve 10k rows without lying about it.
