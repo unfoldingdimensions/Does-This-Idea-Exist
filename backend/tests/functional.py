@@ -39,6 +39,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from pathlib import Path
 
 # Suite output carries arrows/em-dashes; a legacy Windows console (cp1252) raises
@@ -3912,9 +3913,19 @@ try:
 
     # The DB row IS the state after a restart: in-memory jobs are gone then, and
     # this is what list_jobs rebuilds from.
+    # Read the PERSISTED row, waiting (bounded) for the writer to catch up: the
+    # in-memory status moves first, so reading the table the instant the memory
+    # says "paused" races `_persist_job` instead of testing the product.
+    _t5_row = None
+    _t5_deadline = time.time() + 10.0
     _t5_conn = db.connect()
     try:
-        _t5_row = _t5_conn.execute("SELECT * FROM jobs WHERE id = ?", (_t5_job_id,)).fetchone()
+        while time.time() < _t5_deadline:
+            _t5_row = _t5_conn.execute(
+                "SELECT * FROM jobs WHERE id = ?", (_t5_job_id,)).fetchone()
+            if _t5_row is not None and _t5_row["status"] == "paused":
+                break
+            time.sleep(0.02)
     finally:
         _t5_conn.close()
     _t5_reloaded = seeder._load_db_job(_t5_row)
@@ -3922,7 +3933,8 @@ try:
           _t5_reloaded["status"] == "paused" and _t5_reloaded["finished_at"] is None
           and _t5_reloaded["result"]["stop_reason"] == "budget"
           and _t5_reloaded["ok_urls"] == _t5_job["ok_urls"],
-          f"status={_t5_reloaded['status']} urls={len(_t5_reloaded['ok_urls'])}")
+          f"status={_t5_reloaded['status']} urls={len(_t5_reloaded['ok_urls'])} "
+          f"expected={_t5_job['ok_urls']}")
 
     # Recovery must leave it alone — it is waiting on a human, not on a crash.
     _t5_probe = {"kind": "seed", "source": "url_list", "params": {}, "total": 0, "done": 0,
@@ -4053,8 +4065,16 @@ try:
             time.sleep(0.02)
         # A SNAPSHOT, not the live dict: a job's status changes again after this
         # returns (a parked one gets resumed), so the test's "what it was at that
-        # moment" has to be a copy.
-        return dict(seeder.JOBS[job_id])
+        # moment" has to be a copy. DEEP for the list fields — a shallow dict()
+        # shares them, and `ok_urls` keeps growing as the job runs on, which made
+        # a snapshot silently mean "now" instead of "then" (found by this suite
+        # disagreeing with itself about how many candidates were handled).
+        job = seeder.JOBS[job_id]
+        return {**job, "ok_urls": list(job.get("ok_urls") or []),
+                "skipped_urls": list(job.get("skipped_urls") or []),
+                "errors": list(job.get("errors") or []),
+                "result": dict(job.get("result") or {}),
+                "params": dict(job.get("params") or {})}
 
     def _t6_calls_for(job_id):
         return [c for j, c in _t6_calls if j == job_id]
@@ -4155,15 +4175,33 @@ try:
     try:
         _t6_resume_id = seeder.start_job("url_list", {"cap": 4, "budget_usd": 0.02})
         _t6_parked = _t6_wait(_t6_resume_id)
+        _t6_spend_at_park = meter_mod.spend_usd(job_id=_t6_resume_id)["cost_usd"]
         _t6_resume_state = seeder.request_resume(_t6_resume_id, budget_usd=1.0)
         _t6_finished = _t6_wait(_t6_resume_id)
     finally:
         seeder._ingest = _t6_ingest_backup
+    # The exact skip count is read from the job's OWN record at resume time: a
+    # hardcoded 2 was asserting when the brake fired rather than what resume
+    # promises, and it flaked whenever a candidate was skipped (already filed)
+    # instead of paid for. What resume must guarantee is that it names exactly what
+    # it already handled — no more, no less — and that it never re-pays.
+    _t6_handled_at_park = len(set(_t6_parked["ok_urls"]) | set(_t6_parked["skipped_urls"]))
     check("meter: a parked job resumes into the queue, naming what it will skip",
           _t6_parked["status"] == "paused" and _t6_resume_state["state"] == "queued"
-          and _t6_resume_state["already_handled"] == 2
+          and _t6_resume_state["already_handled"] == _t6_handled_at_park
           and _t6_resume_state["budget_usd"] == 1.0,
-          json.dumps(_t6_resume_state))
+          json.dumps(_t6_resume_state) + f" | parked ok={_t6_parked['ok']} "
+          f"skipped={_t6_parked['skipped']} ok_urls={_t6_parked['ok_urls']} "
+          f"skipped_urls={_t6_parked['skipped_urls']} "
+          f"ledger_attempts={meter_mod.count(job_id=_t6_resume_id)} "
+          f"spend_at_park={_t6_spend_at_park} "
+          f"metering_failures={meter_mod.failure_count()} last={meter_mod.last_failure()}")
+    check("meter: the braked job parked ON its cap, having handled only what it paid for",
+          (_t6_spend_at_park or 0) >= 0.02
+          and _t6_parked["ok"] + _t6_parked["skipped"] == _t6_handled_at_park
+          and _t6_parked["ok"] + _t6_parked["skipped"] <= 4,
+          f"spend_at_park={_t6_spend_at_park} ok={_t6_parked['ok']} "
+          f"skipped={_t6_parked['skipped']} handled={_t6_handled_at_park}")
     check("meter: a resumed job finishes the remaining candidates",
           _t6_finished["status"] == "done" and _t6_finished["ok"] == 4
           and _t6_finished["ok_urls"] == [f"https://t6-seed-{i}.example" for i in range(4)],
@@ -4719,6 +4757,184 @@ except Exception as _meter_t8_exc:  # noqa: BLE001
 
     check("report: the $/row report block ran to completion", False,
           repr(_meter_t8_exc) + "\n" + _t8_tb.format_exc())
+
+# --- Phase C task 1: the candidates staging store ----------------------------
+print("  · Phase C task 1: candidates staging")
+try:
+    import tempfile as _c1_tempfile
+
+    from app import candidates as cand_mod
+
+    _c1_dir = _c1_tempfile.mkdtemp(prefix="cand1-")
+    _c1_path = os.path.join(_c1_dir, "candidates.db")
+
+    # The archive must be untouched by every staging action. Measure it first, the
+    # same way a probe would: schema plus row count plus a content digest.
+    def _c1_archive_fingerprint():
+        _conn = db.connect()
+        try:
+            _cols = [r[1] for r in _conn.execute("PRAGMA table_info(startups)").fetchall()]
+            _n = _conn.execute("SELECT COUNT(*) AS n FROM startups").fetchone()["n"]
+            _d = _conn.execute(
+                "SELECT COUNT(*) AS n, IFNULL(SUM(LENGTH(IFNULL(name,''))),0) AS L, "
+                "IFNULL(SUM(id),0) AS S FROM startups").fetchone()
+            _tables = sorted(
+                r[0] for r in _conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'").fetchall())
+            return (_cols, _n, (_d["n"], _d["L"], _d["S"]), _tables)
+        finally:
+            _conn.close()
+
+    _c1_before = _c1_archive_fingerprint()
+    _c1_conn = cand_mod.connect(_c1_path)
+    check("candidates: the staging store creates itself in its own file, not the archive",
+          os.path.isfile(_c1_path)
+          and cand_mod.store_path().name == "candidates.db"
+          and Path(_c1_path).resolve() != Path(config.DB_PATH).resolve(),
+          f"{_c1_path} vs {config.DB_PATH}")
+    check("candidates: the table exists with the dedupe index that makes dupes impossible",
+          bool(_c1_conn.execute(
+              "SELECT name FROM sqlite_master WHERE type='index' AND name='sqlite_autoindex"
+              "_candidates_1'").fetchone())
+          or bool(_c1_conn.execute("PRAGMA index_list(candidates)").fetchall()),
+          "index_list present")
+
+    # Provenance is required at the WRITE, per candidate, without abandoning the batch.
+    # Domains are unique per run: the fixture archive is real data to this store,
+    # so a made-up domain that happens to exist in it would be counted `known`
+    # (which is the correct behaviour, and the reason these must not collide).
+    _c1_sfx = uuid.uuid4().hex[:6]
+    _c1_a = f"c1-acme-{_c1_sfx}.example"
+    _c1_b = f"c1-beta-{_c1_sfx}.example"
+    _c1_result = cand_mod.stage([
+        {"url": f"https://{_c1_a}", "source_url": "https://github.com/x/awesome-y",
+         "name": "Acme"},
+        {"url": f"https://{_c1_a}/pricing", "source_url": "https://github.com/x/awesome-y"},
+        {"url": f"https://{_c1_b}", "source_url": "https://github.com/x/awesome-y"},
+        {"url": f"https://c1-noprov-{_c1_sfx}.example"},
+    ], channel="curated_lists", conn=_c1_conn)
+    check("candidates: a row without provenance is REFUSED, and says why",
+          len(_c1_result["refused"]) == 1
+          and "provenance" in _c1_result["refused"][0]["reason"]
+          and _c1_result["staged"] == 2,
+          json.dumps(_c1_result["refused"]) + f" staged={_c1_result['staged']} "
+          f"known={_c1_result['known']} dupes={_c1_result['duplicates']}")
+    check("candidates: the second URL of the same domain is a DUPLICATE, not a second row",
+          _c1_result["duplicates"] == 1,
+          json.dumps({"dupes": _c1_result["duplicates"], "staged": _c1_result["staged"]}))
+    check("candidates: every staged row carries source + source_url + captured_at",
+          all(r["source_url"] and r["captured_at"] and r["source"]
+              for r in cand_mod.list_candidates(conn=_c1_conn)),
+          json.dumps([(r["source"], r["captured_at"]) for r in cand_mod.list_candidates(conn=_c1_conn)]))
+
+    # The cascade itself: domain first, then URL, then name. A host with a
+    # registrable domain goes to the domain rung even with an odd scheme (tldextract
+    # does not care about the scheme), so the URL rung is asserted with a host that
+    # has NO domain at all — the rung order is the point, not the scheme.
+    check("candidates: identity cascades domain -> url -> name",
+          cand_mod.dedupe_key("https://www.acme.com/x", name="Different Name") == "domain:acme.com"
+          and cand_mod.dedupe_key("ftp://weird.example/p") == "domain:weird.example"
+          and cand_mod.dedupe_key("localhost:3023/some/path") == "url:localhost:3023/some/path"
+          and cand_mod.dedupe_key(name="Cal.com") == "name:calcom"
+          and cand_mod.dedupe_key(name="  ") is None,
+          json.dumps([cand_mod.dedupe_key("https://www.acme.com/x", name="N"),
+                      cand_mod.dedupe_key("ftp://weird.example/p"),
+                      cand_mod.dedupe_key("localhost:3023/some/path"),
+                      cand_mod.dedupe_key(name="Cal.com")]))
+    check("candidates: the identity rule is the ARCHIVE's own rule, not a second one",
+          cand_mod.canonical_domain is enrich.canonical_domain
+          and cand_mod.dedupe_key("https://www.hysolate.com/blog/x")
+          == "domain:" + enrich.canonical_domain("https://www.hysolate.com/blog/x"),
+          "same function object")
+
+    # A candidate whose identity the archive already holds is staged as `known` —
+    # recorded, not dropped, because yield is what a channel ADDS.
+    _c1_known_conn = db.connect()
+    try:
+        _c1_existing = _c1_known_conn.execute(
+            "SELECT website_url, name FROM startups WHERE website_url IS NOT NULL "
+            "AND canonical_domain IS NOT NULL LIMIT 1").fetchone()
+    finally:
+        _c1_known_conn.close()
+    if _c1_existing:
+        _c1_known_result = cand_mod.stage(
+            [{"url": _c1_existing["website_url"], "source_url": "https://example.test/list",
+              "name": _c1_existing["name"]}],
+            channel="curated_lists", conn=_c1_conn)
+        check("candidates: a candidate the ARCHIVE already has stages as 'known', not 'new'",
+              _c1_known_result["known"] == 1 and _c1_known_result["staged"] == 0,
+              json.dumps({"known": _c1_known_result["known"], "staged": _c1_known_result["staged"]}))
+        _c1_known_row = [r for r in cand_mod.list_candidates(conn=_c1_conn)
+                         if r["state"] == "known"][0]
+        check("candidates: and it records WHICH archive row it matched",
+              bool(_c1_known_row["archive_id"]),
+              json.dumps(_c1_known_row["archive_id"]))
+
+    # Liveness uses the auditor's vocabulary, and refuses anything else.
+    _c1_row = cand_mod.list_candidates(conn=_c1_conn, state="new")[0]
+    check("candidates: a liveness verdict from the AUDITOR's vocabulary is stored",
+          cand_mod.set_liveness(_c1_row["id"], "LIVE", conn=_c1_conn) is True
+          and cand_mod.list_candidates(conn=_c1_conn, limit=50)[0] is not None,
+          json.dumps(_c1_row["id"]))
+    try:
+        cand_mod.set_liveness(_c1_row["id"], "PROBABLY_FINE", conn=_c1_conn)
+        _c1_bad_state = None
+    except ValueError as exc:
+        _c1_bad_state = str(exc)
+    check("candidates: an invented liveness state is refused (no second vocabulary)",
+          _c1_bad_state is not None and "LIVENESS" in _c1_bad_state.upper()
+          or "unknown liveness state" in (_c1_bad_state or ""),
+          _c1_bad_state)
+    check("candidates: pending_liveness lists only un-judged candidates",
+          all(r["liveness_state"] is None for r in cand_mod.pending_liveness(conn=_c1_conn)),
+          json.dumps([r["liveness_state"] for r in cand_mod.pending_liveness(conn=_c1_conn)]))
+
+    # The yield report: real funnel numbers, and an honest hole where cost will be.
+    _c1_report = cand_mod.yield_report(conn=_c1_conn)
+    _c1_chan = _c1_report["channels"][0]
+    check("candidates: the yield report counts found / staged / known per channel",
+          _c1_chan["channel"] == "curated_lists" and _c1_chan["found"] >= 3
+          and _c1_chan["staged"] >= 2,
+          json.dumps(_c1_chan))
+    check("candidates: live yield is computed from judged rows, and is null when none judged",
+          _c1_chan["judged"] == 1 and _c1_chan["live_yield"] == 1.0
+          and cand_mod.yield_report(conn=_c1_conn)["totals"]["live_yield"] == 1.0,
+          json.dumps({"judged": _c1_chan["judged"], "yield": _c1_chan["live_yield"]}))
+    check("candidates: cost per accepted row is reported UNKNOWN, never $0.00",
+          _c1_chan["cost_per_accepted_usd"] is None
+          and "no enrichment spend yet" in _c1_chan["cost_unknown"],
+          json.dumps(_c1_chan["cost_unknown"]))
+    check("candidates: the cost note says why the column is empty",
+          "unknown until Phase D" in _c1_report["cost_note"],
+          _c1_report["cost_note"])
+
+    # Counts agree with the rows (one source of truth, not two).
+    _c1_counts = cand_mod.counts(conn=_c1_conn)
+    check("candidates: counts agree with the rows they summarise",
+          _c1_counts["total"] == len(cand_mod.list_candidates(conn=_c1_conn, limit=500))
+          and _c1_counts["by_channel"].get("curated_lists") == _c1_counts["total"],
+          json.dumps(_c1_counts))
+
+    # THE ADDITIVITY CLAIM, measured: staging wrote nothing to the archive.
+    _c1_after = _c1_archive_fingerprint()
+    check("candidates: staging changed NOTHING in the archive (schema, rows, digest, tables)",
+          _c1_before == _c1_after,
+          json.dumps({"before": [len(_c1_before[0]), _c1_before[1], _c1_before[2]],
+                      "after": [len(_c1_after[0]), _c1_after[1], _c1_after[2]]}))
+
+    # Rollback is one table in one file.
+    _c1_removed = cand_mod.truncate(conn=_c1_conn)
+    check("candidates: truncate is the rollback — it empties staging and nothing else",
+          _c1_removed >= 3 and cand_mod.counts(conn=_c1_conn)["total"] == 0
+          and _c1_archive_fingerprint() == _c1_before,
+          f"removed={_c1_removed}")
+    _c1_conn.close()
+except Exception as _c1_exc:  # noqa: BLE001
+    import traceback as _c1_tb
+
+    check("candidates: the staging block ran to completion", False,
+          repr(_c1_exc) + "\n" + _c1_tb.format_exc())
+
 
 # ===========================================================================
 print("\n" + "=" * 78)

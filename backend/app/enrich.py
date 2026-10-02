@@ -235,6 +235,10 @@ def _canonical_domain(url: str | None) -> str | None:
     exact-domain rung finally have a populated column to read — the column
     existed since the 40 -> 43 migration but NOTHING wrote it (measured
     2026-09-22: 1,258/1,258 rows NULL).
+
+    Named with a leading underscore historically; `canonical_domain` below is the
+    public alias, and it must be used by anything outside this module (the
+    candidates staging store dedupes with it) so the rule cannot diverge.
     """
     raw = (url or "").strip()
     if not raw:
@@ -247,6 +251,11 @@ def _canonical_domain(url: str | None) -> str | None:
         return _lr_regdom(host, _lr_load_config(None)) or None
     except Exception:  # noqa: BLE001 — a weird host never blocks a filing
         return None
+
+
+# The public name for the rule above: one implementation, so the archive's
+# backfill and the candidates staging store can never disagree about identity.
+canonical_domain = _canonical_domain
 
 
 def seed_from_github(github_url: str, reuse_profile: bool = False) -> dict:

@@ -25,6 +25,14 @@ FOUNDER_DB_PATH = Path(os.getenv("FOUNDER_DB_PATH", str(BASE_DIR / "data" / "fou
 # sit in it. See app/gateways.py.
 SETTINGS_DB_PATH = Path(os.getenv("SETTINGS_DB_PATH", str(BASE_DIR / "data" / "settings.db")))
 
+# Phase C: sourcing candidates are STAGED in their own file, never in the
+# archive, for the same reason the founder and settings stores are separate — a
+# crawler must not be able to write to the product's asset, and the documented
+# rollback has to be as blunt as "empty this table" (or delete this file). The
+# archive is compared row-for-row before and after staging in the functional
+# suite, so the separation is asserted, not assumed. See app/candidates.py.
+CANDIDATES_DB_PATH = Path(os.getenv("CANDIDATES_DB_PATH", str(BASE_DIR / "data" / "candidates.db")))
+
 # LLM: the DEFAULT gateway is OpenCode Go (opencode.ai/zen/go/v1).
 # These three values describe that gateway and nothing else — the other
 # gateways (Zen, OpenRouter, Gemini, Command Code) are configured from the
