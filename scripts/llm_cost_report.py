@@ -85,8 +85,22 @@ def render(report: dict) -> str:
     lines += [
         f"    table: {rates['origin']} · version {rates['version']}"
         + (f" · {rates['as_of']}" if rates.get("as_of") else ""),
-        "",
     ]
+    throughput = report.get("throughput") or {}
+    if throughput.get("attempts_per_call_second") is not None:
+        lines.append(f"  calls               {num(throughput['timed_attempts'])} timed, "
+                     f"avg {num(throughput['avg_call_ms'], 0)} ms, "
+                     f"{num(throughput['attempts_per_call_second'], 2)} calls/sec of real work")
+    failures = report.get("metering_failure_share")
+    if not report["metering_failures"]:
+        lines.append("  metering failures   0 — nothing was lost")
+    elif failures is not None:
+        lines.append(f"  metering failures   {num(report['metering_failures'])} — share of "
+                     f"attempts {num(failures, 5)}")
+    else:
+        lines.append(f"  metering failures   {num(report['metering_failures'])} — "
+                     f"{report.get('metering_failure_share_scope', 'share not computable')}")
+    lines.append("")
 
     print("\n".join(lines))
 

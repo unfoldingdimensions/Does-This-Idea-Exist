@@ -4665,6 +4665,55 @@ try:
           and "failed to write during this PROCESS" in _t8_warned
           and "not necessarily in this window" in _t8_warned,
           _t8_warned[-400:])
+
+    # The throughput risk (does a batch's wall clock survive metering?) wants real
+    # numbers, so they are measured here rather than asserted in prose. What the
+    # probe showed (scratch/meter_write_probe.py, same machine): the INSERT is
+    # ~0.008 ms and connection setup ~0.85 ms — the write is ~6 ms because each row
+    # is COMMITTED on its own, i.e. it is fsync-bound and durable, not slow. A
+    # shared connection does not change it (5.5 ms rolling back only the connect),
+    # because the commit is the cost — which is why the per-attempt commit stays:
+    # a crash loses at most the row in flight.
+    _t8_write_job = "t8-throughput"
+    _t8_timed = 200
+    _t8_t0 = time.perf_counter()
+    for _t8_i in range(_t8_timed):
+        meter_mod.record(model="deepseek-v4-flash", ok=True, job_id=_t8_write_job,
+                         startup_id=8000 + _t8_i, prompt_tokens=100, completion_tokens=10,
+                         total_tokens=110, duration_ms=1200, cost_usd=0.00005,
+                         price_used="deepseek-v4-flash@129ceeb4")
+    _t8_write_ms = (time.perf_counter() - _t8_t0) * 1000.0 / _t8_timed
+    _t8_through = meter_mod.cost_report(job_id=_t8_write_job)
+    check("report: the throughput block reports real call rate from the ledger's durations",
+          _t8_through["throughput"]["timed_attempts"] == _t8_timed
+          and _t8_through["throughput"]["call_seconds"] == round(1200 * _t8_timed / 1000, 3)
+          and _t8_through["throughput"]["avg_call_ms"] == 1200.0
+          and _t8_through["throughput"]["attempts_per_call_second"] == round(_t8_timed / (1200 * _t8_timed / 1000.0), 4),
+          json.dumps(_t8_through["throughput"]))
+    check("report: a ledger write is cheap enough that metering cannot dominate a batch",
+          _t8_write_ms < 20.0 and (_t8_write_ms / 1200.0) < 0.01,
+          f"{_t8_write_ms:.3f} ms per committed row = "
+          f"{_t8_write_ms / 1200.0 * 100:.3f}% of a 1200 ms call")
+    check("report: the metering-failure SHARE is only computed where the scopes match",
+          _t8_through["metering_failure_share"] is None
+          and "not computable" in _t8_through["metering_failure_share_scope"],
+          json.dumps(_t8_through["metering_failure_share_scope"]))
+    _t8_saved_failures = meter_mod._failures
+    try:
+        meter_mod._failures = 5
+        _t8_all = meter_mod.cost_report()
+    finally:
+        meter_mod._failures = _t8_saved_failures
+    check("report: an unfiltered report computes the share over rows + failures",
+          _t8_all["metering_failure_share"] == round(5 / (_t8_all["attempts"] + 5), 6)
+          and "same life as the counter" in _t8_all["metering_failure_share_scope"],
+          json.dumps({"share": _t8_all["metering_failure_share"],
+                      "attempts": _t8_all["attempts"]}))
+    _t8_notes = meter_mod.cost_report(job_id="t8-no-durations")
+    check("report: with no recorded durations the throughput block is null, not zero",
+          _t8_notes["throughput"]["attempts_per_call_second"] is None
+          and _t8_notes["throughput"]["note"] == "no attempt recorded a duration",
+          json.dumps(_t8_notes["throughput"]))
 except Exception as _meter_t8_exc:  # noqa: BLE001
     import traceback as _t8_tb
 

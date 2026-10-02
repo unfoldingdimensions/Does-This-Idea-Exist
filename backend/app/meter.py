@@ -1018,6 +1018,20 @@ def cost_report(
         # earlier batch is not evidence about this one, and the report must not
         # imply otherwise. Scope travels with the number.
         "metering_failures_scope": "process lifetime (not this window)",
+        # A SHARE only means something when the two halves share a scope: the rows
+        # counted here and the failures counted by the process must describe the
+        # same span of work. That is true only for the unfiltered, all-time report;
+        # for a window or a job the honest answer is "not computable", not a number
+        # assembled from mismatched halves.
+        "metering_failure_share": (
+            round(_failures / (attempts + _failures), 6)
+            if job_id is None and since is None and (attempts + _failures) else None),
+        "metering_failure_share_scope": (
+            "all rows, unfiltered — the same life as the counter"
+            if job_id is None and since is None
+            else "not computable: the failure counter is process-lifetime and this "
+                 "report is windowed"),
+        "throughput": _throughput(job_id=job_id, since=since),
         "ledger_error": ledger_error,
         "rate_versions": _rate_versions(job_id=job_id, since=since),
         "rates": rates_source(),
@@ -1086,6 +1100,45 @@ def _report_caveats(report: dict) -> list[str]:
         reasons = ", ".join(sorted({v["price_used"].split(":", 1)[1] for v in unpriced_versions}))
         out.append(f"unpriced rows by reason: {reasons}")
     return out
+
+
+def _throughput(job_id: str | None = None, since: str | None = None) -> dict:
+    """How fast the calls themselves ran, from the ledger's own durations.
+
+    This is the number the throughput risk asks for: a batch's wall clock is
+    dominated by the calls, so attempts-per-call-second says how many rows a 10k
+    batch can produce per hour of actual work. `null` fields (not zeros) when no
+    attempt recorded a duration.
+    """
+    where, params = _where(since, job_id)
+    conn = None
+    try:
+        conn = db.connect()
+        row = conn.execute(
+            f"""SELECT COUNT(duration_ms) AS timed, SUM(duration_ms) AS ms,
+                       AVG(duration_ms) AS avg_ms
+                FROM llm_usage{where}""",
+            params,
+        ).fetchone()
+    except sqlite3.Error:
+        return {"timed_attempts": 0, "call_seconds": None, "attempts_per_call_second": None,
+                "avg_call_ms": None, "note": "the ledger could not be read"}
+    finally:
+        if conn is not None:
+            conn.close()
+    timed = int(row["timed"] or 0)
+    ms = row["ms"]
+    if not timed or ms is None:
+        return {"timed_attempts": 0, "call_seconds": None, "attempts_per_call_second": None,
+                "avg_call_ms": None, "note": "no attempt recorded a duration"}
+    seconds = ms / 1000.0
+    return {
+        "timed_attempts": timed,
+        "call_seconds": round(seconds, 3),
+        "attempts_per_call_second": round(timed / seconds, 4) if seconds else None,
+        "avg_call_ms": round(row["avg_ms"], 1) if row["avg_ms"] is not None else None,
+        "note": None,
+    }
 
 
 def job_counters(job_id: str) -> dict | None:
