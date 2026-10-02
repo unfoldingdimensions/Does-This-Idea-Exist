@@ -5139,6 +5139,194 @@ except Exception as _c2_exc:  # noqa: BLE001
           repr(_c2_exc) + "\n" + _c2_tb.format_exc())
 
 
+# --- Phase C task 3: the sourcing CLI ---------------------------------------
+print("  · Phase C task 3: the sourcing CLI")
+try:
+    import importlib.util as _c3_importlib
+
+    _c3_script = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))), "scripts", "source_candidates.py")
+    check("cli: the sourcing CLI exists where the plan says it does",
+          os.path.isfile(_c3_script), _c3_script)
+    _c3_spec = _c3_importlib.spec_from_file_location("source_candidates_cli", _c3_script)
+    _c3_cli = _c3_importlib.module_from_spec(_c3_spec)
+    _c3_spec.loader.exec_module(_c3_cli)
+
+    # The CLI is driven against a THROWAWAY staging store: the real one is local
+    # data, and a test must never write into it.
+    _c3_dir = tempfile.mkdtemp(prefix="cand3-")
+    _c3_store = os.path.join(_c3_dir, "candidates.db")
+    os.environ["CANDIDATES_DB_PATH"] = _c3_store
+    if os.path.exists(_c3_store):
+        os.remove(_c3_store)
+
+    def _c3_run(args, client_factory=None):
+        """Run the CLI, capturing stdout and the exit code."""
+        buf = io.StringIO()
+        out, sys.stdout = sys.stdout, buf
+        try:
+            code = _c3_cli.main(args, **({"client_factory": client_factory}
+                                         if client_factory else {}))
+        finally:
+            sys.stdout = out
+        return code, buf.getvalue()
+
+    class _C3Client:
+        """A client for every host in the registry, so --all runs offline."""
+
+        def __init__(self):
+            self.calls = []
+
+        def get(self, url, params=None, headers=None, timeout=None):
+            self.calls.append(url)
+            if "raw.githubusercontent.com" in url:
+                return _FakeResponse(200, text=(
+                    "- [Alpha C3](https://c3-alpha.example)\n"
+                    "- [Beta C3](https://c3-beta.example)\n"
+                    "- [Badge](https://shields.io/x)\n"))
+            if "api.github.com" in url:
+                return _FakeResponse(200, {"items": [
+                    {"full_name": "c3/one", "html_url": "https://github.com/c3/one",
+                     "name": "one", "homepage": "https://c3-github-one.example",
+                     "stargazers_count": 1200, "forks_count": 10, "archived": False,
+                     "pushed_at": "2026-09-01T00:00:00Z", "description": "d", "topics": []},
+                    {"full_name": "c3/two", "html_url": "https://github.com/c3/two",
+                     "name": "two", "homepage": None, "stargazers_count": 900,
+                     "forks_count": 9, "archived": False,
+                     "pushed_at": "2026-09-01T00:00:00Z", "description": None, "topics": []},
+                ]})
+            if "hn.algolia.com" in url:
+                return _FakeResponse(200, {"hits": [
+                    {"objectID": "c3hn1", "title": "Show HN: C3 Delta", "url": "https://c3-hn.example",
+                     "points": 90},
+                ]})
+            return _FakeResponse(404)
+
+    # --- dry run: collects, prints, writes NOTHING ---------------------------
+    _c3_code, _c3_out = _c3_run(["--channel", "bundles", "--limit", "4", "--dry-run",
+                                 "--json", "--sources",
+                                 str(Path(_c3_cli.DEFAULT_SOURCES))])
+    _c3_json = json.loads(_c3_out)
+    check("cli: --dry-run reports what it WOULD stage and exits 0",
+          _c3_code == 0 and _c3_json["dry_run"] is True
+          and _c3_json["channels"][0]["staged"] == 4,
+          json.dumps({k: _c3_json[k] for k in ("dry_run",)}))
+    check("cli: --dry-run created NO staging store at all (a real tripwire)",
+          not os.path.exists(_c3_store),
+          f"exists={os.path.exists(_c3_store)}")
+
+    # --- a real run against the throwaway store -----------------------------
+    _c3_code, _c3_out = _c3_run(["--channel", "bundles", "--json"])
+    _c3_json = json.loads(_c3_out)
+    _c3_rows = _c3_cli.candidates.list_candidates(limit=500)
+    check("cli: a real run stages rows and reports the counts",
+          _c3_code == 0 and _c3_json["channels"][0]["staged"] > 20
+          and len(_c3_rows) == _c3_json["channels"][0]["staged"]
+          + _c3_json["channels"][0]["known"],
+          json.dumps(_c3_json["channels"][0]))
+    check("cli: every staged row is traceable to a source_url and a channel entry",
+          all(r["source_url"] and r["channel"] == "bundles" for r in _c3_rows),
+          json.dumps([(r["channel"], r["source_url"]) for r in _c3_rows[:3]]))
+    _c3_limited = json.loads(_c3_run(["--channel", "bundles", "--limit", "5",
+                                      "--dry-run", "--json"])[1])
+    check("cli: --limit is applied across the channel, not per source",
+          _c3_limited["channels"][0]["staged"] == 5,
+          json.dumps(_c3_limited["channels"][0]["staged"]))
+
+    # --- the report renders from stored rows only ---------------------------
+    _c3_code, _c3_out = _c3_run(["--report"])
+    check("cli: --report prints the yield table with the honest columns",
+          _c3_code == 0 and "CANDIDATE YIELD" in _c3_out and "bundles" in _c3_out
+          and "cost per accepted row is unknown" in _c3_out
+          and "unknown" in _c3_out,
+          _c3_out[:400])
+    check("cli: the report says yield is unmeasured rather than showing 0%",
+          "unknown" in _c3_out and "0.0%" not in _c3_out.split("TOTAL")[0],
+          _c3_out[:400])
+
+    # --- all four channels, offline, through the injected client -----------
+    _c3_fake = _C3Client()
+    _c3_code, _c3_out = _c3_run(["--all", "--limit", "2", "--dry-run", "--json"],
+                                client_factory=lambda: _c3_fake)
+    _c3_all = json.loads(_c3_out)
+    _c3_by_channel = {c["channel"]: c for c in _c3_all["channels"]}
+    check("cli: --all runs every channel in the registry",
+          _c3_code == 0 and set(_c3_by_channel) == {"bundles", "curated_lists",
+                                                   "github_topics", "show_hn"},
+          json.dumps(sorted(_c3_by_channel)))
+    check("cli: the network channels each produced candidates (dry run, no writes)",
+          all(_c3_by_channel[ch]["staged"] > 0
+              for ch in ("curated_lists", "github_topics", "show_hn")),
+          json.dumps({ch: _c3_by_channel[ch]["staged"] for ch in _c3_by_channel}))
+    check("cli: --all --dry-run still wrote nothing (the store is untouched)",
+          len(_c3_cli.candidates.list_candidates(limit=500)) == len(_c3_rows),
+          f"{len(_c3_cli.candidates.list_candidates(limit=500))} vs {len(_c3_rows)}")
+    check("cli: the run is paced, not hammered (the injected client saw 4+ requests)",
+          len(_c3_fake.calls) >= 4, json.dumps(len(_c3_fake.calls)))
+
+    # The CLI hands every adapter ONE call shape. A channel that adds or renames a
+    # parameter breaks the run at the first real invocation (this happened:
+    # curated_lists had no max_pages), so the contract is called directly here.
+    _c3_parity = {}
+    for _c3_channel in sorted(src_mod.CHANNELS):
+        try:
+            list(src_mod.collect(_c3_channel, {}, _FakeClient({}), sleep=lambda _s: None,
+                                 throttle_s=0.0, max_pages=1))
+            _c3_parity[_c3_channel] = None
+        except TypeError as exc:
+            _c3_parity[_c3_channel] = str(exc)
+    check("sources: EVERY channel accepts the one call signature the CLI uses",
+          all(v is None for v in _c3_parity.values()), json.dumps(_c3_parity))
+
+    # --- specs, unknown names, and the rollback -----------------------------
+    _c3_code, _c3_out = _c3_run(["--channel", "curated_lists", "--dry-run", "--json",
+                                 "--spec", json.dumps({"url": "https://raw.example/x.md",
+                                                       "source_url": "https://example.com/list",
+                                                       "label": "inline"})],
+                               client_factory=lambda: _C3Client())
+    _c3_spec_run = json.loads(_c3_out)
+    check("cli: --spec overrides the registry for one channel",
+          _c3_code == 0 and _c3_spec_run["channels"][0]["sources"][0]["label"] == "inline",
+          json.dumps(_c3_spec_run["channels"][0].get("sources")))
+    _c3_err = io.StringIO()
+    _c3_stderr_backup = sys.stderr
+    _c3_code_bad = None
+    sys.stderr = _c3_err
+    try:
+        try:
+            _c3_code_bad, _ = _c3_run(["--channel", "producthunt", "--dry-run"])
+        except SystemExit as exc:
+            _c3_code_bad = exc.code
+    finally:
+        sys.stderr = _c3_stderr_backup
+    check("cli: an unknown channel is refused (exit 2 + a message) rather than silently empty",
+          _c3_code_bad == 2 and "invalid choice" in _c3_err.getvalue(),
+          f"code={_c3_code_bad} stderr={_c3_err.getvalue()[:120]}")
+    _c3_code, _c3_out = _c3_run(["--truncate"])
+    check("cli: --truncate is the rollback — it empties staging and says the archive is untouched",
+          _c3_code == 0 and _c3_cli.candidates.counts()["total"] == 0
+          and "archive was not touched" in _c3_out,
+          _c3_out.strip()[:160])
+
+    # The archive must be as it was after every one of these runs.
+    _c3_arch = db.connect()
+    try:
+        _c3_arch_rows = _c3_arch.execute("SELECT COUNT(*) AS n FROM startups").fetchone()["n"]
+        _c3_arch_tables = sorted(r[0] for r in _c3_arch.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'").fetchall())
+    finally:
+        _c3_arch.close()
+    check("cli: after every staging action the ARCHIVE is unchanged (rows + tables)",
+          _c3_arch_rows == 10082 and "candidates" not in _c3_arch_tables,
+          f"{_c3_arch_rows} rows, tables={_c3_arch_tables}")
+    os.environ.pop("CANDIDATES_DB_PATH", None)
+except Exception as _c3_exc:  # noqa: BLE001
+    import traceback as _c3_tb
+
+    check("cli: the sourcing-CLI block ran to completion", False,
+          repr(_c3_exc) + "\n" + _c3_tb.format_exc())
+
+
 # ===========================================================================
 print("\n" + "=" * 78)
 _passed = _total - len(_fails)

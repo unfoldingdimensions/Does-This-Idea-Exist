@@ -79,12 +79,15 @@ def _clean_name(text: str | None) -> str | None:
 # --- channel: curated lists (awesome-* and "alternatives to X" indexes) -------
 
 def curated_lists(spec: dict, client: Any, *, sleep: Callable[[float], None] = _SLEEP,
-                  throttle_s: float = 1.0) -> Iterator[Candidate]:
+                  throttle_s: float = 1.0, max_pages: int = 1) -> Iterator[Candidate]:
     """Parse a markdown list's links into candidates.
 
     `spec` = `{"url": <raw markdown url>, "source_url": <the list's own page>,
     "name": <optional label>}`. A malformed body yields NOTHING rather than
     raising: one bad list must not abandon a whole sourcing run.
+
+    `max_pages` is accepted for signature parity with the paging channels (the
+    CLI passes one shape to every adapter) and ignored: a list is a single body.
     """
     url = (spec or {}).get("url")
     if not url:
@@ -237,12 +240,17 @@ def show_hn(spec: dict, client: Any, *, sleep: Callable[[float], None] = _SLEEP,
 
 # --- channel: the local bundles ---------------------------------------------
 
-def bundles(spec: dict | None = None, client: Any = None, **_kw: Any) -> Iterator[Candidate]:
+def bundles(spec: dict | None = None, client: Any = None, *,
+            sleep: Callable[[float], None] = _SLEEP, throttle_s: float = 0.0,
+            max_pages: int = 0) -> Iterator[Candidate]:
     """The two seed JSON files, re-expressed as a channel.
 
     No network, no key, and already-curated rows — the cheapest yield there is.
     Provenance is the FILE (and the row's position in it), because that is
     genuinely where the candidate came from.
+
+    `client`/`sleep`/`throttle_s`/`max_pages` exist for signature parity with the
+    network channels and are unused: there is nothing to fetch and nothing to pace.
     """
     wanted: Iterable[str] = (spec or {}).get("bundles") or SEED_FILES.keys()
     for bundle in wanted:

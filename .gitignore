@@ -15,6 +15,9 @@ frontend/.env.local
 backend/data/*
 !backend/data/seed_famous.json
 !backend/data/seed_design_library.json
+# Phase C: the sourcing registry is CONFIG (reviewed, versioned), not local data —
+# unlike candidates.db, which is local data and stays ignored by the rule above.
+!backend/data/sourcing.json
 
 # misc
 .DS_Store

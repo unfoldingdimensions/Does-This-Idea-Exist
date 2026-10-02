@@ -1,0 +1,27 @@
+{
+  "_comment": "Phase C sourcing registry. Each entry is a channel spec the CLI feeds to backend/app/sources.py. Edit freely: nothing here writes to the archive, and every staged row records which entry produced it (source_url). The four channels read only documented surfaces.",
+  "curated_lists": [
+    {
+      "label": "awesome-selfhosted",
+      "url": "https://raw.githubusercontent.com/awesome-selfhosted/awesome-selfhosted/master/README.md",
+      "source_url": "https://github.com/awesome-selfhosted/awesome-selfhosted"
+    },
+    {
+      "label": "awesome-selfhosted-nonfree",
+      "url": "https://raw.githubusercontent.com/awesome-selfhosted/awesome-selfhosted-data/master/non-free.md",
+      "source_url": "https://github.com/awesome-selfhosted/awesome-selfhosted-data"
+    }
+  ],
+  "github_topics": [
+    { "label": "saas", "query": "topic:saas stars:>800", "per_page": 100 },
+    { "label": "developer-tools", "query": "topic:developer-tools stars:>1000", "per_page": 100 },
+    { "label": "productivity", "query": "topic:productivity stars:>800", "per_page": 100 },
+    { "label": "self-hosted", "query": "topic:self-hosted stars:>500", "per_page": 100 }
+  ],
+  "show_hn": [
+    { "label": "show-hn", "query": "show_hn", "min_points": 40 }
+  ],
+  "bundles": [
+    { "label": "local-bundles", "bundles": ["famous", "design_library"] }
+  ]
+}
