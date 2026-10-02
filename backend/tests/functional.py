@@ -4037,8 +4037,19 @@ try:
             yield f"https://t6-seed-{i}.example"
 
     def _t6_wait(job_id, terminal=("done", "failed", "paused", "cancelled"), timeout=10.0):
+        """Wait until the job is SETTLED, not merely terminal.
+
+        The status is set inside the handler and finished_at is stamped in the
+        finally right after it, so a poll that stops at the status alone can
+        observe a finished job with no finished_at — a snapshot race, not a
+        product bug. A parked job is settled by definition (no finished_at).
+        """
         deadline = time.time() + timeout
-        while time.time() < deadline and seeder.JOBS[job_id]["status"] not in terminal:
+        while time.time() < deadline:
+            job = seeder.JOBS[job_id]
+            if job["status"] in terminal and (
+                    job["status"] == "paused" or job["finished_at"] is not None):
+                break
             time.sleep(0.02)
         # A SNAPSHOT, not the live dict: a job's status changes again after this
         # returns (a parked one gets resumed), so the test's "what it was at that
@@ -4167,7 +4178,9 @@ try:
           and _t6_finished["result"].get("resume_count") == 1
           and _t6_finished["finished_at"] is not None,
           json.dumps({k: _t6_finished["result"].get(k)
-                      for k in ("resumed_skipped", "resume_count")}))
+                      for k in ("resumed_skipped", "resume_count")}
+                     | {"finished_at": _t6_finished["finished_at"],
+                        "status": _t6_finished["status"]}))
 
     # --- resume refusals carry the reason ------------------------------------
     _t6_refusals = {
@@ -4251,6 +4264,172 @@ try:
     meter_mod.set_budget(None)
 except Exception as _meter_t6_exc:  # noqa: BLE001 — a crash must fail loudly, not skip checks
     check("meter: the cancel/resume block ran to completion", False, repr(_meter_t6_exc))
+
+# --- §7.4 Task 7a: the usage report + the rate editor -------------------------
+# The surface the operator actually reads. Two things it must never do: print a $
+# without saying whether it is the whole bill, and 500 when the ledger is missing
+# (the live install's state until its next boot).
+try:
+    meter_mod.set_budget(None)
+    meter_mod.clear_rates()
+    _t7_report = meter_mod.usage_report()
+    check("usage: the report carries every block the panel renders",
+          set(("generated_at", "spend", "by_purpose", "by_model", "last_job",
+               "metering_failures", "rates", "budget", "ledger_present",
+               "ledger_error")) <= set(_t7_report),
+          json.dumps(sorted(_t7_report)))
+    check("usage: the three windows are today / week / all, each with its own bound",
+          set(_t7_report["spend"]) == {"today", "week", "all"}
+          and _t7_report["spend"]["all"]["since"] is None
+          and _t7_report["spend"]["today"]["since"].endswith("00:00:00"),
+          json.dumps({k: v["since"] for k, v in _t7_report["spend"].items()}))
+    check("usage: a window states whether its $ is the whole bill",
+          all("cost_complete" in w and "unpriced_attempts" in w
+              and "usage_missing_share" in w
+              for w in _t7_report["spend"].values()),
+          json.dumps(_t7_report["spend"]["all"]))
+    check("usage: the ledger has rows by now, so the all-time window is not empty",
+          _t7_report["spend"]["all"]["attempts"] > 0
+          and _t7_report["spend"]["all"]["total_tokens"] > 0,
+          json.dumps({k: _t7_report["spend"]["all"][k] for k in ("attempts", "total_tokens")}))
+    check("usage: the breakdowns name purpose and model, with their unpriced counts",
+          any(p["purpose"] == "seed:website" for p in _t7_report["by_purpose"])
+          and any(m["model"] == "deepseek-v4-flash" for m in _t7_report["by_model"])
+          and all("unpriced_attempts" in m for m in _t7_report["by_model"]),
+          json.dumps([m["model"] for m in _t7_report["by_model"]]))
+    check("usage: the report describes the most recent batch by default",
+          _t7_report["last_job"] is not None
+          and _t7_report["last_job"]["job_id"] == meter_mod.last_job_id()
+          and "cost_per_row" in _t7_report["last_job"],
+          json.dumps({k: _t7_report["last_job"].get(k) for k in ("job_id", "attempts")}
+                     if _t7_report["last_job"] else {}))
+    _t7_job_report = meter_mod.usage_report(job_id="t3-job")
+    check("usage: ?job_id= narrows the per-job block",
+          _t7_job_report["last_job"]["job_id"] == "t3-job"
+          and _t7_job_report["last_job"]["rows_touched"] == 1,
+          json.dumps(_t7_job_report["last_job"]["job_id"]))
+    check("usage: the rate table travels with its provenance and origin",
+          _t7_report["rates"]["origin"] == "builtin"
+          and _t7_report["rates"]["source"].startswith("https://opencode.ai")
+          and _t7_report["rates"]["models"]["glm-5.3-flash"]["input"] == 0.15
+          and _t7_report["rates"]["models"]["gemini-2.5-flash"]["input"] is None,
+          json.dumps({k: _t7_report["rates"][k] for k in ("origin", "version", "as_of")}))
+    check("usage: metering failures are reported, not hidden",
+          isinstance(_t7_report["metering_failures"], int)
+          and _t7_report["metering_failures"] >= 1,   # the task-1 simulated failure
+          f"failures={_t7_report['metering_failures']}")
+
+    # An unreadable ledger is REPORTED (the live install's state until it boots).
+    _t7_real_spend = meter_mod.spend_usd
+    meter_mod.spend_usd = lambda *a, **k: (_ for _ in ()).throw(
+        sqlite3.OperationalError("no such table: llm_usage"))
+    try:
+        _t7_blind = meter_mod.usage_report()
+    finally:
+        meter_mod.spend_usd = _t7_real_spend
+    check("usage: a ledger that cannot be read is reported, not 500'd",
+          _t7_blind["ledger_error"] is not None
+          and "no such table" in _t7_blind["ledger_error"]
+          and _t7_blind["last_job"] is None and _t7_blind["spend"] == {},
+          json.dumps({k: _t7_blind[k] for k in ("ledger_error", "spend", "last_job")}))
+    check("usage: even a blind report still answers about the budget and the rates",
+          _t7_blind["budget"]["scope"] == "job" and _t7_blind["rates"]["origin"] == "builtin",
+          json.dumps({k: _t7_blind[k] for k in ("budget", "rates")})[:120])
+
+    # --- the endpoints -------------------------------------------------------
+    with TestClient(api) as _t7_client:
+        _t7_get = _t7_client.get("/api/admin/llm/usage", headers=MUT)
+        _t7_body = _t7_get.json()
+        check("admin: GET /api/admin/llm/usage answers the full report",
+              _t7_get.status_code == 200 and _t7_body["spend"]["all"]["attempts"] > 0
+              and isinstance(_t7_body["parked"], list)
+              and _t7_body["rates"]["origin"] == "builtin",
+              f"{_t7_get.status_code} attempts="
+              f"{(_t7_body.get('spend') or {}).get('all', {}).get('attempts')}")
+        _t7_put = _t7_client.put("/api/admin/llm/rates", headers=MUT, json={"rates": {
+            "glm-5.3-flash": {"input": 0.20, "output": 0.60, "cached_input": 0.02,
+                              "source": "operator sheet", "as_of": "2026-10-02"},
+        }})
+        check("admin: PUT /api/admin/llm/rates stores the edit and flips the origin",
+              _t7_put.status_code == 200 and _t7_put.json()["rates"]["origin"] == "stored"
+              and _t7_put.json()["saved_models"] == 1
+              and _t7_put.json()["rates"]["models"]["glm-5.3-flash"]["input"] == 0.20,
+              f"{_t7_put.status_code} {json.dumps(_t7_put.json().get('rates', {}).get('origin'))}")
+        _t7_after = _t7_client.get("/api/admin/llm/usage", headers=MUT).json()
+        check("admin: the edited rate is what the report (and new rows) use",
+              _t7_after["rates"]["origin"] == "stored"
+              and meter_mod.cost_of("glm-5.3-flash", 1_000_000, 0, 0)[0] == 0.20,
+              json.dumps(_t7_after["rates"]["origin"]))
+        check("admin: a negative rate is refused 422, not clamped",
+              _t7_client.put("/api/admin/llm/rates", headers=MUT,
+                             json={"rates": {"x": {"input": -1}}}).status_code == 422,
+              "422")
+        _t7_del = _t7_client.delete("/api/admin/llm/rates", headers=MUT)
+        check("admin: DELETE /api/admin/llm/rates goes back to the cited built-ins",
+              _t7_del.status_code == 200 and _t7_del.json()["rates"]["origin"] == "builtin"
+              and meter_mod.load_rates(stored_only=True) is None,
+              f"{_t7_del.status_code} {json.dumps(_t7_del.json()['rates']['origin'])}")
+        check("admin: the usage surface sits behind the admin token",
+              _t7_client.get("/api/admin/llm/usage").status_code == 403
+              and _t7_client.put("/api/admin/llm/rates", json={"rates": {}}).status_code == 403
+              and _t7_client.delete("/api/admin/llm/rates").status_code == 403,
+              "403")
+
+    # --- the parked banner's data (a parked job appears in the report) --------
+    _t7_source_backup = seeder.SOURCES["url_list"]
+    _t7_parked_id = None
+    _t7_park_ingest = seeder._ingest
+
+    def _t7_producer(params):
+        for i in range(3):
+            yield f"https://t7-seed-{i}.example"
+
+    def _t7_ingest(candidate, params):
+        meter_mod.check_budget()
+        where = meter_mod.current_attribution()
+        meter_mod.record(model="deepseek-v4-flash", ok=True, job_id=where.get("job_id"),
+                         startup_id=4000, prompt_tokens=10, completion_tokens=1,
+                         cost_usd=0.01, price_used="deepseek-v4-flash@test")
+        return "new"
+
+    seeder.SOURCES["url_list"] = _t7_producer
+    seeder._ingest = _t7_ingest
+    try:
+        # A ZERO cap parks before the first candidate spends anything.
+        _t7_parked_id = seeder.start_job("url_list", {"cap": 3, "budget_usd": 0.0})
+        _t7_park_deadline = time.time() + 10.0
+        while time.time() < _t7_park_deadline and seeder.JOBS[_t7_parked_id]["status"] not in (
+                "paused", "cancelled", "done", "failed"):
+            time.sleep(0.02)
+    finally:
+        seeder._ingest = _t7_park_ingest
+        seeder.SOURCES["url_list"] = _t7_source_backup
+    with TestClient(api) as _t7_client:
+        _t7_parked_report = _t7_client.get("/api/admin/llm/usage", headers=MUT).json()
+    _t7_parked_entry = next((p for p in _t7_parked_report["parked"]
+                             if p["id"] == _t7_parked_id), None)
+    check("usage: a parked batch rides in the report, with its figures, for the banner",
+          _t7_parked_entry is not None
+          and _t7_parked_entry["status"] == "paused"
+          and _t7_parked_entry["result"]["stop_reason"] == "budget",
+          json.dumps(_t7_parked_entry))
+    check("usage: a parked batch at a ZERO cap parked before spending anything",
+          seeder.JOBS[_t7_parked_id]["ok"] == 0
+          and seeder.JOBS[_t7_parked_id]["result"]["spend_usd"] == 0.0
+          and seeder.JOBS[_t7_parked_id]["result"]["cap_usd"] == 0.0,
+          json.dumps({k: seeder.JOBS[_t7_parked_id]["result"].get(k)
+                      for k in ("spend_usd", "cap_usd")}))
+
+    # A resumed-then-finished batch must leave the parked list.
+    seeder.request_cancel(_t7_parked_id)
+    with TestClient(api) as _t7_client:
+        _t7_after_cancel = _t7_client.get("/api/admin/llm/usage", headers=MUT).json()
+    check("usage: a cancelled batch leaves the parked list (nothing waits on it)",
+          not any(p["id"] == _t7_parked_id for p in _t7_after_cancel["parked"]),
+          json.dumps([p["id"] for p in _t7_after_cancel["parked"]]))
+    meter_mod.set_budget(None)
+except Exception as _meter_t7_exc:  # noqa: BLE001 — a crash must fail loudly, not skip checks
+    check("usage: the usage-report block ran to completion", False, repr(_meter_t7_exc))
 
 # ===========================================================================
 print("\n" + "=" * 78)

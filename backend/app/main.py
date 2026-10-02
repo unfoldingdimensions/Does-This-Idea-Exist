@@ -438,6 +438,67 @@ def seed_jobs() -> list[dict]:
     return seeder.list_jobs()
 
 
+class RateIn(BaseModel):
+    """One model's prices, per 1M tokens in USD. Every field is optional so a row
+    can be deliberately left unpriced (NULL = unknown, never 0 = free), and a
+    negative price is refused rather than clamped."""
+
+    input: float | None = Field(default=None, ge=0, le=1_000_000)
+    output: float | None = Field(default=None, ge=0, le=1_000_000)
+    cached_input: float | None = Field(default=None, ge=0, le=1_000_000)
+    cached_write: float | None = Field(default=None, ge=0, le=1_000_000)
+    source: str | None = Field(default=None, max_length=500)
+    as_of: str | None = Field(default=None, max_length=32)
+    notes: str | None = Field(default=None, max_length=1000)
+    verified: bool | None = None
+
+
+class RatesIn(BaseModel):
+    """The whole table, replaced. Sending a model without prices is how a row is
+    marked unpriced; DELETE this endpoint drops the override entirely."""
+
+    rates: dict[str, RateIn] = Field(default_factory=dict, max_length=200)
+
+
+@admin.get("/llm/usage", dependencies=[Depends(rate_limited("admin_llm_usage", 60, 60))])
+def get_llm_usage(job_id: str | None = Query(default=None, max_length=64)) -> dict:
+    """Everything the Usage surface shows (§7.4 task 7).
+
+    Read-only and additive. `?job_id=` narrows the per-job block; without it the
+    report describes the most recent batch. A ledger that cannot be read comes
+    back as `ledger_error` with the figures left unknown, never as a 500.
+    """
+    report = meter.usage_report(job_id=job_id)
+    # The parked batches belong to the job registry, so they are attached here
+    # rather than by meter (which seeder imports — a cycle otherwise).
+    report["parked"] = [
+        {k: j.get(k) for k in ("id", "kind", "source", "status", "ok", "skipped",
+                               "failed", "done", "total", "result", "created_at")}
+        for j in seeder.has_parked_job()
+    ]
+    return report
+
+
+@admin.put("/llm/rates", dependencies=[Depends(rate_limited("admin_llm_rates_put", 20, 60))])
+def put_llm_rates(body: RatesIn) -> dict:
+    """Save an edited rate table (the operator's own prices win from then on).
+
+    Every row is normalised: a rate that is not a number becomes NULL (unpriced)
+    rather than 0 (free), and the table's version changes, so rows already written
+    keep naming the rates they were priced with.
+    """
+    stored = meter.save_rates({model: row.model_dump(exclude_none=False)
+                               for model, row in body.rates.items()})
+    return {"ok": True, "rates": meter.rates_view(), "saved_models": len(stored)}
+
+
+@admin.delete("/llm/rates", dependencies=[Depends(rate_limited("admin_llm_rates_del", 20, 60))])
+def delete_llm_rates() -> dict:
+    """Drop the stored override and go back to the cited built-in table."""
+    meter.clear_rates()
+    return {"ok": True, "rates": meter.rates_view()}
+
+
 class BudgetIn(BaseModel):
     """The per-job LLM budget in USD. `null` clears it (= unlimited), which is
     the default: an install that configures nothing behaves exactly as it did

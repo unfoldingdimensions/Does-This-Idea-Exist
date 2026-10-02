@@ -40,6 +40,7 @@ import logging
 import sqlite3
 from contextlib import contextmanager
 from contextvars import ContextVar
+from datetime import datetime, timedelta, timezone
 
 from . import db, gateways
 
@@ -935,3 +936,97 @@ def table_present() -> bool:
         return False
     finally:
         conn.close()
+
+
+# --- the usage report (what the panel reads) ---------------------------------
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def window_since(days: float | None = None, *, today: bool = False) -> str | None:
+    """A `ts >= ?` bound on the SAME clock the ledger writes (SQLite's
+    `datetime('now')`, which is UTC). Naive local time here would silently
+    shift every window by the machine's offset."""
+    if today:
+        return _utc_now().strftime("%Y-%m-%d 00:00:00")
+    if days is None:
+        return None
+    return (_utc_now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def spend_windows() -> dict:
+    """Today / last 7 days / all time, each stating its own completeness."""
+    bounds = {"today": window_since(today=True), "week": window_since(days=7),
+              "all": None}
+    out = {}
+    for name, since in bounds.items():
+        window = spend_usd(since=since)
+        attempts = window.get("attempts") or 0
+        missing = window.get("usage_missing_attempts") or 0
+        window["since"] = since
+        # Shares, so a reader does not have to divide two fields to learn whether
+        # the figure covers everything. None (not 0.0) when there is nothing to
+        # take a share OF.
+        window["usage_missing_share"] = round(missing / attempts, 4) if attempts else None
+        out[name] = window
+    return out
+
+
+def last_job_id() -> str | None:
+    """The job whose ledger rows are newest — the "last batch" the panel shows."""
+    conn = db.connect()
+    try:
+        row = conn.execute(
+            "SELECT job_id FROM llm_usage WHERE job_id IS NOT NULL "
+            "ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        return row["job_id"] if row else None
+    finally:
+        conn.close()
+
+
+def rates_view() -> dict:
+    """The rate table with its provenance — what the editor renders."""
+    table = load_rates() or {}
+    source = rates_source(table)
+    return {
+        "origin": source["origin"],
+        "version": source["version"],
+        "as_of": source["as_of"],
+        "source": source["source"],
+        "models": table,
+    }
+
+
+def usage_report(job_id: str | None = None) -> dict:
+    """Everything the Usage surface shows, in one read.
+
+    What this payload refuses to do: print a $ without `cost_complete` beside it,
+    report an empty window as a $0.00 bill (attempts 0 says that), or hide an
+    unreadable ledger behind a 500 — it comes back as `ledger_error` with the
+    numbers left unknown, which is the state that actually needs attention.
+    """
+    report: dict = {
+        "generated_at": _utc_now().strftime("%Y-%m-%d %H:%M:%S"),
+        "ledger_present": table_present(),
+        "ledger_error": None,
+        "metering_failures": _failures,
+        "last_failure": _last_failure,
+        "rates": rates_view(),
+    }
+    try:
+        report["spend"] = spend_windows()
+        report["by_purpose"] = by_purpose()
+        report["by_model"] = by_model()
+        report["breakdown_window"] = "all"
+        target = job_id or last_job_id()
+        report["last_job"] = job_summary(target) if target else None
+    except Exception as exc:  # noqa: BLE001 — reported, never a 500 (see docstring)
+        log.error("usage report could not read the ledger: %s", exc)
+        report.setdefault("spend", {})
+        report.setdefault("by_purpose", [])
+        report.setdefault("by_model", [])
+        report["last_job"] = None
+        report["ledger_error"] = str(exc)
+    report["budget"] = budget_status(job_id=job_id)
+    return report
