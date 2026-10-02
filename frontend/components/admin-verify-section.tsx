@@ -23,7 +23,7 @@ import {
 import type { Stats, SuggestedStartup } from "@/lib/types";
 import { parseDbDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { BucketItem, SummaryRow } from "@/components/admin-shared";
+import { BucketItem, SummaryRow, verifyResult } from "@/components/admin-shared";
 import type { SeedJob } from "@/lib/types";
 
 function fmtDate(iso: string | null | undefined): string {
@@ -342,24 +342,24 @@ export function VerificationSection({
                 </div>
                 <SummaryRow
                   label="Already verified"
-                  count={job.result?.already_verified.length ?? 0}
-                  items={(job.result?.already_verified ?? []).map((b) => b.name)}
+                  count={verifyResult(job)?.already_verified.length ?? 0}
+                  items={(verifyResult(job)?.already_verified ?? []).map((b) => b.name)}
                   open={expanded.has(`av:${job.id}`)}
                   onToggle={() => onToggle(`av:${job.id}`)}
                   tone="default"
                 />
                 <SummaryRow
                   label="Suggested verified"
-                  count={job.result?.suggested.length ?? 0}
-                  items={(job.result?.suggested ?? []).map((b) => b.name)}
+                  count={verifyResult(job)?.suggested.length ?? 0}
+                  items={(verifyResult(job)?.suggested ?? []).map((b) => b.name)}
                   open={expanded.has(`sug:${job.id}`)}
                   onToggle={() => onToggle(`sug:${job.id}`)}
                   tone="muted"
                 />
                 <SummaryRow
                   label="Failed"
-                  count={job.result?.failed_list.length ?? 0}
-                  items={(job.result?.failed_list ?? []).map((b) => `${b.name} — ${b.reason}`)}
+                  count={verifyResult(job)?.failed_list.length ?? 0}
+                  items={(verifyResult(job)?.failed_list ?? []).map((b) => `${b.name} — ${b.reason}`)}
                   open={expanded.has(`vfail:${job.id}`)}
                   onToggle={() => onToggle(`vfail:${job.id}`)}
                   tone="destructive"

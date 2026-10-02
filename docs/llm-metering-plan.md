@@ -22,7 +22,7 @@ cd .. && npm ci
 node scripts/verify.mjs                                    # full gate
 ```
 
-Next task: **Task 4 — the budget setting + `BudgetExceeded`** (Phase 2 begins there).
+Next task: **Task 6 — cancel + resume** (Phase 2 closes with it). A parked batch exposes Resume/Cancel from the panel in Task 7.
 
 ---
 
@@ -33,11 +33,17 @@ Next task: **Task 4 — the budget setting + `BudgetExceeded`** (Phase 2 begins 
 | 1 | `7a039f8` | `backend/app/meter.py` + the `llm_usage` table (one additive table; `db.init_db()` runs its DDL by late import). `record()` never raises but never swallows; reads: `spend_usd`, `rows`, `by_purpose`, `by_model`, `job_summary`, `count`, `table_present`. | functional 341→**358**; live-archive additivity probe PASS (1,258 rows / 43 cols / identical digest → +1 table) |
 | 2 | `57b8f35` | `llm_json` records **one row per ATTEMPT** (finally block: a failed attempt, empty content and unparseable JSON are all billed and all recorded). `meter.usage_from_response` tolerates OpenAI + DeepSeek cache shapes and returns NULL for junk. Attribution by ContextVar: seeder stamps `job_id`, enrich stamps `purpose`, capture stamps `startup_id`. | functional 358→**382**; smoke ALL PASS |
 | 3 | `27bccb2` | The rate table: cited built-in defaults in `meter.DEFAULT_RATES`, operator edits stored in the settings store (`load_rates`/`save_rates`/`clear_rates`/`rates_source`), `cost_of`/`price_attempt` returning `(cost_usd, price_used)` where `price_used` is `<model>@<version>` or `unpriced:<reason>`. `gateways.get_setting/set_setting` are the public settings accessors. | functional 382→**402**; smoke ALL PASS |
-| 4 | *(this commit)* | **The spend brake.** `llm_budget_usd` in the settings store (NULL default = unlimited), a per-job `params["budget_usd"]` override, `meter.BudgetExceeded` raised by `meter.check_budget()` **before every attempt and before any socket**, `GET`/`PUT /api/admin/llm/budget`. Seeder and capture job loops refuse to count a braked candidate as a failure and stop the batch instead, recording `result.stop_reason="budget"` + spend/cap/rate version. | functional 402→**429**; smoke ALL PASS |
+| 4 | `059a72b` | **The spend brake.** `llm_budget_usd` in the settings store (NULL default = unlimited), a per-job `params["budget_usd"]` override, `meter.BudgetExceeded` raised by `meter.check_budget()` **before every attempt and before any socket**, `GET`/`PUT /api/admin/llm/budget`. Seeder and capture job loops refuse to count a braked candidate as a failure and stop the batch instead, recording `result.stop_reason` + spend/cap/rate version. | functional 402→**429**; smoke ALL PASS |
+| 4b | `7d1ae53` | A **blind brake fails closed**: an unreadable ledger raises `LedgerUnreadable` (`kind="metering"`) instead of leaking a raw sqlite error that would have been reported as a failed LLM attempt. `budget_status()` reports `ledger_error` rather than 500ing. | functional 429→**434** |
+| 5 | *(this commit)* | **The paused state.** `seeder.PAUSED` + the vocabulary in one place (`IN_FLIGHT` / `PAUSED` / `FINISHED`); both job loops park instead of failing; a parked job has **no `finished_at`**; `list_jobs()` files it in the active group (after running/queued); `recover_interrupted_jobs()` leaves it alone by construction and by test; `has_parked_job(kind)` is the panel's new predicate; the frontend's status union, `ACTIVE` set and seed list stop lying about a parked batch (`parkedReason()`), and `verifyResult()` narrows the widened job-result type. | functional 434→**447**; full `verify.mjs` **ALL PASS** (e2e 247) |
 
-### Task 4's interim status (Task 5 will change this)
+### The paused state (task 5), and one deliberate departure from this plan
 
-A braked job currently ends as `status="failed"` with `result.stop_reason="budget"` and the figures in `result` (+ an `errors` entry starting `budget: `). That is an honest stop, not a lie about what happened — but **Task 5 replaces it with the parked `paused` state** that an operator can Resume. Everything already written stays in both versions; nothing rolls back.
+Everything the plan promised is in: parked at the candidate boundary, rows kept, spend/cap/reason recorded, survives a restart, listed as in-progress.
+
+**What changed while implementing it: a paused job does NOT block its kind.** The plan (and its own risk table) said `has_active_job`/`try_enqueue_exclusive` should treat paused as active. Implementing that before Resume/Cancel exist is a **deadlock** — the exact risk the plan flagged and gated on task 6. Two concrete cases: a parked *capture* would answer every later request for that competitor with "capture in progress" while nothing progressed (a founder waiting on a teardown, with no way to trigger resume); a parked *seed* would veto the operator's next run until they restarted the server.
+
+And even with Resume shipped, blocking buys little: a fresh job has a fresh `params["budget_usd"]`, so it may legitimately run; and if the *global* cap is the reason, the new job simply parks with the same clear message — informative, not harmful. So: `has_active_job` keeps its in-flight meaning, `has_parked_job(kind)` is the new "needs an operator" predicate, and the tests pin that a twin of a parked job's key is still allowed. Task 6 therefore loses the "paused blocks" item.
 
 ## The three rules the ledger keeps (each pinned by a test)
 
@@ -95,9 +101,8 @@ Per 1M tokens, USD. Every row stores its source and the date it was read.
 
 ## Remaining tasks
 
-- [ ] **Task 4 — budget setting + `BudgetExceeded`.** `llm_budget_usd` in the settings store (NULL default = unlimited, so an install that configures nothing behaves exactly as today), `meter.check_budget(job_id)` before every attempt, an optional per-job `params["budget_usd"]` override, admin read/write endpoints. Acceptance: NULL budget pinned identical to today; an exceeded budget refuses **without opening a socket**; the refusal names spend, cap and rate version.
-- [ ] **Task 5 — the `paused` state.** Seeder + capture loops catch `BudgetExceeded` at the candidate boundary and persist `status="paused"` with spend/cap/reason, keeping everything written. `recover_interrupted_jobs()` must leave paused jobs alone; `has_active_job`/`try_enqueue_exclusive` treat paused as active.
-- [ ] **Task 6 — cancel + resume.** Persisted cancel flag checked each iteration (queued/paused jobs cancel immediately), `POST /api/admin/seed/{job_id}/cancel`, `POST /api/admin/seed/{job_id}/resume` re-enqueuing the remaining work (already-filed candidates are skipped, never re-billed).
+- [x] **Task 5 — the `paused` state.** Shipped: park at the candidate boundary keeping every row, `finished_at` left NULL, listed as in-progress, untouched by restart recovery, `has_parked_job(kind)` for the panel, and the seed list tells the truth about why it stopped. **Paused does NOT block its kind** (see the departure note above).
+- [ ] **Task 6 — cancel + resume.** Persisted cancel flag checked each iteration (queued/paused jobs cancel immediately), `POST /api/admin/seed/{job_id}/cancel`, `POST /api/admin/seed/{job_id}/resume` re-enqueuing the remaining work (already-filed candidates are skipped, never re-billed). NOTE: paused jobs do NOT block their kind (see the task-5 departure), so resume/cancel are a convenience for the operator and a release valve for the batch — not a lock anyone is waiting on.
 - [ ] **Task 7 — `/api/admin/usage` + a new Usage tab.** Totals (today / 7d / all), per-purpose and per-model breakdowns, last-job tokens/row + $/row, metering-failure count, the budget control, the RATE EDITOR (with each row's source/date), and a parked-job banner with Resume/Cancel.
 - [ ] **Task 8 — the $/row report Phase D will quote.** Calls/attempts, rows, tokens/row, cached share, $/row, retried share, metering-failure share, rate version used. A ledger with `usage_missing` rows must say so instead of printing a confident number.
 - [ ] **Task 9 — docs.** `docs/llm-gateways.md` §6 loses "no usage/cost accounting"; README API table; scale-plan §7.4 struck with measured numbers; CHANGELOG; phase-ledger; the job-status vocabulary documented (`queued | running | paused | cancelled | done | failed`).

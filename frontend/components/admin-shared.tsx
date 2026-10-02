@@ -3,6 +3,7 @@
 import * as React from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { ParkInfo, SeedJob, VerifyResult } from "@/lib/types";
 
 export const SOURCE_LABELS: Record<string, string> = {
   famous: "Famous list",
@@ -12,7 +13,43 @@ export const SOURCE_LABELS: Record<string, string> = {
   verify: "Verification",
 };
 
-export const ACTIVE = new Set(["queued", "running"]);
+/**
+ * The statuses a job is still *moving* in, for list membership: a parked job is
+ * not finished — it is waiting on an operator — so it belongs in the in-progress
+ * group rather than in history.
+ */
+export const ACTIVE = new Set(["queued", "running", "paused"]);
+
+/**
+ * One honest line about why a job is parked (§7.4 spend brake). Shared so the
+ * seed list and the parked banner (task 7) can never disagree about the cause.
+ *
+ * A null spend means the ledger could not be read — that is "unknown", and it is
+ * never rendered as $0.00. Costless wording when the job has unpriced calls: the
+ * figure is a floor, not the bill.
+ */
+export function parkedReason(job: SeedJob): string {
+  const park: ParkInfo | null =
+    job.result && "stop_reason" in job.result ? (job.result as ParkInfo) : null;
+  if (!park) return "stopped by the spend brake";
+  if (park.stop_reason === "metering") {
+    return "paused: the spend ledger could not be read, so the budget could not be checked";
+  }
+  const spent = park.spend_usd === null ? "an unknown amount" : `$${park.spend_usd.toFixed(4)}`;
+  const floor = park.cost_complete ? "" : " (a floor — some calls are unpriced)";
+  return `paused at the budget: reached ${spent}${floor} of $${park.cap_usd.toFixed(4)}`;
+}
+
+/**
+ * The VERIFY result of a job, or null when this job does not have one (a seed
+ * job's result is either null or a ParkInfo from the spend brake).
+ *
+ * One narrow instead of a cast at every call site: `checked` exists only on
+ * VerifyResult, so the compiler proves the narrowing is real.
+ */
+export function verifyResult(job: SeedJob): VerifyResult | null {
+  return job.result && "checked" in job.result ? job.result : null;
+}
 
 /** Collapsible settings-section header (vertical accordion, one open at a time). */
 export function SectionHeader({

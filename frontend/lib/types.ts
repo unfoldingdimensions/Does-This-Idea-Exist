@@ -49,6 +49,25 @@ export interface Stats {
   last_checked: string | null;
 }
 
+/**
+ * A job parked by the §7.4 spend brake. The batch stopped at a per-candidate
+ * boundary with everything it had already written left in place, and it waits
+ * for an operator to resume or cancel it.
+ *
+ * `stop_reason` keeps the two causes apart: "budget" is the cap being reached,
+ * "metering" is the ledger being unreadable so the cap could not be verified.
+ */
+export interface ParkInfo {
+  stop_reason: "budget" | "metering";
+  /** null when the cause was an unreadable ledger — unknown, not zero. */
+  spend_usd: number | null;
+  cap_usd: number;
+  rate_version: string;
+  /** false when the job has unpriced calls: the $ is a floor, not the bill. */
+  cost_complete: boolean;
+  paused_at: number;
+}
+
 export interface VerifyResult {
   checked: number;
   ok: number;
@@ -87,7 +106,7 @@ export interface VerifyJob {
   id: string;
   kind: string;
   source: string;
-  status: "queued" | "running" | "done" | "failed";
+  status: "queued" | "running" | "paused" | "done" | "failed";
   queue_position: number | null;
   total: number;
   done: number;
@@ -97,6 +116,11 @@ export interface VerifyJob {
   errors: string[];
   current: string;
   breakdown: { verified: number; unverified: number; dead: number };
+  /**
+   * A VERIFY job's result is always a VerifyResult: verification makes no LLM
+   * calls, so it can never be parked by the spend brake. Only SeedJob carries a
+   * possible ParkInfo.
+   */
   result: VerifyResult | null;
   created_at: number;
   started_at: number | null;
@@ -444,7 +468,7 @@ export interface SeedJob {
   id: string;
   kind: "seed" | "verify";
   source: string;
-  status: "queued" | "running" | "done" | "failed";
+  status: "queued" | "running" | "paused" | "done" | "failed";
   queue_position: number | null;
   total: number;
   done: number;
@@ -458,6 +482,9 @@ export interface SeedJob {
   created_at: number;
   started_at: number | null;
   finished_at: number | null;
-  /** Verify jobs carry their full result (buckets etc.) once terminal. */
-  result: VerifyResult | null;
+  /**
+   * Verify jobs carry their full result (buckets etc.) once terminal.
+   * A seed job carries a ParkInfo when the §7.4 spend brake stopped it.
+   */
+  result: VerifyResult | ParkInfo | null;
 }

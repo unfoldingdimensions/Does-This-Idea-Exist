@@ -25,7 +25,7 @@ import {
 } from "@/lib/api";
 import { useAdminToken } from "@/lib/use-admin-token";
 import type { SeedJob } from "@/lib/types";
-import { ACTIVE, SectionHeader } from "@/components/admin-shared";
+import { ACTIVE, SectionHeader, verifyResult } from "@/components/admin-shared";
 import { SeedSection } from "@/components/admin-seed-section";
 import { VerificationSection } from "@/components/admin-verify-section";
 import { HealthCheckSection } from "@/components/admin-health-section";
@@ -126,7 +126,7 @@ export function AdminPanel({
         for (const j of justFinished) {
           if (j.kind === "verify") {
             toast.success(
-              `Verification complete — ${j.result?.ok ?? j.ok}/${j.total} ok · ${j.failed} failed`,
+              `Verification complete — ${verifyResult(j)?.ok ?? j.ok}/${j.total} ok · ${j.failed} failed`,
             );
           } else if (j.status === "failed" || j.failed > 0) {
             toast.error(`The run finished — ${j.done} filed · ${j.failed} didn't take`, {

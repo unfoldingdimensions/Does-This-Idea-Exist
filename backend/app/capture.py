@@ -246,10 +246,10 @@ def run_capture_job(job: dict) -> None:
             job["errors"].append(f"startup:{startup_id}: {result.get('state')}")
         job["status"] = "done"
     except meter.BudgetExceeded as exc:
-        # The brake stopped the capture before it spent past its cap. A capture
-        # is one candidate, so this is already the per-candidate boundary; the
-        # job records what it spent and why it stopped.
-        job["status"] = "failed"
+        # §7.4 task 5: park, don't fail. A capture is one candidate, so this is
+        # already the per-candidate boundary — the job keeps whatever it captured
+        # and waits for an operator.
+        job["status"] = seeder.PAUSED
         job["result"] = {
             **(job.get("result") or {}),
             "stop_reason": exc.kind,  # "budget" (cap reached) or "metering" (blind brake)
@@ -257,15 +257,18 @@ def run_capture_job(job: dict) -> None:
             "cap_usd": exc.cap_usd,
             "rate_version": exc.rate_version,
             "cost_complete": exc.cost_complete,
+            "paused_at": time.time(),
         }
         job["errors"].append(f"{exc.kind}: {exc}")
-        log.warning("capture job %s stopped by the spend brake: %s", job["id"], exc)
+        log.warning("capture job %s parked at the spend brake: %s", job["id"], exc)
     except Exception as exc:  # noqa: BLE001 — a job-level crash is a loud failure
         job["status"] = "failed"
         job["errors"].append(f"job: {exc}")
         log.exception("capture job %s crashed", job["id"])
     finally:
-        job["finished_at"] = time.time()
+        # A parked job has NOT finished; stamping finished_at would file it under
+        # history and hide the thing that needs an operator.
+        job["finished_at"] = time.time() if job["status"] in seeder.FINISHED else None
         job["current"] = ""
         seeder._persist_job(job)
 

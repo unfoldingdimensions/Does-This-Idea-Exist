@@ -3697,7 +3697,7 @@ try:
         seeder.SOURCES["url_list"] = _t4_source_backup
         seeder._ingest = _t4_ingest_backup
     check("meter: a seed job stops at a candidate boundary when the cap is reached",
-          _t4_job["status"] == "failed" and len(_t4_attempted) == 2
+          _t4_job["status"] == "paused" and len(_t4_attempted) == 2
           and _t4_job["ok"] == 2 and _t4_job["done"] == 2,
           f"status={_t4_job['status']} attempted={len(_t4_attempted)} ok={_t4_job['ok']}")
     check("meter: the stopped job keeps the rows it already wrote (nothing rolls back)",
@@ -3732,7 +3732,7 @@ try:
     finally:
         capture.capture_teardown = _t4_cap_backup
     check("meter: a capture job stopped by the brake records the same stop_reason",
-          _t4_cap_job["status"] == "failed"
+          _t4_cap_job["status"] == "paused"
           and _t4_cap_job["result"]["stop_reason"] == "budget"
           and _t4_cap_job["result"]["spend_usd"] == 0.02,
           json.dumps(_t4_cap_job.get("result")))
@@ -3850,6 +3850,174 @@ try:
           json.dumps(meter_mod.budget_setting()))
 except Exception as _meter_t4_exc:  # noqa: BLE001 — a crash must fail loudly, not skip checks
     check("meter: the budget-brake block ran to completion", False, repr(_meter_t4_exc))
+
+# --- §7.4 Task 5: the paused state — parked, survivable, never a deadlock -----
+# A braked batch is not a failed batch. These checks pin what "paused" promises:
+# the rows already written are kept, the job has NOT finished, it survives a
+# restart untouched, the panel files it under in-progress, and it does NOT veto
+# later work of its kind — a guard with no release valve is a deadlock, and
+# resume/cancel (task 6) is the valve.
+try:
+    meter_mod.set_budget(None)
+    _t5_attempted: list = []
+    _t5_ingest_backup = seeder._ingest
+    _t5_source_backup = seeder.SOURCES["url_list"]
+
+    def _t5_producer(params):
+        for i in range(4):
+            yield f"https://t5-seed-{i}.example"
+
+    def _t5_ingest(candidate, params):
+        meter_mod.check_budget()
+        _t5_attempted.append(candidate)
+        where = meter_mod.current_attribution()
+        meter_mod.record(model="deepseek-v4-flash", ok=True, job_id=where.get("job_id"),
+                         startup_id=1000 + len(_t5_attempted), prompt_tokens=10,
+                         completion_tokens=1, cost_usd=0.01,
+                         price_used="deepseek-v4-flash@test")
+        return "new"
+
+    seeder.SOURCES["url_list"] = _t5_producer
+    seeder._ingest = _t5_ingest
+    try:
+        _t5_job_id = seeder.start_job("url_list", {"cap": 4, "budget_usd": 0.03})
+        _t5_deadline = time.time() + 10.0
+        while time.time() < _t5_deadline and seeder.JOBS[_t5_job_id]["status"] not in ("done", "failed", "paused"):
+            time.sleep(0.02)
+        _t5_job = seeder.JOBS[_t5_job_id]
+    finally:
+        seeder.SOURCES["url_list"] = _t5_source_backup
+        seeder._ingest = _t5_ingest_backup
+
+    check("meter: a braked job PARKS as 'paused' (not failed, not done)",
+          _t5_job["status"] == "paused" and len(_t5_attempted) == 3
+          and _t5_job["ok"] == 3 and _t5_job["failed"] == 0,
+          f"status={_t5_job['status']} attempted={len(_t5_attempted)} ok={_t5_job['ok']}")
+    check("meter: the parked job KEEPS every row it wrote, and its urls",
+          _t5_job["ok_urls"] == [f"https://t5-seed-{i}.example" for i in range(3)]
+          and meter_mod.count(job_id=_t5_job_id) == 3,
+          json.dumps(_t5_job["ok_urls"]))
+    check("meter: a parked job has NO finished_at (it has not finished)",
+          _t5_job["finished_at"] is None and _t5_job["started_at"] is not None,
+          f"finished_at={_t5_job['finished_at']}")
+    check("meter: the park records why, what was spent and against what cap",
+          _t5_job["result"]["stop_reason"] == "budget"
+          and _t5_job["result"]["spend_usd"] == 0.03
+          and _t5_job["result"]["cap_usd"] == 0.03
+          and _t5_job["result"]["paused_at"] > 0,
+          json.dumps({k: v for k, v in _t5_job["result"].items() if k != "cost_complete"}))
+
+    # The DB row IS the state after a restart: in-memory jobs are gone then, and
+    # this is what list_jobs rebuilds from.
+    _t5_conn = db.connect()
+    try:
+        _t5_row = _t5_conn.execute("SELECT * FROM jobs WHERE id = ?", (_t5_job_id,)).fetchone()
+    finally:
+        _t5_conn.close()
+    _t5_reloaded = seeder._load_db_job(_t5_row)
+    check("meter: the parked job is intact in the jobs table (a restart cannot lose it)",
+          _t5_reloaded["status"] == "paused" and _t5_reloaded["finished_at"] is None
+          and _t5_reloaded["result"]["stop_reason"] == "budget"
+          and _t5_reloaded["ok_urls"] == _t5_job["ok_urls"],
+          f"status={_t5_reloaded['status']} urls={len(_t5_reloaded['ok_urls'])}")
+
+    # Recovery must leave it alone — it is waiting on a human, not on a crash.
+    _t5_probe = {"kind": "seed", "source": "url_list", "params": {}, "total": 0, "done": 0,
+                 "ok": 0, "skipped": 0, "failed": 0, "errors": [], "ok_urls": [],
+                 "skipped_urls": [], "current": "", "created_at": time.time(),
+                 "started_at": time.time(), "finished_at": None, "breakdown": {}, "result": None}
+    for _t5_status, _t5_id in (("queued", "t5-rec-queued"), ("running", "t5-rec-running"),
+                               ("paused", "t5-rec-paused")):
+        seeder._persist_job({**_t5_probe, "id": _t5_id, "status": _t5_status})
+    _t5_conn = db.connect()
+    try:
+        _t5_in_flight_before = _t5_conn.execute(
+            "SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running')").fetchone()[0]
+    finally:
+        _t5_conn.close()
+    _t5_recovered = seeder.recover_interrupted_jobs()
+    _t5_conn = db.connect()
+    try:
+        _t5_after = {r["id"]: r["status"] for r in _t5_conn.execute(
+            "SELECT id, status FROM jobs WHERE id LIKE 't5-rec-%' OR id = ?", (_t5_job_id,))}
+        _t5_in_flight_after = _t5_conn.execute(
+            "SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running')").fetchone()[0]
+    finally:
+        _t5_conn.close()
+    check("meter: a restart recovery flips queued/running to failed, and NOTHING else",
+          _t5_recovered == _t5_in_flight_before and _t5_in_flight_after == 0
+          and _t5_after["t5-rec-queued"] == "failed" and _t5_after["t5-rec-running"] == "failed",
+          f"recovered={_t5_recovered} after={_t5_after}")
+    check("meter: recovery leaves a PAUSED job paused (with its rows and its figures)",
+          _t5_after[_t5_job_id] == "paused" and _t5_after["t5-rec-paused"] == "paused",
+          json.dumps(_t5_after))
+
+    # The panel's view: a parked job belongs to the ACTIVE group, not to history.
+    _t5_listed = seeder.list_jobs()
+    _t5_ids = [j["id"] for j in _t5_listed]
+    _t5_first_finished = next((i for i, j in enumerate(_t5_listed)
+                               if j["status"] in ("done", "failed")), len(_t5_ids))
+    check("meter: list_jobs() files the parked job in the active group (queue_position None)",
+          _t5_job_id in _t5_ids
+          and next(j for j in _t5_listed if j["id"] == _t5_job_id)["queue_position"] is None
+          and _t5_ids.index(_t5_job_id) < _t5_first_finished,
+          f"index={_t5_ids.index(_t5_job_id) if _t5_job_id in _t5_ids else None} "
+          f"first_finished={_t5_first_finished}")
+
+    # No deadlock: a parked job does not veto later work of its kind. Blocking a
+    # path whose only release valve is resume (not shipped until task 6) would
+    # leave the operator — and a founder waiting on a teardown — stuck.
+    _t5_parked = seeder.has_parked_job("seed")
+    check("meter: has_parked_job() finds the parked batch by kind",
+          any(j["id"] == _t5_job_id for j in _t5_parked) and seeder.has_parked_job("verify") == [],
+          json.dumps([j["id"] for j in _t5_parked]))
+    check("meter: a parked job is NOT 'active' — nothing may veto on it",
+          seeder.has_active_job("seed") is False, f"active={seeder.has_active_job('seed')}")
+    # A synthetic parked capture (never queued, so no real work runs) and a twin
+    # for the SAME competitor: the twin must still be allowed.
+    _t5_paused_capture = {"id": "t5-paused-cap", "kind": "capture", "source": "capture",
+                          "key": "capture:999", "params": {}, "status": "paused",
+                          "queue_position": None, "total": 0, "done": 0, "ok": 0,
+                          "skipped": 0, "failed": 0, "errors": [], "ok_urls": [],
+                          "skipped_urls": [], "current": "", "created_at": time.time(),
+                          "started_at": time.time(), "finished_at": None}
+    _t5_twin = {"id": "t5-twin", "kind": "capture", "source": "capture", "key": "capture:999",
+                "params": {}, "status": "queued", "queue_position": None, "total": 0,
+                "done": 0, "ok": 0, "skipped": 0, "failed": 0, "errors": [], "ok_urls": [],
+                "skipped_urls": [], "current": "", "created_at": time.time(),
+                "started_at": None, "finished_at": None}
+    with seeder._LOCK:
+        seeder.JOBS["t5-paused-cap"] = _t5_paused_capture
+    try:
+        _t5_twin_ok = seeder.try_enqueue_exclusive(_t5_twin, key="capture:999")
+    finally:
+        with seeder._LOCK:
+            seeder.JOBS.pop("t5-paused-cap", None)
+            seeder.JOBS.pop("t5-twin", None)
+            try:
+                seeder.QUEUES["capture"].remove(_t5_twin)  # never let it actually run
+            except ValueError:
+                pass
+    check("meter: a twin for a parked job's own key is still allowed (no deadlock)",
+          _t5_twin_ok is True, f"enqueued={_t5_twin_ok}")
+
+    # And the API tells the same story the job dict does.
+    with TestClient(api) as _t5_client:
+        _t5_status = _t5_client.get(f"/api/admin/seed/status/{_t5_job_id}", headers=MUT)
+        _t5_jobs = _t5_client.get("/api/admin/seed/jobs", headers=MUT).json()
+        _t5_api_job = next((j for j in _t5_jobs if j["id"] == _t5_job_id), {})
+        check("admin: the seed status endpoint reports the parked job as 'paused'",
+              _t5_status.status_code == 200 and _t5_status.json()["status"] == "paused"
+              and _t5_status.json()["result"]["stop_reason"] == "budget"
+              and _t5_status.json()["finished_at"] is None,
+              f"{_t5_status.status_code} {json.dumps(_t5_status.json().get('result'))}")
+        check("admin: the jobs list carries the parked job with its figures",
+              _t5_api_job.get("status") == "paused"
+              and _t5_api_job.get("result", {}).get("cap_usd") == 0.03,
+              json.dumps({k: _t5_api_job.get(k) for k in ("status", "ok", "finished_at")}))
+    meter_mod.set_budget(None)
+except Exception as _meter_t5_exc:  # noqa: BLE001 — a crash must fail loudly, not skip checks
+    check("meter: the parked-state block ran to completion", False, repr(_meter_t5_exc))
 
 # ===========================================================================
 print("\n" + "=" * 78)

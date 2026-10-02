@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AdminUnauthorized, startSeed } from "@/lib/api";
 import type { SeedJob } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { ACTIVE, SOURCE_LABELS, SummaryRow } from "@/components/admin-shared";
+import { ACTIVE, SOURCE_LABELS, SummaryRow, parkedReason } from "@/components/admin-shared";
 
 type SeedSource =
   | "famous"
@@ -200,6 +200,10 @@ export function SeedSection({
                   {job.status === "running" ? (
                     <p className="truncate text-[11px] text-muted-foreground">
                       {job.current ? `Fetching ${job.current}…` : "Preparing…"}
+                    </p>
+                  ) : job.status === "paused" ? (
+                    <p className="text-[11px] text-amber-600 dark:text-amber-500">
+                      {parkedReason(job)} — the rows it already wrote were kept
                     </p>
                   ) : (
                     <p className="text-[11px] text-muted-foreground">

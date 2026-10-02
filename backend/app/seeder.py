@@ -35,6 +35,24 @@ CONDS: dict[str, threading.Condition] = {
 }
 _LOCK = threading.Lock()
 
+# The job vocabulary, in one place: queued | running | paused | done | failed.
+#
+# `paused` is the spend brake's state (§7.4): the batch stopped at a per-candidate
+# boundary with every row it already wrote left in place, and it stays there until
+# an operator resumes or cancels it (tasks 6-7).
+#
+# Two distinctions this tuple exists to keep straight:
+#   * IN_FLIGHT — the kind's worker slot is genuinely occupied.
+#   * a PAUSED job is NOT in flight and NOT finished. It is deliberately not
+#     treated as in-flight by the exclusivity guards, because blocking a path that
+#     has no release valve is a deadlock: a paused capture would refuse every
+#     later request for that competitor with "capture in progress" while nothing
+#     progressed. Resume/Cancel (task 6) are the release valve; until they exist,
+#     nothing may depend on them.
+IN_FLIGHT = ("queued", "running")
+PAUSED = "paused"
+FINISHED = ("done", "failed")
+
 CAP_MIN, CAP_MAX = 1, 500
 THROTTLE_S = 1.0  # GitHub unauth: 60 repo/hr, 10 search/min
 UA = {"User-Agent": "IdeaExists/0.1 (admin seeder)"}
@@ -211,7 +229,13 @@ def _load_db_job(row: sqlite3.Row) -> dict:
 
 def recover_interrupted_jobs() -> int:
     """Startup recovery: mark jobs left queued/running (killed by a restart)
-    as failed with an honest reason. Returns how many were recovered."""
+    as failed with an honest reason. Returns how many were recovered.
+
+    PAUSED jobs are deliberately NOT touched: a parked batch is waiting on an
+    operator, not on a crash. Flipping it to failed here would throw away the one
+    state that says "this needs a decision" — and it would erase the resume point
+    (the rows it already wrote and the spend it already recorded).
+    """
     conn = db.connect()
     try:
         cur = conn.execute(
@@ -247,18 +271,43 @@ def get_job(job_id: str) -> dict | None:
 
 
 def has_active_job(kind: str) -> bool:
-    """True when a job of this kind is queued or running (kind-scoped guard)."""
+    """True when a job of this kind is queued or running (kind-scoped guard).
+
+    A PAUSED job does not count: it occupies no worker, and treating it as active
+    would let a parked batch veto every later job of its kind while nothing
+    progressed — including the ones that would run perfectly well. `has_parked_job`
+    is the predicate for "this kind needs an operator", and it is what the panel
+    asks (§7.4 task 7).
+    """
     with _LOCK:
         return any(
-            j["kind"] == kind and j["status"] in ("queued", "running")
+            j["kind"] == kind and j["status"] in IN_FLIGHT
             for j in JOBS.values()
         )
+
+
+def has_parked_job(kind: str | None = None) -> list[dict]:
+    """Every job sitting in `paused`, optionally filtered by kind.
+
+    These are the jobs waiting on a human: the batch kept what it wrote and
+    stopped at a candidate boundary when it reached its budget.
+    """
+    with _LOCK:
+        return [
+            dict(j) for j in JOBS.values()
+            if j["status"] == PAUSED and (kind is None or j["kind"] == kind)
+        ]
 
 
 def list_jobs() -> list[dict]:
     """All jobs for the panel: live in-memory jobs (active first, then finished)
     merged with persisted history from the jobs table (survives restarts).
-    Each carries its live queue position."""
+    Each carries its live queue position.
+
+    A PAUSED job belongs to the active group — it has not finished, and filing it
+    under "finished" would hide the one thing that needs an operator. Its
+    queue_position is None (it is in no queue).
+    """
     with _LOCK:
         jobs = list(JOBS.values())
     # Fill in history not currently in memory (e.g. after a backend restart).
@@ -269,9 +318,11 @@ def list_jobs() -> list[dict]:
         conn.close()
     known = {j["id"] for j in jobs}
     jobs += [_load_db_job(r) for r in rows if r["id"] not in known]
-    active = [j for j in jobs if j["status"] in ("queued", "running")]
-    active.sort(key=lambda j: 0 if j["status"] == "running" else 1)
-    finished = [j for j in jobs if j["status"] not in ("queued", "running")]
+    moving = (*IN_FLIGHT, PAUSED)
+    active = [j for j in jobs if j["status"] in moving]
+    rank = {"running": 0, "queued": 1, "paused": 2}
+    active.sort(key=lambda j: rank.get(j["status"], 3))
+    finished = [j for j in jobs if j["status"] not in moving]
     finished.sort(key=lambda j: j.get("finished_at") or j["created_at"] or 0, reverse=True)
     return [_with_position(j) for j in active + finished]
 
@@ -359,10 +410,12 @@ def _run(job: dict) -> None:
             job["id"], job["ok"], job["skipped"], job["failed"],
         )
     except meter.BudgetExceeded as exc:
-        # §7.4 task 4: the brake stopped the batch at a candidate boundary.
-        # Everything already written STAYS — nothing rolls back — and the
-        # numbers ride on the job's result so the panel can show them.
-        job["status"] = "failed"
+        # §7.4 task 5: the batch PARKS here — at the candidate boundary it just
+        # finished, with every row already written left in place. Nothing rolls
+        # back, and the job is not "failed": it is waiting on an operator who can
+        # resume or cancel it. The figures ride on `result` (the jobs table's
+        # result_json), because that is the only column that can carry them.
+        job["status"] = PAUSED
         job["result"] = {
             **(job.get("result") or {}),
             "stop_reason": exc.kind,  # "budget" (cap reached) or "metering" (blind brake)
@@ -370,16 +423,19 @@ def _run(job: dict) -> None:
             "cap_usd": exc.cap_usd,
             "rate_version": exc.rate_version,
             "cost_complete": exc.cost_complete,
+            "paused_at": time.time(),
         }
         job["errors"].append(f"{exc.kind}: {exc}")
-        log.warning("seed job %s stopped by the spend brake: %s", job["id"], exc)
+        log.warning("seed job %s parked at the spend brake: %s", job["id"], exc)
     except Exception as exc:  # noqa: BLE001 — job-level crash is a loud failure
         job["status"] = "failed"
         job["errors"].append(f"job: {exc}")
         _persist_job(job)
         log.exception("seed job %s crashed", job["id"])
     finally:
-        job["finished_at"] = time.time()
+        # Only a FINISHED job gets a finished_at. A parked one has not finished,
+        # and stamping it would tell the panel to file it under "history".
+        job["finished_at"] = time.time() if job["status"] in FINISHED else None
         _persist_job(job)
 
 
