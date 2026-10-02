@@ -464,6 +464,141 @@ export interface LlmGatewayTestResult {
   error?: string;
 }
 
+// --- §7.4: the spend ledger, the rate table and the budget -------------------
+// The Usage surface's data. Read it with one rule in mind: a $ never travels
+// without the fields that say whether it is the WHOLE bill — `cost_complete`,
+// `unpriced_attempts`, `usage_missing_share`. `null` always means "not known",
+// never zero.
+
+export interface SpendWindow {
+  attempts: number;
+  /** null = nothing priceable in this window (never 0.00 pretending to be free). */
+  cost_usd: number | null;
+  /** false = at least one attempt in this window has no price: the $ is a floor. */
+  cost_complete: boolean;
+  unpriced_attempts: number;
+  total_tokens: number | null;
+  usage_missing_attempts: number;
+  /** Share of attempts whose response carried no usage block (null when empty). */
+  usage_missing_share: number | null;
+  metering_failures: number;
+  since: string | null;
+}
+
+export interface PurposeSpend {
+  purpose: string;
+  attempts: number;
+  ok_attempts: number;
+  total_tokens: number | null;
+  cost_usd: number | null;
+  unpriced_attempts: number;
+}
+
+export interface ModelSpend {
+  model: string;
+  attempts: number;
+  total_tokens: number | null;
+  cost_usd: number | null;
+  unpriced_attempts: number;
+}
+
+/** One model's prices, per 1M tokens in USD. null = unknown (never 0). */
+export interface RateRow {
+  input: number | null;
+  output: number | null;
+  cached_input: number | null;
+  cached_write: number | null;
+  source: string | null;
+  as_of: string | null;
+  notes: string | null;
+  verified: boolean;
+}
+
+export interface RatesView {
+  /** builtin = the cited table in the code; stored = the operator's edit. */
+  origin: "builtin" | "stored";
+  /** Hash of the table: every priced row names the version it used. */
+  version: string;
+  as_of: string | null;
+  source: string | null;
+  models: Record<string, RateRow>;
+}
+
+export interface ParkedJob {
+  id: string;
+  kind: string;
+  source: string;
+  status: string;
+  ok: number;
+  skipped: number;
+  failed: number;
+  done: number;
+  total: number;
+  result: ParkInfo | null;
+  created_at: number;
+}
+
+export interface BudgetStatus {
+  scope: string;
+  job_id: string | null;
+  /** Which window the spend covers: a job's rows, or this install's history. */
+  spend_window: "job" | "all-time";
+  ledger_error: string | null;
+  budget_usd: number | null;
+  budget_source: string;
+  parse_error: string | null;
+  spend_usd: number | null;
+  /** true when unpriced rows make the spend a floor rather than the bill. */
+  spend_is_floor: boolean;
+  attempts: number | null;
+  unpriced_attempts: number | null;
+  remaining_usd: number | null;
+  over_budget: boolean | null;
+  enforced: boolean;
+  rate_version: string;
+  rates_origin: string;
+}
+
+/** The per-batch figures a $/row comes from (Phase D quotes these). */
+export interface JobSpendSummary {
+  job_id: string;
+  attempts: number;
+  ok_attempts: number;
+  failed_attempts: number;
+  retried_attempts: number;
+  /** DISTINCT rows: a retry cannot inflate $/row. */
+  rows_touched: number;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  cached_tokens: number | null;
+  total_tokens: number | null;
+  cost_usd: number | null;
+  cost_complete: boolean;
+  unpriced_attempts: number;
+  usage_missing_attempts: number;
+  tokens_per_row: number | null;
+  cost_per_row: number | null;
+  metering_failures: number;
+}
+
+export interface UsageReport {
+  generated_at: string;
+  ledger_present: boolean;
+  /** Set when the ledger could not be read: the figures are then UNKNOWN. */
+  ledger_error: string | null;
+  metering_failures: number;
+  last_failure: string | null;
+  rates: RatesView;
+  /** Empty when the ledger is unreadable — check ledger_error first. */
+  spend: Partial<Record<"today" | "week" | "all", SpendWindow>>;
+  by_purpose: PurposeSpend[];
+  by_model: ModelSpend[];
+  breakdown_window: string;
+  last_job: JobSpendSummary | null;
+  budget: BudgetStatus;
+  parked: ParkedJob[];
+}
+
 export interface SeedJob {
   id: string;
   kind: "seed" | "verify";

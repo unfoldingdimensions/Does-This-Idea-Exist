@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { HeartPulse, KeyRound, Loader2, Settings2, Sprout, Stamp, Waypoints } from "lucide-react";
+import { Coins, HeartPulse, KeyRound, Loader2, Settings2, Sprout, Stamp, Waypoints } from "lucide-react";
 import { toast } from "sonner";
 import { SPRING_SETTLE } from "@/lib/motion";
 import { Button } from "@/components/ui/button";
@@ -31,8 +31,9 @@ import { VerificationSection } from "@/components/admin-verify-section";
 import { HealthCheckSection } from "@/components/admin-health-section";
 import { FunnelImportSection } from "@/components/admin-funnel-section";
 import { LlmGatewaysSection, useLlmGatewayBadge } from "@/components/admin-llm-section";
+import { UsageSection } from "@/components/admin-usage-section";
 
-export type AdminSection = "seed" | "verify" | "funnel" | "health" | "llm";
+export type AdminSection = "seed" | "verify" | "funnel" | "health" | "llm" | "usage";
 
 /** Owner-only admin: vertical settings surface with four collapsible sections
  * — Seeding (serial queue + seed summary), Verification (human gate: suggested
@@ -62,6 +63,10 @@ export function AdminPanel({
   // be switched to. Fetched once per open (the section would only know it
   // after being opened), then kept current by the section itself.
   const llmBadge = useLlmGatewayBadge(Boolean(token) && open);
+  // Parked batches come from the SAME job list the seed section renders — no
+  // second source of truth, and the badge is how a parked batch is noticed
+  // without opening the section.
+  const parkedCount = jobs.filter((j) => j.status === "paused").length;
 
   const toggle = React.useCallback(
     (key: string) =>
@@ -173,6 +178,7 @@ export function AdminPanel({
     { key: "funnel", icon: <Waypoints className="h-4 w-4" />, title: "Funnel import" },
     { key: "health", icon: <HeartPulse className="h-4 w-4" />, title: "Website Health Check" },
     { key: "llm", icon: <KeyRound className="h-4 w-4" />, title: "LLM gateways" },
+    { key: "usage", icon: <Coins className="h-4 w-4" />, title: "Usage" },
   ];
 
   return (
@@ -241,7 +247,9 @@ export function AdminPanel({
                       ? `${activeJobs.filter((j) => j.kind === "seed").length} active`
                       : s.key === "llm" && llmBadge
                         ? llmBadge
-                        : undefined
+                        : s.key === "usage" && parkedCount > 0
+                          ? `${parkedCount} parked`
+                          : undefined
                   }
                 />
                 <AnimatePresence initial={false}>
@@ -290,6 +298,7 @@ export function AdminPanel({
                         {s.key === "llm" && (
                           <LlmGatewaysSection onLocked={handleLocked} />
                         )}
+                        {s.key === "usage" && <UsageSection onLocked={handleLocked} />}
                       </div>
                     </motion.div>
                   )}

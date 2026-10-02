@@ -21,8 +21,16 @@ export const SOURCE_LABELS: Record<string, string> = {
 export const ACTIVE = new Set(["queued", "running", "paused"]);
 
 /**
+ * Money, in the one form every surface uses. `null` is NOT $0.00 — it is "we do
+ * not know", and a rate table that cannot price a model must never look free.
+ */
+export function money(value: number | null | undefined): string {
+  return typeof value === "number" ? `$${value.toFixed(4)}` : "unknown";
+}
+
+/**
  * One honest line about why a job is parked (§7.4 spend brake). Shared so the
- * seed list and the parked banner (task 7) can never disagree about the cause.
+ * seed list and the parked banner can never disagree about the cause.
  *
  * A null spend means the ledger could not be read — that is "unknown", and it is
  * never rendered as $0.00. Costless wording when the job has unpriced calls: the
@@ -35,9 +43,9 @@ export function parkedReason(job: SeedJob): string {
   if (park.stop_reason === "metering") {
     return "paused: the spend ledger could not be read, so the budget could not be checked";
   }
-  const spent = park.spend_usd === null ? "an unknown amount" : `$${park.spend_usd.toFixed(4)}`;
+  const spent = money(park.spend_usd);
   const floor = park.cost_complete ? "" : " (a floor — some calls are unpriced)";
-  return `paused at the budget: reached ${spent}${floor} of $${park.cap_usd.toFixed(4)}`;
+  return `paused at the budget: reached ${spent === "unknown" ? "an unknown amount" : spent}${floor} of $${park.cap_usd.toFixed(4)}`;
 }
 
 /**

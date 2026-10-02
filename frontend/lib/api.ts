@@ -1,4 +1,5 @@
 import type {
+  BudgetStatus,
   CategoryCount,
   CompareResult,
   FounderAppDetail,
@@ -8,12 +9,15 @@ import type {
   LlmGatewayPatch,
   LlmGatewayTestResult,
   LlmGatewaysView,
+  RateRow,
+  RatesView,
   SearchResult,
   SeedJob,
   Startup,
   StartupRecord,
   Stats,
   SuggestedStartup,
+  UsageReport,
   VerifyJob,
 } from "./types";
 
@@ -680,4 +684,45 @@ export function testLlmGateway(id: string): Promise<LlmGatewayTestResult> {
     `${API_BASE}/api/admin/settings/gateways/${id}/test`,
     { method: "POST" },
   );
+}
+
+// --- §7.4: the spend ledger, the rate table and the budget -------------------
+
+/** The usage report. `?job_id=` narrows the per-job block; omitted = last batch. */
+export function fetchLlmUsage(jobId?: string): Promise<UsageReport> {
+  const qs = jobId ? `?job_id=${encodeURIComponent(jobId)}` : "";
+  return adminJson<UsageReport>(`${API_BASE}/api/admin/llm/usage${qs}`, {
+    cache: "no-store",
+  });
+}
+
+/** Replace the rate table. A model left without prices is deliberately unpriced. */
+export function saveLlmRates(
+  rates: Record<string, Partial<RateRow>>,
+): Promise<{ ok: boolean; rates: RatesView; saved_models: number }> {
+  return adminJson<{ ok: boolean; rates: RatesView; saved_models: number }>(
+    `${API_BASE}/api/admin/llm/rates`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rates }),
+    },
+  );
+}
+
+/** Drop the stored override and go back to the cited built-in prices. */
+export function clearLlmRates(): Promise<{ ok: boolean; rates: RatesView }> {
+  return adminJson<{ ok: boolean; rates: RatesView }>(
+    `${API_BASE}/api/admin/llm/rates`,
+    { method: "DELETE" },
+  );
+}
+
+/** Set (or clear, with null) the per-job budget — unset = unlimited. */
+export function setLlmBudget(budgetUsd: number | null): Promise<BudgetStatus> {
+  return adminJson<BudgetStatus>(`${API_BASE}/api/admin/llm/budget`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ budget_usd: budgetUsd }),
+  });
 }

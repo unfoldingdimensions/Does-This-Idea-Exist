@@ -501,6 +501,7 @@ import { GapExportButtons } from "../frontend/components/gap-export-buttons";
 import { FounderAppDialog } from "../frontend/components/founder-app-dialog";
 import { Toaster } from "../frontend/components/ui/sonner";
 import ProductPage from "../frontend/app/products/[slug]/page";
+import { UsageSection } from "../frontend/components/admin-usage-section";
 // Next's client hooks read these two contexts, so a route component can be
 // rendered outside the Next runtime by providing them directly instead of
 // standing up the app router. (next/dist has no "exports" restriction.)
@@ -2224,7 +2225,232 @@ async function phasePSitemap(): Promise<void> {
   await suiteAsync("Tier 5: [12] founded honesty", area12FoundedHonesty);
   await suiteAsync("Tier 6: the non-happy states from the ledger", tier6NonHappyStates);
   await suiteAsync("Phase P: server mode (archive > client window)", phasePServerMode);
+
+/**
+ * The Usage surface (§7.4 task 7). What this suite is really checking: the panel
+ * never shows a $ without saying whether it is the whole bill, never renders an
+ * unknown price as $0.00, and gives a parked batch the two buttons it needs.
+ *
+ * Defined next to its registration (the Phase P suites above are module-level
+ * because they predate this block) — hoisted within the IIFE, same behaviour.
+ */
+async function phaseUsageSurface(): Promise<void> {
+  const savedFetch = globalThis.fetch;
+  const calls: string[] = [];
+  let scenario: "populated" | "blind" = "populated";
+
+  const ratesView = {
+    origin: "builtin" as const,
+    version: "129ceeb4",
+    as_of: "2026-09-28",
+    source: "https://opencode.ai/docs/zen",
+    models: {
+      "deepseek-v4-flash": {
+        input: 0.14, output: 0.28, cached_input: 0.028, cached_write: null,
+        source: "https://opencode.ai/docs/zen", as_of: "2026-09-28",
+        notes: null, verified: true,
+      },
+      "gemini-2.5-flash": {
+        input: null, output: null, cached_input: null, cached_write: null,
+        source: "https://ai.google.dev/gemini-api/docs/pricing", as_of: "2026-09-28",
+        notes: "confirm the current rates in the console", verified: false,
+      },
+    },
+  };
+
+  const populatedReport = {
+    generated_at: "2026-10-02 21:00:00",
+    ledger_present: true,
+    ledger_error: null,
+    metering_failures: 0,
+    last_failure: null,
+    rates: ratesView,
+    spend: {
+      today: {
+        attempts: 12, cost_usd: 0.0412, cost_complete: false, unpriced_attempts: 3,
+        total_tokens: 41000, usage_missing_attempts: 2, usage_missing_share: 0.1667,
+        metering_failures: 0, since: "2026-10-02 00:00:00",
+      },
+      week: {
+        attempts: 240, cost_usd: 0.8231, cost_complete: true, unpriced_attempts: 0,
+        total_tokens: 820000, usage_missing_attempts: 0, usage_missing_share: 0,
+        metering_failures: 0, since: "2026-09-25 21:00:00",
+      },
+      all: {
+        attempts: 1240, cost_usd: 4.1203, cost_complete: true, unpriced_attempts: 0,
+        total_tokens: 4100000, usage_missing_attempts: 0, usage_missing_share: 0,
+        metering_failures: 0, since: null,
+      },
+    },
+    by_purpose: [
+      { purpose: "seed:website", attempts: 900, ok_attempts: 880,
+        total_tokens: 3000000, cost_usd: 3.0, unpriced_attempts: 0 },
+    ],
+    by_model: [
+      { model: "deepseek-v4-flash", attempts: 1200, total_tokens: 4000000,
+        cost_usd: 4.0, unpriced_attempts: 0 },
+      { model: "mystery-model", attempts: 40, total_tokens: 100000,
+        cost_usd: null, unpriced_attempts: 40 },
+    ],
+    breakdown_window: "all",
+    last_job: {
+      job_id: "a1b2c3d4e5f6", attempts: 50, ok_attempts: 48, failed_attempts: 2,
+      retried_attempts: 4, rows_touched: 46, prompt_tokens: 900000,
+      completion_tokens: 100000, cached_tokens: 200000, total_tokens: 1000000,
+      cost_usd: 0.31, cost_complete: false, unpriced_attempts: 2,
+      usage_missing_attempts: 0, tokens_per_row: 21739.13, cost_per_row: 0.00674,
+      metering_failures: 0,
+    },
+    budget: {
+      scope: "job", job_id: null, spend_window: "all-time", ledger_error: null,
+      budget_usd: null, budget_source: "unset", parse_error: null, spend_usd: 4.1203,
+      spend_is_floor: false, attempts: 1240, unpriced_attempts: 0, remaining_usd: null,
+      over_budget: null, enforced: false, rate_version: "129ceeb4",
+      rates_origin: "builtin",
+    },
+    parked: [
+      {
+        id: "parked123456", kind: "seed", source: "url_list", status: "paused",
+        ok: 37, skipped: 2, failed: 0, done: 39, total: 120, created_at: 1790900000,
+        result: {
+          stop_reason: "budget", spend_usd: 2.0001, cap_usd: 2.0,
+          rate_version: "129ceeb4", cost_complete: false, paused_at: 1790900100,
+        },
+      },
+    ],
+  };
+
+  const blindReport = {
+    ...populatedReport,
+    ledger_present: false,
+    ledger_error: "no such table: llm_usage",
+    spend: {},
+    by_purpose: [],
+    by_model: [],
+    last_job: null,
+    parked: [],
+  };
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    calls.push(url);
+    const json = async () => {
+      if (url.includes("/api/admin/llm/usage")) {
+        return scenario === "blind" ? blindReport : populatedReport;
+      }
+      return { detail: `usage stub: unhandled ${url}` };
+    };
+    return { ok: true, status: 200, json } as Response;
+  }) as typeof globalThis.fetch;
+
+  try {
+    // --- the populated surface ---------------------------------------------
+    const mounted = await mountApp(
+      React.createElement(UsageSection, { onLocked: () => {} }),
+    );
+    await flush();
+    const text = mounted.app.textContent ?? "";
+
+    assert(
+      calls.some((u) => u.includes("/api/admin/llm/usage")),
+      "P.US.1: the section reads the usage report from the admin endpoint",
+    );
+    assert(
+      text.includes("$0.0412") && text.includes("$0.8231") && text.includes("$4.1203"),
+      "P.US.2: today / 7 days / all-time each render their own $",
+    );
+    assert(
+      text.includes("a floor") && text.includes("3 unpriced"),
+      "P.US.3: a window with unpriced calls says its $ is a floor, with the count",
+    );
+    assert(
+      text.includes("17% of calls sent no usage block"),
+      "P.US.4: the missing-usage share is shown, not buried",
+    );
+    assert(
+      text.includes("21739.13") || text.includes("21,739.13"),
+      "P.US.5: the last batch shows tokens/row (the Phase D number's other half)",
+    );
+    assert(
+      text.includes("$0.0067") && text.includes("$/row"),
+      "P.US.6: the last batch shows $/row",
+    );
+    assert(
+      (text.match(/floor, not the bill/g) ?? []).length >= 1,
+      "P.US.7: $/row says it is a floor when attempts went unpriced",
+    );
+    assert(
+      text.includes("unknown") && !text.includes("$0.0000 (mystery-model"),
+      "P.US.8: an unpriced model renders as unknown, never as $0.0000",
+    );
+    assert(
+      text.includes("cited built-ins") && text.includes("2026-09-28"),
+      "P.US.9: the rate table states its origin and the date it was read",
+    );
+    assert(
+      text.includes("no prices") && text.includes("confirm the current rates"),
+      "P.US.10: an unpriced model's row says so, with its note",
+    );
+    assert(
+      text.includes("unlimited (unset)"),
+      "P.US.11: the budget control shows that no cap is set (the default)",
+    );
+    assert(
+      text.includes("Everything it wrote was kept") &&
+        text.includes("nothing is re-paid for"),
+      "P.US.12: a parked batch explains that resuming keeps and skips, never re-pays",
+    );
+    assert(
+      text.includes("paid at the budget") || text.includes("paused at the budget") ||
+        text.includes("reached $2.0001"),
+      "P.US.13: the parked banner states what it spent against what cap",
+    );
+    const buttons = Array.from(mounted.app.querySelectorAll("button")).map(
+      (b) => b.textContent ?? "",
+    );
+    assert(
+      buttons.some((b) => b.includes("Resume")) && buttons.some((b) => b.includes("Cancel")),
+      "P.US.14: a parked batch offers Resume and Cancel",
+    );
+    assert(
+      buttons.some((b) => b.includes("Save rates")) &&
+        buttons.some((b) => b.includes("Use built-ins")) &&
+        buttons.some((b) => b.includes("Save cap")),
+      "P.US.15: the two controls over spend are present (rates and the cap)",
+    );
+    assert(
+      mounted.app.querySelectorAll("input").length >= 4,
+      "P.US.16: the rate rows and the cap are editable inputs",
+    );
+
+    // --- the unreadable ledger (the live install's state) -------------------
+    cleanupApp();
+    scenario = "blind";
+    const blind = await mountApp(React.createElement(UsageSection, { onLocked: () => {} }));
+    await flush();
+    const blindText = blind.app.textContent ?? "";
+    assert(
+      blindText.includes("Nothing below is a measurement yet") &&
+        blindText.includes("no such table: llm_usage"),
+      "P.US.17: an unreadable ledger is stated outright, with the reason",
+    );
+    assert(
+      blindText.includes("unknown") && !blindText.includes("$0.0000"),
+      "P.US.18: with no ledger the panel shows unknown, never a confident $0.00",
+    );
+    assert(
+      blindText.includes("unlimited (unset)"),
+      "P.US.19: even blind, the budget control still answers (it is a setting, not a ledger row)",
+    );
+    cleanupApp();
+  } finally {
+    globalThis.fetch = savedFetch;
+  }
+}
+
+
   await suiteAsync("Phase P task 7b: sitemap URL hygiene", phasePSitemap);
+  await suiteAsync("Phase 7: the Usage surface (§7.4)", phaseUsageSurface);
 
   // Final Test Summary Output
   console.log("\n==========================================");
