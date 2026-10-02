@@ -103,7 +103,10 @@ def wait_job(client: TestClient, job_id: str, timeout_s: float = 10.0) -> dict:
     job: dict = {}
     while time.time() < deadline:
         job = client.get(f"/api/admin/seed/status/{job_id}", headers=MUT).json()
-        if job.get("status") in ("done", "failed"):
+        # paused/cancelled are terminal FOR A WAIT even though only done/failed
+        # are finished: a job can legitimately stop there (§7.4), and polling on
+        # past it would hang the suite instead of reporting it.
+        if job.get("status") in ("done", "failed", "paused", "cancelled"):
             return job
         time.sleep(0.02)
     return job
@@ -4018,6 +4021,236 @@ try:
     meter_mod.set_budget(None)
 except Exception as _meter_t5_exc:  # noqa: BLE001 — a crash must fail loudly, not skip checks
     check("meter: the parked-state block ran to completion", False, repr(_meter_t5_exc))
+
+# --- §7.4 Task 6: cancel and resume ------------------------------------------
+# Cancel stops a job where it stands (boundary, never mid-write) and keeps what
+# it wrote; resume continues the remaining work and never re-pays for a candidate
+# it already handled. Both are the release valve for a parked batch.
+try:
+    meter_mod.set_budget(None)
+    _t6_calls: list = []            # (job_id, candidate) for every (faked) ingest
+    _t6_ingest_backup = seeder._ingest
+    _t6_source_backup = seeder.SOURCES["url_list"]
+
+    def _t6_producer(params):
+        for i in range(4):
+            yield f"https://t6-seed-{i}.example"
+
+    def _t6_wait(job_id, terminal=("done", "failed", "paused", "cancelled"), timeout=10.0):
+        deadline = time.time() + timeout
+        while time.time() < deadline and seeder.JOBS[job_id]["status"] not in terminal:
+            time.sleep(0.02)
+        # A SNAPSHOT, not the live dict: a job's status changes again after this
+        # returns (a parked one gets resumed), so the test's "what it was at that
+        # moment" has to be a copy.
+        return dict(seeder.JOBS[job_id])
+
+    def _t6_calls_for(job_id):
+        return [c for j, c in _t6_calls if j == job_id]
+
+    def _t6_ingest_factory(*, cancel_after=None, gate=None):
+        """A fake ingest: checks the budget (as llm_json does), records, prices,
+        then optionally asks for a cancel or parks inside a candidate.
+
+        `gate=(url, inside_event, release_event)`: when that candidate reaches the
+        ingest, signal `inside` and block until `release` — the deterministic way
+        to hold the worker so a second job is genuinely QUEUED.
+        """
+        def _ingest(candidate, params):
+            meter_mod.check_budget()  # the brake's first act, at the boundary
+            jid = meter_mod.current_attribution().get("job_id")
+            if gate is not None and str(candidate) == gate[0]:
+                gate[1].set()
+                gate[2].wait(timeout=5.0)
+            _t6_calls.append((jid, str(candidate)))
+            meter_mod.record(model="deepseek-v4-flash", ok=True, job_id=jid,
+                             startup_id=3000 + len(_t6_calls), prompt_tokens=10,
+                             completion_tokens=1, cost_usd=0.01,
+                             price_used="deepseek-v4-flash@test")
+            if cancel_after is not None and len([c for j, c in _t6_calls
+                                                 if j == jid]) >= cancel_after:
+                seeder.request_cancel(jid)
+            return "new"
+        return _ingest
+
+    seeder.SOURCES["url_list"] = _t6_producer
+
+    # --- cancel a RUNNING job: stops at the boundary, keeps what it wrote -----
+    _t6_calls.clear()
+    seeder._ingest = _t6_ingest_factory(cancel_after=1)
+    try:
+        _t6_cancel_id = seeder.start_job("url_list", {"cap": 4})
+        _t6_cancelled = _t6_wait(_t6_cancel_id)
+    finally:
+        seeder._ingest = _t6_ingest_backup
+    check("meter: cancelling a running job stops it at the next candidate boundary",
+          _t6_cancelled["status"] == "cancelled" and len(_t6_calls_for(_t6_cancel_id)) == 1,
+          f"status={_t6_cancelled['status']} calls={_t6_calls_for(_t6_cancel_id)}")
+    check("meter: a cancelled job keeps the row it wrote and counts NO failure",
+          _t6_cancelled["ok"] == 1 and _t6_cancelled["failed"] == 0
+          and _t6_cancelled["ok_urls"] == ["https://t6-seed-0.example"]
+          and meter_mod.count(job_id=_t6_cancel_id) == 1,
+          f"ok={_t6_cancelled['ok']} failed={_t6_cancelled['failed']}")
+    check("meter: a cancel is recorded as a cancel, not as a breakage",
+          _t6_cancelled["result"]["stop_reason"] == "cancelled"
+          and _t6_cancelled["result"]["cancelled_at"] > 0
+          and _t6_cancelled["errors"][-1] == "cancelled by the operator"
+          and _t6_cancelled["finished_at"] is not None,
+          json.dumps({k: _t6_cancelled["result"].get(k) for k in ("stop_reason", "cancelled_at")}))
+    check("meter: the cancel flag does not linger after the job ends",
+          seeder.cancel_requested(_t6_cancel_id) is False, "flag cleared")
+
+    # --- cancel a QUEUED job: it never starts --------------------------------
+    _t6_calls.clear()
+    _t6_inside = threading.Event()
+    _t6_release = threading.Event()
+    seeder._ingest = _t6_ingest_factory(
+        gate=("https://t6-seed-0.example", _t6_inside, _t6_release))
+    _t6_blocker_id = None
+    _t6_blocked_observed = False
+    _t6_queued_status_before = None
+    try:
+        _t6_blocker_id = seeder.start_job("url_list", {"cap": 1})
+        # Wait until the blocker is INSIDE its candidate (holding the worker).
+        _t6_blocked_observed = _t6_inside.wait(timeout=5.0)
+        _t6_queued_id = seeder.start_job("url_list", {"cap": 1})
+        _t6_queued_status_before = seeder.JOBS[_t6_queued_id]["status"]
+        _t6_queued_state = seeder.request_cancel(_t6_queued_id)
+    finally:
+        _t6_release.set()
+        if _t6_blocker_id:
+            _t6_wait(_t6_blocker_id)
+        seeder._ingest = _t6_ingest_backup
+    check("meter: a QUEUED job cancels immediately, out of the queue",
+          _t6_blocked_observed and _t6_queued_status_before == "queued"
+          and _t6_queued_state["state"] == "cancelled"
+          and seeder.JOBS[_t6_queued_id]["status"] == "cancelled"
+          and seeder.JOBS[_t6_queued_id]["queue_position"] is None,
+          f"observed={_t6_blocked_observed} was={_t6_queued_status_before} "
+          f"{json.dumps(_t6_queued_state)}")
+    check("meter: the cancelled-before-start job never ran a single candidate",
+          _t6_calls_for(_t6_queued_id) == [] and seeder.JOBS[_t6_queued_id]["done"] == 0,
+          json.dumps(_t6_calls_for(_t6_queued_id)))
+    check("meter: cancelling a job that already finished reports which it was, not an error",
+          seeder.request_cancel(_t6_blocker_id)["state"] == "already_finished"
+          and seeder.request_cancel("no-such-job-id")["state"] == "not_found",
+          json.dumps(seeder.request_cancel(_t6_blocker_id)))
+
+    # --- resume a PARKED job: the remaining work, nothing re-paid -------------
+    # Park it on a small cap (0.02 at 0.01 a candidate = 2 candidates), then
+    # resume with a raised budget: candidates 3 and 4 run, 1 and 2 are skipped.
+    _t6_calls.clear()
+    seeder._ingest = _t6_ingest_factory()
+    try:
+        _t6_resume_id = seeder.start_job("url_list", {"cap": 4, "budget_usd": 0.02})
+        _t6_parked = _t6_wait(_t6_resume_id)
+        _t6_resume_state = seeder.request_resume(_t6_resume_id, budget_usd=1.0)
+        _t6_finished = _t6_wait(_t6_resume_id)
+    finally:
+        seeder._ingest = _t6_ingest_backup
+    check("meter: a parked job resumes into the queue, naming what it will skip",
+          _t6_parked["status"] == "paused" and _t6_resume_state["state"] == "queued"
+          and _t6_resume_state["already_handled"] == 2
+          and _t6_resume_state["budget_usd"] == 1.0,
+          json.dumps(_t6_resume_state))
+    check("meter: a resumed job finishes the remaining candidates",
+          _t6_finished["status"] == "done" and _t6_finished["ok"] == 4
+          and _t6_finished["ok_urls"] == [f"https://t6-seed-{i}.example" for i in range(4)],
+          f"status={_t6_finished['status']} ok={_t6_finished['ok']}")
+    _t6_calls_list = _t6_calls_for(_t6_resume_id)
+    check("meter: resume NEVER re-pays for a candidate it already handled",
+          _t6_calls_list == [f"https://t6-seed-{i}.example" for i in range(4)]
+          and len(_t6_calls_list) == len(set(_t6_calls_list)) == 4,
+          json.dumps(_t6_calls_list))
+    check("meter: the resumed run records how many candidates it skipped",
+          _t6_finished["result"].get("resumed_skipped") == 2
+          and _t6_finished["result"].get("resume_count") == 1
+          and _t6_finished["finished_at"] is not None,
+          json.dumps({k: _t6_finished["result"].get(k)
+                      for k in ("resumed_skipped", "resume_count")}))
+
+    # --- resume refusals carry the reason ------------------------------------
+    _t6_refusals = {
+        "cancelled": seeder.request_resume(_t6_cancel_id),
+        "done": seeder.request_resume(_t6_resume_id),
+        "unknown": seeder.request_resume("no-such-job-id"),
+    }
+    check("meter: resuming a cancelled job is refused, with what to do instead",
+          _t6_refusals["cancelled"]["state"] == "cancelled"
+          and "start a new seed" in _t6_refusals["cancelled"]["message"],
+          json.dumps(_t6_refusals["cancelled"]))
+    check("meter: resuming a finished or unknown job is refused, each naming why",
+          _t6_refusals["done"]["state"] == "not_resumable"
+          and "only a parked job" in _t6_refusals["done"]["message"]
+          and _t6_refusals["unknown"]["state"] == "not_found",
+          json.dumps({k: v["state"] for k, v in _t6_refusals.items()}))
+
+    # --- cancel reaches the LONGEST job: a verification pass -----------------
+    # The pass walks the whole archive, so the operator needs to be able to stop
+    # it. Patching the two network checks keeps it offline; the first call asks
+    # for the cancel, so the stop lands at the next row boundary.
+    _t6_url_backup = verify.check_url_ok
+    _t6_gh_backup = verify.check_github_ok
+    _t6_checks_seen: list = []
+
+    def _t6_url_ok(url, name=""):
+        _t6_checks_seen.append(url)
+        # Stop the pass from inside its first row: the flag lands at the next
+        # row boundary, which is exactly the behaviour under test.
+        for _j in list(seeder.JOBS.values()):
+            if _j["kind"] == "verify" and _j["status"] == "running":
+                seeder.request_cancel(_j["id"])
+                break
+        return True, "stub ok", False
+
+    verify.check_url_ok = _t6_url_ok
+    verify.check_github_ok = lambda u: (True, "stub ok", False)
+    _t6_verify_stop = {}
+    try:
+        _t6_verify_id = verify.start_verification()
+        _t6_verify_stop = _t6_wait(_t6_verify_id, timeout=20.0)
+    finally:
+        verify.check_url_ok = _t6_url_backup
+        verify.check_github_ok = _t6_gh_backup
+    check("meter: a verification pass can be cancelled too, and says it was partial",
+          _t6_verify_stop.get("status") == "cancelled"
+          and _t6_verify_stop["result"]["partial"] is True
+          and _t6_verify_stop["result"]["stop_reason"] == "cancelled"
+          and _t6_verify_stop["done"] >= 1,
+          json.dumps({k: _t6_verify_stop.get(k) for k in ("status", "done")}
+                     | {"partial": (_t6_verify_stop.get("result") or {}).get("partial")}))
+    check("meter: a cancelled verification keeps the rows it already checked",
+          _t6_verify_stop["done"] == len(_t6_checks_seen)
+          and _t6_verify_stop["result"]["checked"] == _t6_verify_stop["done"],
+          f"done={_t6_verify_stop['done']} checks={len(_t6_checks_seen)}")
+
+    # --- the endpoints -------------------------------------------------------
+    with TestClient(api) as _t6_client:
+        _t6_cancel_done = _t6_client.post(
+            f"/api/admin/seed/{_t6_resume_id}/cancel", headers=MUT)
+        _t6_resume_refused = _t6_client.post(
+            f"/api/admin/seed/{_t6_cancel_id}/resume", headers=MUT, json={})
+        check("admin: POST .../cancel on a finished job answers 200 with the state",
+              _t6_cancel_done.status_code == 200
+              and _t6_cancel_done.json()["state"] == "already_finished",
+              f"{_t6_cancel_done.status_code} {json.dumps(_t6_cancel_done.json())}")
+        check("admin: POST .../resume on a cancelled job is refused 409 with the reason",
+              _t6_resume_refused.status_code == 409
+              and "start a new seed" in _t6_resume_refused.json()["detail"],
+              f"{_t6_resume_refused.status_code} {json.dumps(_t6_resume_refused.json())}")
+        check("admin: an unknown job id is a 404, not a silent success",
+              _t6_client.post("/api/admin/seed/no-such-job/cancel", headers=MUT).status_code == 404
+              and _t6_client.post("/api/admin/seed/no-such-job/resume", headers=MUT,
+                                  json={}).status_code == 404,
+              "404")
+        check("admin: cancel and resume sit behind the admin token",
+              _t6_client.post(f"/api/admin/seed/{_t6_cancel_id}/cancel").status_code == 403
+              and _t6_client.post(f"/api/admin/seed/{_t6_resume_id}/resume",
+                                  json={}).status_code == 403,
+              "403")
+    meter_mod.set_budget(None)
+except Exception as _meter_t6_exc:  # noqa: BLE001 — a crash must fail loudly, not skip checks
+    check("meter: the cancel/resume block ran to completion", False, repr(_meter_t6_exc))
 
 # ===========================================================================
 print("\n" + "=" * 78)

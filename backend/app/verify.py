@@ -309,12 +309,19 @@ def run_verify_job(job: dict) -> None:
 
     job["status"] = "running"
     job["started_at"] = time.time()
+    # Bound before the try so the cancel handler can always report what the pass
+    # had done up to the row it stopped at.
+    dead_flipped: list[str] = []
     conn = db.connect()
     try:
         rows = conn.execute("SELECT * FROM startups").fetchall()
         job["total"] = len(rows)
-        dead_flipped: list[str] = []
         for row in rows:
+            # The cancel boundary (§7.4 task 6): between two rows, so the pass
+            # keeps every row it already verified. This is the job an operator is
+            # most likely to want stopped — it walks the whole archive.
+            if seeder.cancel_requested(job["id"]):
+                raise seeder.JobCancelled(job["id"])
             job["current"] = row["name"]
             # Bucket the entry's CURRENT state (at check time) for the panel
             # breakdown — before the check, so the archive composition shows.
@@ -452,6 +459,29 @@ def run_verify_job(job: dict) -> None:
             ],
         }
         job["status"] = "done"
+        seeder._persist_job(job)
+    except seeder.JobCancelled:
+        # A partial pass, and it says so: same keys as a complete result so the
+        # panel renders it, plus `partial` so nothing reads it as a full sweep.
+        job["status"] = seeder.CANCELLED
+        job["result"] = {
+            "checked": job["done"],
+            "ok": job["ok"],
+            "skipped": job["skipped"],
+            "flagged": job["failed"],
+            "dead_flipped": dead_flipped,
+            "breakdown": dict(job["breakdown"]),
+            "already_verified": job["already_verified"],
+            "suggested": job["suggested"],
+            "failed_list": job["failed_list"],
+            "skipped_list": [],
+            "partial": True,
+            "stop_reason": "cancelled",
+            "cancelled_at": time.time(),
+        }
+        job["errors"].append("cancelled by the operator")
+        log.warning("verify job %s cancelled after %s/%s rows (kept)",
+                    job["id"], job["done"], job["total"])
         seeder._persist_job(job)
     except Exception as exc:  # noqa: BLE001 — job-level crash is a loud failure
         job["status"] = "failed"

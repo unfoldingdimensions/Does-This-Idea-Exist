@@ -51,7 +51,168 @@ _LOCK = threading.Lock()
 #     nothing may depend on them.
 IN_FLIGHT = ("queued", "running")
 PAUSED = "paused"
-FINISHED = ("done", "failed")
+CANCELLED = "cancelled"
+FINISHED = ("done", "failed", "cancelled")
+
+
+class JobCancelled(RuntimeError):
+    """The operator cancelled this job.
+
+    Raised at a candidate boundary, so the loop stops where it stands and every
+    row already written stays. Deliberately NOT a JobFailed: the panel and the
+    history must be able to tell "I stopped this" from "this broke".
+    """
+
+    def __init__(self, job_id: str):
+        self.job_id = job_id
+        super().__init__("cancelled by the operator")
+
+
+# Cancel requests for jobs that are RUNNING. A flag, not a status change, because
+# the worker owns the job's state while it runs — the request only tells it to
+# stop at the next boundary (between two candidates, never mid-write).
+#
+# Not persisted, and it does not need to be: a restart kills every in-flight job
+# anyway (recover_interrupted_jobs marks it failed/interrupted), so there is no
+# running job left for a stale flag to cancel. What survives a restart is the
+# OUTCOME — a cancelled job's status and its kept rows, written to the jobs table.
+_CANCELS: set[str] = set()
+
+
+def cancel_requested(job_id: str) -> bool:
+    """Has this job been asked to stop? Checked at each candidate boundary."""
+    with _LOCK:
+        return job_id in _CANCELS
+
+
+def _db_status(job_id: str) -> str | None:
+    """The persisted status of a job that is not in memory (history)."""
+    conn = db.connect()
+    try:
+        row = conn.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    finally:
+        conn.close()
+    return row["status"] if row else None
+
+
+def _finish_cancelled(job: dict) -> None:
+    """Mark a job cancelled and persist it. Keeps everything already written."""
+    job["status"] = CANCELLED
+    job["result"] = {
+        **(job.get("result") or {}),
+        "stop_reason": "cancelled",
+        "cancelled_at": time.time(),
+    }
+    job["errors"].append("cancelled by the operator")
+    job["finished_at"] = time.time()
+    with _LOCK:
+        _CANCELS.discard(job["id"])
+    _persist_job(job)
+    log.warning("job %s cancelled by the operator after %s ok / %s done",
+                job["id"], job.get("ok"), job.get("done"))
+
+
+def request_cancel(job_id: str) -> dict:
+    """Stop a job. Returns a state the API can translate into a response.
+
+    Three routes, because the three cases are genuinely different:
+      * queued  → pulled out of the queue and cancelled NOW: the worker never
+                  starts it, so there is nothing to interrupt.
+      * paused  → cancelled NOW; it was already holding still.
+      * running → a flag the worker reads at the next candidate boundary. Rows
+                  already written stay; the response says it is in flight.
+    A finished job (done/failed/cancelled) is not an error to cancel — there is
+    simply nothing to stop, and the caller learns which it was.
+    """
+    with _LOCK:
+        job = JOBS.get(job_id)
+    if job is None:
+        persisted = _db_status(job_id)
+        if persisted is None:
+            return {"state": "not_found", "job_id": job_id}
+        return {"state": "already_finished", "job_id": job_id, "status": persisted}
+
+    status = job["status"]
+    if status == CANCELLED:
+        return {"state": "already_cancelled", "job_id": job_id, "status": status}
+    if status in FINISHED:
+        return {"state": "already_finished", "job_id": job_id, "status": status}
+    if status == "queued":
+        with _LOCK:
+            try:
+                QUEUES[job["kind"]].remove(job)
+            except ValueError:
+                pass  # the worker just took it; the flag below covers that race
+            _CANCELS.add(job_id)
+        _finish_cancelled(job)
+        return {"state": "cancelled", "job_id": job_id, "status": CANCELLED,
+                "message": "removed from the queue before it started"}
+    if status == PAUSED:
+        _finish_cancelled(job)
+        return {"state": "cancelled", "job_id": job_id, "status": CANCELLED,
+                "message": "the parked batch will not be resumed"}
+
+    # running (or anything else still in flight): ask the worker, do not seize
+    # its state from another thread.
+    with _LOCK:
+        _CANCELS.add(job_id)
+    return {"state": "cancel_requested", "job_id": job_id, "status": status,
+            "message": "the worker stops at the next candidate boundary; rows "
+                       "already written are kept"}
+
+
+def request_resume(job_id: str, budget_usd=None) -> dict:
+    """Re-enqueue a PARKED job's remaining work.
+
+    Already-handled candidates are skipped by the loop, so a resume never re-pays
+    for a row that is already filed — `ok_urls` and `skipped_urls` are persisted
+    on the job, and they are the skip list.
+
+    `budget_usd` optionally replaces this job's own cap, because the most common
+    reason to resume is "the budget was too small and I am raising it" — without
+    that, a resume of a job parked on its cap would park again immediately.
+    """
+    with _LOCK:
+        job = JOBS.get(job_id)
+    if job is None:
+        persisted = _db_status(job_id)
+        if persisted is None:
+            return {"state": "not_found", "job_id": job_id}
+        return {"state": "not_resumable", "job_id": job_id, "status": persisted,
+                "message": f"this job is {persisted} and is not in memory; "
+                           f"only a parked job can be resumed"}
+    status = job["status"]
+    if status == CANCELLED:
+        return {"state": "cancelled", "job_id": job_id, "status": status,
+                "message": "this job was cancelled on purpose; start a new seed of "
+                           "the same source — URLs already filed are skipped and "
+                           "never re-billed"}
+    if status != PAUSED:
+        return {"state": "not_resumable", "job_id": job_id, "status": status,
+                "message": f"only a parked job can be resumed (this one is {status})"}
+
+    if budget_usd is not None:
+        job["params"]["budget_usd"] = float(budget_usd)
+    job["status"] = "queued"
+    job["finished_at"] = None
+    job["result"] = {
+        **(job.get("result") or {}),
+        "resumed_at": time.time(),
+        "resume_count": int((job.get("result") or {}).get("resume_count", 0)) + 1,
+    }
+    with _LOCK:
+        JOBS.setdefault(job["id"], job)
+        QUEUES[job["kind"]].append(job)
+    with CONDS[job["kind"]]:
+        CONDS[job["kind"]].notify()
+    _persist_job(job)
+    log.info("job %s resumed: %s already filed (skipped, never re-billed), budget %s",
+             job["id"], len(job.get("ok_urls") or []) + len(job.get("skipped_urls") or []),
+             job["params"].get("budget_usd"))
+    return {"state": "queued", "job_id": job_id, "status": "queued",
+            "already_handled": len(job.get("ok_urls") or []) + len(job.get("skipped_urls") or []),
+            "budget_usd": job["params"].get("budget_usd"),
+            "message": "re-queued; candidates already handled are skipped"}
 
 CAP_MIN, CAP_MAX = 1, 500
 THROTTLE_S = 1.0  # GitHub unauth: 60 repo/hr, 10 search/min
@@ -347,7 +508,14 @@ def _worker(kind: str) -> None:
             while not q:
                 cond.wait()
             job = q.pop(0)
-        _run(job)
+        try:
+            _run(job)
+        finally:
+            # One place to drop a cancel flag, for every job kind: the worker
+            # thread is the only thing that knows the job is no longer running,
+            # and a stale id in the set would cancel nothing and leak.
+            with _LOCK:
+                _CANCELS.discard(job["id"])
 
 
 def _run(job: dict) -> None:
@@ -367,6 +535,11 @@ def _run(job: dict) -> None:
     try:
         producer = SOURCES[job["source"]]
         cap = job["params"]["cap"]
+        # A RESUMED job never re-pays for what it already handled: the URLs it
+        # filed (or found already filed) are its skip list, and both lists are
+        # persisted on the job, so this survives the restart that parked it.
+        already_handled = set(job.get("ok_urls") or []) | set(job.get("skipped_urls") or [])
+        resumed_skipped = 0
         # One attribution for the whole batch: every call this job makes is
         # stamped with the job id, which is what makes a per-job $ figure and
         # the budget brake (§7.4 tasks 4-6) possible. enrich stamps its own
@@ -377,6 +550,13 @@ def _run(job: dict) -> None:
             for i, candidate in enumerate(producer(job["params"])):
                 if i >= cap:
                     break
+                # The cancel boundary (§7.4 task 6): between two candidates, never
+                # mid-write, so a cancelled batch keeps every row it wrote.
+                if cancel_requested(job["id"]):
+                    raise JobCancelled(job["id"])
+                if str(candidate) in already_handled:
+                    resumed_skipped += 1
+                    continue
                 job["total"] = min(i + 1, cap)
                 job["current"] = str(candidate)
                 try:
@@ -389,12 +569,11 @@ def _run(job: dict) -> None:
                         job["ok"] += 1
                         job["ok_urls"].append(str(candidate))
                         log.info("seed ok   (%s): %s", job["id"], candidate)
-                except meter.BudgetExceeded:
-                    # The brake is the JOB's business, not a candidate failure:
-                    # counting it here would burn through the remaining
-                    # candidates one refusal at a time and report them all as
-                    # failures. It goes up to the job handler, which stops the
-                    # batch with the numbers recorded.
+                except (meter.BudgetExceeded, JobCancelled):
+                    # Neither the brake nor a cancel is a CANDIDATE failure:
+                    # counting them here would burn the remaining candidates one
+                    # refusal at a time and report them all as failures. They go
+                    # up to the job handler, which stops the batch with the reason.
                     raise
                 except Exception as exc:  # noqa: BLE001 — per-entry failure is data, not a crash
                     job["failed"] += 1
@@ -403,12 +582,28 @@ def _run(job: dict) -> None:
                 job["done"] += 1
                 job["current"] = ""
                 _persist_job(job)
+        if resumed_skipped:
+            job["result"] = {**(job.get("result") or {}),
+                             "resumed_skipped": resumed_skipped}
         job["status"] = "done"
         _persist_job(job)
         log.info(
-            "seed job %s done: %s ok, %s skipped, %s failed",
+            "seed job %s done: %s ok, %s skipped, %s failed%s",
             job["id"], job["ok"], job["skipped"], job["failed"],
+            f" ({resumed_skipped} already handled before the resume)" if resumed_skipped else "",
         )
+    except JobCancelled:
+        # §7.4 task 6: the operator stopped it. Everything written stays; the
+        # status says a human ended this, not that it broke.
+        job["status"] = CANCELLED
+        job["result"] = {
+            **(job.get("result") or {}),
+            "stop_reason": "cancelled",
+            "cancelled_at": time.time(),
+        }
+        job["errors"].append("cancelled by the operator")
+        log.warning("seed job %s cancelled at a candidate boundary (%s ok, %s done kept)",
+                    job["id"], job["ok"], job["done"])
     except meter.BudgetExceeded as exc:
         # §7.4 task 5: the batch PARKS here — at the candidate boundary it just
         # finished, with every row already written left in place. Nothing rolls
@@ -433,6 +628,10 @@ def _run(job: dict) -> None:
         _persist_job(job)
         log.exception("seed job %s crashed", job["id"])
     finally:
+        # The flag dies with the job: a stale id in the set would cancel nothing
+        # (the job is terminal) and would leak memory.
+        with _LOCK:
+            _CANCELS.discard(job["id"])
         # Only a FINISHED job gets a finished_at. A parked one has not finished,
         # and stamping it would tell the panel to file it under "history".
         job["finished_at"] = time.time() if job["status"] in FINISHED else None

@@ -227,6 +227,10 @@ def run_capture_job(job: dict) -> None:
     job["started_at"] = time.time()
     try:
         startup_id = int((job.get("params") or {}).get("startup_id") or 0)
+        # A cancel that arrived while this was queued (or parked): stop before the
+        # paid call. A capture is one candidate, so this IS the boundary.
+        if seeder.cancel_requested(job["id"]):
+            raise seeder.JobCancelled(job["id"])
         # Same attribution contract as a seed job: the batch id (so its spend is
         # measurable and braked) and, if this particular capture carries one, its
         # own budget. capture_teardown then stamps purpose+startup_id inside.
@@ -261,6 +265,15 @@ def run_capture_job(job: dict) -> None:
         }
         job["errors"].append(f"{exc.kind}: {exc}")
         log.warning("capture job %s parked at the spend brake: %s", job["id"], exc)
+    except seeder.JobCancelled:
+        job["status"] = seeder.CANCELLED
+        job["result"] = {
+            **(job.get("result") or {}),
+            "stop_reason": "cancelled",
+            "cancelled_at": time.time(),
+        }
+        job["errors"].append("cancelled by the operator")
+        log.warning("capture job %s cancelled before the teardown call", job["id"])
     except Exception as exc:  # noqa: BLE001 — a job-level crash is a loud failure
         job["status"] = "failed"
         job["errors"].append(f"job: {exc}")

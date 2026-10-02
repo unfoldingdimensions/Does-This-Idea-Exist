@@ -446,6 +446,45 @@ class BudgetIn(BaseModel):
     budget_usd: float | None = Field(default=None, ge=0, le=1_000_000)
 
 
+class ResumeIn(BaseModel):
+    """Resuming may raise this job's own budget — the most common reason to
+    resume is that the cap was too small. Absent = keep the job's existing one.
+    """
+
+    budget_usd: float | None = Field(default=None, ge=0, le=1_000_000)
+
+
+@admin.post("/seed/{job_id}/cancel", dependencies=[Depends(rate_limited("admin_cancel", 20, 60))])
+def cancel_seed(job_id: str) -> dict:
+    """Stop a job (§7.4 task 6).
+
+    A queued or parked job is cancelled immediately; a RUNNING one gets a flag
+    the worker reads at its next candidate boundary, so rows already written stay
+    and nothing is interrupted mid-write. Cancelling a finished job is not an
+    error — the response says which it was.
+    """
+    result = seeder.request_cancel(job_id)
+    if result["state"] == "not_found":
+        raise HTTPException(status_code=404, detail="Job not found")
+    return result
+
+
+@admin.post("/seed/{job_id}/resume", dependencies=[Depends(rate_limited("admin_resume", 20, 60))])
+def resume_seed(job_id: str, body: ResumeIn | None = None) -> dict:
+    """Re-queue a PARKED job's remaining work, skipping what it already handled.
+
+    Refused (409, with the reason) for a cancelled job: that was a deliberate
+    stop, and a new seed of the same source skips the URLs already filed without
+    re-billing them. A job that is not parked is refused the same way.
+    """
+    result = seeder.request_resume(job_id, budget_usd=(body.budget_usd if body else None))
+    if result["state"] == "not_found":
+        raise HTTPException(status_code=404, detail="Job not found")
+    if result["state"] in ("cancelled", "not_resumable"):
+        raise HTTPException(status_code=409, detail=result.get("message", result["state"]))
+    return result
+
+
 @admin.get("/llm/budget", dependencies=[Depends(rate_limited("admin_llm_budget", 60, 60))])
 def get_llm_budget() -> dict:
     """The spend brake's state: the cap, what has been spent against it, and the

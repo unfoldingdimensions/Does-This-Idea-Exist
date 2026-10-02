@@ -324,6 +324,50 @@ export function fetchSeedJobs(): Promise<SeedJob[]> {
   return adminJson<SeedJob[]>(`${API_BASE}/api/admin/seed/jobs`);
 }
 
+/** What a cancel or resume request answered (§7.4 tasks 6-7). */
+export interface JobAction {
+  state:
+    | "cancelled"
+    | "cancel_requested"
+    | "already_cancelled"
+    | "already_finished"
+    | "queued"
+    | "not_resumable"
+    | "not_found";
+  job_id: string;
+  status?: string;
+  message?: string;
+  /** Resume: how many candidates will be skipped instead of re-paid for. */
+  already_handled?: number;
+  budget_usd?: number | null;
+}
+
+/**
+ * Stop a job. A queued or parked one stops immediately; a running one stops at
+ * its next candidate boundary, keeping every row it already wrote.
+ */
+export function cancelSeed(jobId: string): Promise<JobAction> {
+  return adminJson<JobAction>(`${API_BASE}/api/admin/seed/${jobId}/cancel`, {
+    method: "POST",
+  });
+}
+
+/**
+ * Resume a PARKED job's remaining work, optionally raising its own budget (the
+ * usual reason to resume). Candidates it already handled are skipped, never
+ * re-billed.
+ */
+export function resumeSeed(
+  jobId: string,
+  budgetUsd?: number | null,
+): Promise<JobAction> {
+  return adminJson<JobAction>(`${API_BASE}/api/admin/seed/${jobId}/resume`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ budget_usd: budgetUsd ?? null }),
+  });
+}
+
 // --- Phase 6: the verified surface the product UI consumes -------------------
 // Everything below is wired to the Phase 5-verified backend. No mocks, no
 // hardcoded rows: the non-happy answers are normal answers here, and each one

@@ -106,7 +106,7 @@ export interface VerifyJob {
   id: string;
   kind: string;
   source: string;
-  status: "queued" | "running" | "paused" | "done" | "failed";
+  status: "queued" | "running" | "paused" | "cancelled" | "done" | "failed";
   queue_position: number | null;
   total: number;
   done: number;
@@ -468,7 +468,7 @@ export interface SeedJob {
   id: string;
   kind: "seed" | "verify";
   source: string;
-  status: "queued" | "running" | "paused" | "done" | "failed";
+  status: "queued" | "running" | "paused" | "cancelled" | "done" | "failed";
   queue_position: number | null;
   total: number;
   done: number;
