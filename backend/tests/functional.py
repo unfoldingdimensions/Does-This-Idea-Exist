@@ -4936,6 +4936,209 @@ except Exception as _c1_exc:  # noqa: BLE001
           repr(_c1_exc) + "\n" + _c1_tb.format_exc())
 
 
+# --- Phase C task 2: the sourcing channels ----------------------------------
+print("  · Phase C task 2: sourcing channels")
+try:
+    from app import sources as src_mod
+
+    class _FakeResponse:
+        """Just enough of an httpx response for an adapter to read."""
+
+        def __init__(self, status, payload=None, text=""):
+            self.status_code = status
+            self._payload = payload
+            self.text = text
+
+        def json(self):
+            if self._payload is None:
+                raise ValueError("body is not JSON")
+            return self._payload
+
+    class _FakeClient:
+        """A client that answers from a table and records what was asked."""
+
+        def __init__(self, table):
+            self.table = table
+            self.calls = []
+
+        def get(self, url, params=None, headers=None, timeout=None):
+            self.calls.append({"url": url, "params": dict(params or {}),
+                               "headers": dict(headers or {}), "timeout": timeout})
+            answer = self.table.get(url)
+            if answer is None:
+                return _FakeResponse(404)
+            if callable(answer):
+                return answer(url, params or {})
+            return answer
+
+    _t2_sleeps = []
+    _t2_sleep = _t2_sleeps.append
+
+    # --- curated lists -------------------------------------------------------
+    _c2_md = """
+# Awesome Things
+[![badge](https://img.shields.io/badge/x-y-z)](https://example.com/badge-target)
+- [Acme Notes](https://acme-notes.example) - notes
+- [Beta CRM](https://www.beta-crm.example/) - a CRM
+- [Contributing](https://github.com/foo/list/blob/main/CONTRIBUTING.md)
+- [Acme Notes again](https://acme-notes.example)
+- [Sponsor](https://opencollective.com/someone)
+<a href="https://gamma-docs.example/app">Gamma App</a>
+- [Broken](mailto:hello@example.com)
+- [Local](#section)
+"""
+    _c2_client = _FakeClient({
+        "https://raw.example/awesome.md": _FakeResponse(200, text=_c2_md),
+    })
+    _c2_rows = list(src_mod.curated_lists(
+        {"url": "https://raw.example/awesome.md",
+         "source_url": "https://github.com/foo/list"},
+        _c2_client, sleep=_t2_sleep, throttle_s=1.0))
+    _c2_urls = [r["url"] for r in _c2_rows]
+    check("sources: a curated list yields its product links, with the list as provenance",
+          _c2_urls == ["https://acme-notes.example", "https://www.beta-crm.example/",
+                       "https://gamma-docs.example/app"]
+          and all(r["source_url"] == "https://github.com/foo/list" for r in _c2_rows),
+          json.dumps(_c2_urls))
+    check("sources: badges, contributors, sponsors, mailto and anchors are filtered out",
+          not any(k in " ".join(_c2_urls) for k in ("shields.io", "CONTRIBUTING",
+                                                    "opencollective", "mailto", "#section")),
+          json.dumps(_c2_urls))
+    check("sources: a duplicated link in the list is yielded once",
+          len(_c2_urls) == len(set(_c2_urls)) == 3, json.dumps(_c2_urls))
+    check("sources: the HTML-form link is found too, with its text as the name",
+          any(r["url"] == "https://gamma-docs.example/app" and r["name"] == "Gamma App"
+              for r in _c2_rows),
+          json.dumps([(r["url"], r["name"]) for r in _c2_rows]))
+    check("sources: the adapter paces itself exactly once for a single body",
+          _t2_sleeps == [1.0], json.dumps(_t2_sleeps))
+
+    # A bad list must not abandon the run: it reports, it does not raise.
+    _c2_bad = list(src_mod.curated_lists({"url": "https://raw.example/gone.md"},
+                                         _FakeClient({}), sleep=_t2_sleep))
+    check("sources: a failed list fetch is REPORTED as an error row, not raised",
+          len(_c2_bad) == 1 and "_error" in _c2_bad[0] and "404" in _c2_bad[0]["_error"],
+          json.dumps(_c2_bad))
+    _c2_nourl = list(src_mod.curated_lists({}, _FakeClient({}), sleep=_t2_sleep))
+    check("sources: a list spec with no url yields nothing at all", _c2_nourl == [],
+          json.dumps(_c2_nourl))
+
+    # --- GitHub ------------------------------------------------------------
+    def _gh_page(_url, params):
+        page = int(params.get("page", 1))
+        if page == 1:
+            return _FakeResponse(200, {"items": [
+                {"full_name": "acme/notes", "html_url": "https://github.com/acme/notes",
+                 "name": "notes", "homepage": "https://notes.acme-github.example",
+                 "stargazers_count": 4200, "forks_count": 210, "archived": False,
+                 "pushed_at": "2026-09-30T00:00:00Z", "description": "Notes app",
+                 "topics": ["notes", "oss"]},
+                {"full_name": "beta/crm", "html_url": "https://github.com/beta/crm",
+                 "name": "crm", "homepage": "", "stargazers_count": 900,
+                 "forks_count": 50, "archived": False, "pushed_at": "2026-08-01T00:00:00Z",
+                 "description": None, "topics": []},
+            ]})
+        if page == 2:
+            return _FakeResponse(200, {"items": [
+                {"full_name": "gamma/app", "html_url": "https://github.com/gamma/app",
+                 "name": "app", "homepage": None, "stargazers_count": 800,
+                 "forks_count": 40, "archived": True, "pushed_at": "2026-01-01T00:00:00Z",
+                 "description": "Gamma", "topics": ["saas"]},
+            ]})
+        return _FakeResponse(200, {"items": []})
+
+    _t2_sleeps.clear()
+    _c2_gh = _FakeClient({"https://api.github.com/search/repositories": _gh_page})
+    _c2_gh_rows = list(src_mod.github_topics(
+        {"query": "topic:saas stars:>500", "per_page": 100}, _c2_gh,
+        sleep=_t2_sleep, throttle_s=0.5, max_pages=2))
+    check("sources: GitHub repos become candidates, preferring the project's own site",
+          len(_c2_gh_rows) == 3
+          and _c2_gh_rows[0]["url"] == "https://notes.acme-github.example"
+          and _c2_gh_rows[0]["github_url"] == "https://github.com/acme/notes"
+          and _c2_gh_rows[1]["url"] == "https://github.com/beta/crm",
+          json.dumps([(r["url"], r.get("github_url")) for r in _c2_gh_rows]))
+    check("sources: the repo's signal rides along as meta (stars, archived, pushed_at)",
+          json.loads(_c2_gh_rows[0]["meta_json"])["stars"] == 4200
+          and json.loads(_c2_gh_rows[2]["meta_json"])["archived"] is True,
+          _c2_gh_rows[0]["meta_json"])
+    check("sources: GitHub provenance is the exact API query and page",
+          _c2_gh_rows[-1]["source_url"].endswith("page=2")
+          and "topic%3Asaas" in _c2_gh_rows[-1]["source_url"].replace(":", "%3A")
+          or "q=topic:saas stars:>500&page=2" in _c2_gh_rows[-1]["source_url"],
+          json.dumps(_c2_gh_rows[-1]["source_url"]))
+    check("sources: paging is budgeted (max_pages) and paced BETWEEN pages only",
+          len(_c2_gh.calls) == 2 and _t2_sleeps == [0.5],
+          json.dumps({"calls": len(_c2_gh.calls), "sleeps": _t2_sleeps}))
+    check("sources: the GitHub request carries the token when the install has one",
+          ("Authorization" in _c2_gh.calls[0]["headers"]) == bool(config.GITHUB_TOKEN),
+          json.dumps(sorted(_c2_gh.calls[0]["headers"])))
+    _c2_403 = list(src_mod.github_topics(
+        {"query": "topic:x"}, _FakeClient(
+            {"https://api.github.com/search/repositories": _FakeResponse(403)}),
+        sleep=_t2_sleep))
+    check("sources: a 403 names the token instead of stalling silently",
+          len(_c2_403) == 1 and "_error" in _c2_403[0] and "GITHUB_TOKEN" in _c2_403[0]["_error"],
+          json.dumps(_c2_403))
+
+    # --- Show HN -----------------------------------------------------------
+    _c2_hn = _FakeClient({"https://hn.algolia.com/api/v1/search": _FakeResponse(200, {"hits": [
+        {"objectID": "111", "title": "Show HN: Delta Notes", "url": "https://delta.example",
+         "points": 120, "author": "someone", "created_at": "2026-09-01T00:00:00Z"},
+        {"objectID": "222", "title": "Show HN: Ask HN style post", "url": None, "points": 60},
+        {"objectID": "333", "title": "Show HN: Epsilon", "url": "https://epsilon.example/x",
+         "points": 45},
+    ]})})
+    _c2_hn_rows = list(src_mod.show_hn({"min_points": 40}, _c2_hn,
+                                       sleep=_t2_sleep, throttle_s=1.0, max_pages=1))
+    check("sources: Show HN yields the story's site with the HN item as provenance",
+          [r["url"] for r in _c2_hn_rows] == ["https://delta.example", "https://epsilon.example/x"]
+          and _c2_hn_rows[0]["source_url"] == "https://news.ycombinator.com/item?id=111",
+          json.dumps([(r["url"], r["source_url"]) for r in _c2_hn_rows]))
+    check("sources: a text-only Show HN (no url) is not a candidate",
+          all("222" not in r["source_url"] for r in _c2_hn_rows) and len(_c2_hn_rows) == 2,
+          json.dumps([r["source_url"] for r in _c2_hn_rows]))
+    check("sources: the HN query passes the point floor the spec asked for",
+          _c2_hn.calls[0]["params"].get("numericFilters") == "points>40"
+          and _c2_hn.calls[0]["params"].get("tags") == "show_hn",
+          json.dumps(_c2_hn.calls[0]["params"]))
+
+    # --- the local bundles --------------------------------------------------
+    _c2_bundles = list(src_mod.bundles({}))
+    check("sources: the local bundles are a channel (no network, no key)",
+          len(_c2_bundles) > 100
+          and all(r["url"].startswith("http") and r["source_url"].startswith("file:")
+                  for r in _c2_bundles),
+          f"{len(_c2_bundles)} rows, first={json.dumps(_c2_bundles[0] if _c2_bundles else None)}")
+    check("sources: a bundle row names the file AND the row it came from",
+          "#0" in _c2_bundles[0]["source_url"] and "seed_" in _c2_bundles[0]["source_url"],
+          _c2_bundles[0]["source_url"])
+    _c2_missing = list(src_mod.bundles({"bundles": ["nope"]}))
+    check("sources: a missing bundle is reported, not raised",
+          len(_c2_missing) == 1 and "_error" in _c2_missing[0],
+          json.dumps(_c2_missing))
+
+    # --- the contract every channel must keep -------------------------------
+    _c2_every = (_c2_rows + _c2_gh_rows + _c2_hn_rows + _c2_bundles[:50])
+    check("sources: EVERY candidate from EVERY channel carries url + source_url",
+          all(r.get("url", "").startswith("http") and (r.get("source_url") or "").strip()
+              for r in _c2_every),
+          f"{len(_c2_every)} candidates checked")
+    try:
+        list(src_mod.collect("producthunt", {}, _FakeClient({})))
+        _c2_unknown = None
+    except ValueError as exc:
+        _c2_unknown = str(exc)
+    check("sources: an unknown channel raises, naming the ones that exist",
+          _c2_unknown is not None and "curated_lists" in _c2_unknown,
+          _c2_unknown)
+except Exception as _c2_exc:  # noqa: BLE001
+    import traceback as _c2_tb
+
+    check("sources: the sourcing block ran to completion", False,
+          repr(_c2_exc) + "\n" + _c2_tb.format_exc())
+
+
 # ===========================================================================
 print("\n" + "=" * 78)
 _passed = _total - len(_fails)
