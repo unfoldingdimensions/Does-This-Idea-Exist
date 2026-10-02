@@ -4431,6 +4431,246 @@ try:
 except Exception as _meter_t7_exc:  # noqa: BLE001 — a crash must fail loudly, not skip checks
     check("usage: the usage-report block ran to completion", False, repr(_meter_t7_exc))
 
+
+# --- §7.4 Task 8: the $/row report (what Phase D will quote) -----------------
+print("  · §7.4 task 8: the $/row report")
+try:
+    import importlib.util as _t8_importlib
+
+    # A batch with everything measured: the report must be CONFIDENT and its
+    # per-row figures must equal the arithmetic, not merely exist.
+    _t8_job = "t8-confident"
+    for _t8_i, (_pt, _ct, _cached, _cost) in enumerate([
+        (400, 100, 0, 0.0002),
+        (400, 100, 200, 0.0001),
+    ]):
+        meter_mod.record(
+            model="deepseek-v4-flash", ok=True, job_id=_t8_job, startup_id=5000 + _t8_i,
+            prompt_tokens=_pt, completion_tokens=_ct, cached_tokens=_cached,
+            total_tokens=_pt + _ct, cost_usd=_cost, price_used="deepseek-v4-flash@129ceeb4",
+            attempt=1,
+        )
+    _t8 = meter_mod.cost_report(job_id=_t8_job)
+    check("report: a fully-priced batch is confident, and says so without a window caveat",
+          _t8["confident"] is True and _t8["priced_share"] == 1.0 and _t8["usage_share"] == 1.0
+          and not any("have no price" in c for c in _t8["caveats"])
+          and not any("no usage block" in c for c in _t8["caveats"]),
+          json.dumps({"confident": _t8["confident"], "caveats": _t8["caveats"]}))
+    check("report: the write-failure counter is reported but scoped to the PROCESS",
+          _t8["metering_failures_scope"] == "process lifetime (not this window)",
+          json.dumps(_t8["metering_failures_scope"]))
+    check("report: $/row and tokens/row are the arithmetic over rows, not attempts",
+          _t8["rows"] == 2 and _t8["denominator"] == 2
+          and _t8["cost_per_row"] == round(0.0003 / 2, 8)
+          and _t8["tokens_per_row"] == round(1000 / 2, 2),
+          json.dumps({"per_row": _t8["cost_per_row"], "tok": _t8["tokens_per_row"]}))
+    check("report: the cached share is over total tokens (the cache-hit truth)",
+          _t8["cached_share"] == 0.2 and _t8["cached_tokens"] == 200,
+          json.dumps({"share": _t8["cached_share"]}))
+    check("report: the rate table version that priced the rows is listed",
+          any(v["price_used"] == "deepseek-v4-flash@129ceeb4" and v["attempts"] == 2
+              for v in _t8["rate_versions"]),
+          json.dumps(_t8["rate_versions"]))
+    check("report: a retried attempt is counted and its share is honest",
+          _t8["retried_share"] == 0.0, json.dumps(_t8["retried_share"]))
+
+    # A retry in the ledger must show up in the retried share (the number that
+    # says whether the batch paid twice for the same candidate).
+    meter_mod.record(model="deepseek-v4-flash", ok=False, job_id=_t8_job, startup_id=5000,
+                     prompt_tokens=400, completion_tokens=0, total_tokens=400,
+                     cost_usd=0.0001, price_used="deepseek-v4-flash@129ceeb4", attempt=2)
+    _t8_retry = meter_mod.cost_report(job_id=_t8_job)
+    check("report: a retry raises the retried share and does NOT inflate rows",
+          _t8_retry["retried_share"] == round(1 / 3, 4) and _t8_retry["rows"] == 2
+          and _t8_retry["failed_attempts"] == 1,
+          json.dumps({"share": _t8_retry["retried_share"], "rows": _t8_retry["rows"]}))
+
+    # THE DENOMINATOR RULE: the seed path writes rows the ledger cannot attach a
+    # startup_id to, so the ledger-only denominator under-counts exactly the path
+    # Phase D measures. The job's own tally must win — and be named.
+    _t8_seed = "t8-seed-path"
+    for _t8_i in range(3):
+        meter_mod.record(model="deepseek-v4-flash", ok=True, job_id=_t8_seed, startup_id=None,
+                         prompt_tokens=1000, completion_tokens=200, total_tokens=1200,
+                         cost_usd=0.001, price_used="deepseek-v4-flash@129ceeb4")
+    seeder._persist_job({
+        "id": _t8_seed, "kind": "seed", "source": "url_list", "status": "done",
+        "params": {}, "ok": 3, "skipped": 2, "failed": 0, "done": 5, "total": 5,
+        "created_at": 1790900000, "finished_at": 1790900100, "result": {"stop_reason": None},
+        "errors": [], "log": [],
+    })
+    _t8_denom = meter_mod.cost_report(job_id=_t8_seed)
+    check("report: with no startup_ids the JOB's own tally is the denominator",
+          _t8_denom["rows"] == 0 and _t8_denom["denominator"] == 5
+          and _t8_denom["cost_per_row"] == round(0.003 / 5, 8)
+          and _t8_denom["denominator_source"].startswith("the job's own"),
+          json.dumps({"denominator": _t8_denom["denominator"],
+                      "per_row": _t8_denom["cost_per_row"]}))
+    check("report: the denominator choice is stated as a caveat, not left implicit",
+          any("candidate tally" in c for c in _t8_denom["caveats"]),
+          json.dumps(_t8_denom["caveats"]))
+    check("report: the job's own counters ride along (status, tally, stop_reason)",
+          _t8_denom["job_counters"]["candidates_handled"] == 5
+          and _t8_denom["job_counters"]["status"] == "done",
+          json.dumps(_t8_denom["job_counters"]))
+
+    # Missing data must LOWER confidence and be named, never averaged over.
+    _t8_floor = "t8-floor"
+    meter_mod.record(model="deepseek-v4-flash", ok=True, job_id=_t8_floor, startup_id=6001,
+                     prompt_tokens=100, completion_tokens=50, total_tokens=150,
+                     cost_usd=0.001, price_used="deepseek-v4-flash@129ceeb4")
+    meter_mod.record(model="mystery-model", ok=True, job_id=_t8_floor, startup_id=6002,
+                     prompt_tokens=100, completion_tokens=50, total_tokens=150,
+                     cost_usd=None, price_used="unpriced:unknown model")
+    _t8_floor_report = meter_mod.cost_report(job_id=_t8_floor)
+    check("report: one unpriced attempt makes the report NOT confident",
+          _t8_floor_report["confident"] is False and _t8_floor_report["priced_share"] == 0.5
+          and _t8_floor_report["cost_complete"] is False,
+          json.dumps({"priced": _t8_floor_report["priced_share"]}))
+    check("report: the caveat names the counts (1 of 2) and says FLOOR",
+          any("1 of 2 attempts" in c and "FLOOR" in c for c in _t8_floor_report["caveats"]),
+          json.dumps(_t8_floor_report["caveats"]))
+    check("report: the unpriced REASON is surfaced (not just the count)",
+          any("unknown model" in c for c in _t8_floor_report["caveats"]),
+          json.dumps(_t8_floor_report["caveats"]))
+    _t8_usage = "t8-usage-missing"
+    meter_mod.record(model="deepseek-v4-flash", ok=True, job_id=_t8_usage, startup_id=7001,
+                     prompt_tokens=None, completion_tokens=None, total_tokens=None,
+                     cost_usd=None, price_used="unpriced:no usage block",
+                     usage_missing=True)
+    _t8_usage_report = meter_mod.cost_report(job_id=_t8_usage)
+    check("report: a response with no usage block says its tokens are unknown",
+          _t8_usage_report["usage_share"] == 0.0
+          and any("no usage block" in c for c in _t8_usage_report["caveats"]),
+          json.dumps(_t8_usage_report["caveats"]))
+
+    # An empty window: null figures and a clear sentence, never a confident $0.00.
+    _t8_empty = meter_mod.cost_report(since="2099-01-01 00:00:00")
+    check("report: an empty window is null-and-explained, not a confident $0.00 bill",
+          _t8_empty["attempts"] == 0 and _t8_empty["cost_usd"] is None
+          and _t8_empty["cost_per_row"] is None and _t8_empty["confident"] is False
+          and any("nothing to report" in c for c in _t8_empty["caveats"]),
+          json.dumps(_t8_empty["caveats"]))
+
+    # A window without a job: the aggregate form Phase D uses before it picks a batch.
+    _t8_window = meter_mod.cost_report(since="2000-01-01 00:00:00")
+    check("report: the window form aggregates across batches",
+          _t8_window["attempts"] >= 6 and _t8_window["scope"]["job_id"] is None
+          and _t8_window["job_counters"] is None,
+          json.dumps({"attempts": _t8_window["attempts"]}))
+
+    # A ledger that cannot be READ must not crash the report (the live install's
+    # state until its next boot) — it must return a report that says so. The break
+    # is put where a real one happens: the STORE cannot be opened, which is why the
+    # guards sit around db.connect() as well as around the query.
+    _t8_real_connect = meter_mod.db.connect
+
+    def _t8_broken_connect(*_a, **_kw):
+        raise sqlite3.OperationalError("no such table: llm_usage")
+
+    meter_mod.db.connect = _t8_broken_connect
+    try:
+        _t8_blind = meter_mod.cost_report()
+    finally:
+        meter_mod.db.connect = _t8_real_connect
+    check("report: an unreadable ledger returns a report instead of raising",
+          _t8_blind["ledger_error"] and _t8_blind["attempts"] == 0
+          and _t8_blind["cost_usd"] is None and _t8_blind["confident"] is False,
+          json.dumps({"error": _t8_blind["ledger_error"],
+                      "attempts": _t8_blind["attempts"]}))
+    check("report: an unreadable ledger yields an empty audit trail, not an exception",
+          _t8_blind["rate_versions"] == [],
+          json.dumps(_t8_blind["rate_versions"]))
+    # ...and the job counters read the jobs table, so they must survive a ledger
+    # that is gone (the jobs table and the ledger are different tables).
+    meter_mod.db.connect = _t8_broken_connect
+    try:
+        _t8_blind_counters = meter_mod.cost_report(job_id=_t8_job)
+    finally:
+        meter_mod.db.connect = _t8_real_connect
+    check("report: with the store unopenable the job counters degrade to null, no crash",
+          _t8_blind_counters["job_counters"] is None
+          and _t8_blind_counters["ledger_error"]
+          and _t8_blind_counters["rows"] == 0,
+          json.dumps({"counters": _t8_blind_counters["job_counters"]}))
+    check("report: and the report still reads the RATE TABLE (a different store)",
+          _t8_blind_counters["rates"]["version"] == _t8["rates"]["version"]
+          and bool(_t8_blind_counters["rates"]["version"]),
+          json.dumps({"blind": _t8_blind_counters["rates"]["version"],
+                      "normal": _t8["rates"]["version"]}))
+    check("report: and it says the figures are unknown, not zero",
+          any("unknown, not zero" in c for c in _t8_blind["caveats"]),
+          json.dumps(_t8_blind["caveats"]))
+
+    # The CLI Phase D actually runs: arg parsing, --json, and the --strict exit code.
+    _t8_script = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))), "scripts", "llm_cost_report.py")
+    check("report: the CLI script exists where the plan says it does",
+          os.path.isfile(_t8_script), _t8_script)
+    _t8_spec = _t8_importlib.spec_from_file_location("llm_cost_report_cli", _t8_script)
+    _t8_cli = _t8_importlib.module_from_spec(_t8_spec)
+    _t8_spec.loader.exec_module(_t8_cli)
+    _t8_buf = io.StringIO()
+    _t8_stdout = sys.stdout
+    try:
+        sys.stdout = _t8_buf
+        _t8_rc = _t8_cli.main(["--json"])
+    finally:
+        sys.stdout = _t8_stdout
+    _t8_json = json.loads(_t8_buf.getvalue())
+    check("report: --json prints the report and exits 0",
+          _t8_rc == 0 and _t8_json["attempts"] == _t8_window["attempts"]
+          and "denominator_source" in _t8_json and "caveats" in _t8_json,
+          f"rc={_t8_rc} keys={sorted(_t8_json)[:6]}")
+    _t8_buf = io.StringIO()
+    try:
+        sys.stdout = _t8_buf
+        _t8_strict = _t8_cli.main(["--strict", "--job", _t8_floor])
+    finally:
+        sys.stdout = _t8_stdout
+    check("report: --strict exits 1 on a floor report (Phase D can gate on it)",
+          _t8_strict == 1, f"rc={_t8_strict}")
+    _t8_buf = io.StringIO()
+    _t8_saved_failures = meter_mod._failures
+    try:
+        # A clean process: this is the presentation path a fresh install sees, so
+        # it is exercised rather than assumed (the suite's own earlier tests
+        # deliberately break the ledger, leaving a real counter behind).
+        meter_mod._failures = 0
+        sys.stdout = _t8_buf
+        _t8_strict_ok = _t8_cli.main(["--strict", "--job", _t8_job])
+        _t8_rendered = _t8_buf.getvalue()
+    finally:
+        meter_mod._failures = _t8_saved_failures
+        sys.stdout = _t8_stdout
+    check("report: --strict exits 0 on a confident report, and the text is a report",
+          _t8_strict_ok == 0 and "LLM SPEND REPORT" in _t8_rendered
+          and "$ / ROW" in _t8_rendered and "VERDICT: CONFIDENT" in _t8_rendered,
+          f"rc={_t8_strict_ok}")
+    check("report: a confident run prints 'no caveats', not an empty section",
+          "No caveats" in _t8_rendered, _t8_rendered[-200:])
+    # ...and with real write failures on the counter the same report warns about the
+    # PROCESS without pretending to be a window-scoped caveat.
+    _t8_buf = io.StringIO()
+    try:
+        meter_mod._failures = 2
+        sys.stdout = _t8_buf
+        _t8_cli.main(["--job", _t8_job])
+        _t8_warned = _t8_buf.getvalue()
+    finally:
+        meter_mod._failures = _t8_saved_failures
+        sys.stdout = _t8_stdout
+    check("report: with write failures the same report still judges the ROWS, and warns",
+          "VERDICT: CONFIDENT" in _t8_warned
+          and "failed to write during this PROCESS" in _t8_warned
+          and "not necessarily in this window" in _t8_warned,
+          _t8_warned[-400:])
+except Exception as _meter_t8_exc:  # noqa: BLE001
+    import traceback as _t8_tb
+
+    check("report: the $/row report block ran to completion", False,
+          repr(_meter_t8_exc) + "\n" + _t8_tb.format_exc())
+
 # ===========================================================================
 print("\n" + "=" * 78)
 _passed = _total - len(_fails)

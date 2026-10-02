@@ -401,17 +401,19 @@ def by_model(since: str | None = None) -> list[dict]:
         conn.close()
 
 
-def job_summary(job_id: str) -> dict:
+def job_summary(job_id: str | None = None, since: str | None = None) -> dict:
     """The Phase D number: per-job tokens/row and $/row, with the caveats.
 
     `rows_touched` counts DISTINCT startup_ids, so a retried candidate does not
     inflate the row count and a per-row figure is not quietly divided by
-    attempts instead of products.
+    attempts instead of products. With `job_id=None` the summary covers every
+    attempt in the window instead of one batch.
     """
     conn = db.connect()
     try:
+        where, params = _where(since, job_id)
         row = conn.execute(
-            """SELECT COUNT(*) AS attempts,
+            f"""SELECT COUNT(*) AS attempts,
                       SUM(ok) AS ok_attempts,
                       SUM(CASE WHEN attempt > 1 THEN 1 ELSE 0 END) AS retried,
                       COUNT(DISTINCT CASE WHEN startup_id IS NOT NULL THEN startup_id END) AS rows_touched,
@@ -422,8 +424,8 @@ def job_summary(job_id: str) -> dict:
                       SUM(cost_usd) AS cost,
                       SUM(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END) AS unpriced,
                       SUM(CASE WHEN usage_missing = 1 THEN 1 ELSE 0 END) AS missing
-               FROM llm_usage WHERE job_id = ?""",
-            (job_id,),
+               FROM llm_usage{where}""",
+            params,
         ).fetchone()
     finally:
         conn.close()
@@ -921,6 +923,202 @@ def check_budget(job_id: str | None = None, job_budget=None) -> None:
             job_id=resolved_job,
             cost_complete=bool(spend.get("cost_complete")),
         )
+
+
+def cost_report(
+    *,
+    job_id: str | None = None,
+    since: str | None = None,
+    min_share: float = 0.9,
+) -> dict:
+    """The report Phase D quotes: what a batch cost per row, and how much of that
+    number is actually measured.
+
+    THE DENOMINATOR IS THE HARD PART, so it is stated rather than assumed. On the
+    seed path the ledger cannot know a startup_id (the row is upserted FROM the
+    profile the call produces), so `rows_touched` under-counts exactly the path
+    Phase D measures. When the JOB's own candidate tally (ok + skipped, read from
+    the jobs table) is larger, that tally is the denominator — and the report says
+    which one it used, so a reader can disagree with the choice instead of
+    discovering it.
+
+    Confidence is a first-class output: `confident` is true only when nearly every
+    attempt was priced AND nearly every response carried a usage block. A report
+    that is not confident prints its $ as a FLOOR and names the counts, because a
+    confident-looking average over missing data is the one output this whole
+    feature exists to prevent. It is a statement about the ROWS PRESENT, and the
+    process-lifetime write-failure counter is reported separately
+    (`metering_failures_scope`) because a failure that happened in another batch
+    cannot be attributed to this one.
+
+    A ledger that cannot be READ is reported as `ledger_error` with every figure
+    null — never a traceback, which is what an operator on a store that has not
+    been migrated yet would otherwise get.
+    """
+    ledger_error = None
+    try:
+        summary = job_summary(job_id=job_id, since=since)
+    except Exception as exc:  # noqa: BLE001 — a report must not crash on a missing table
+        ledger_error = str(exc)
+        summary = {
+            "job_id": job_id, "attempts": 0, "ok_attempts": 0, "failed_attempts": 0,
+            "retried_attempts": 0, "rows_touched": 0, "prompt_tokens": None,
+            "completion_tokens": None, "cached_tokens": None, "total_tokens": None,
+            "cost_usd": None, "cost_complete": False, "unpriced_attempts": 0,
+            "usage_missing_attempts": 0, "tokens_per_row": None, "cost_per_row": None,
+            "metering_failures": _failures,
+        }
+    counters = job_counters(job_id) if job_id else None
+
+    ledger_rows = summary["rows_touched"] or 0
+    denominator = ledger_rows
+    denominator_source = "the ledger's distinct startup_ids"
+    if counters and counters["candidates_handled"] > ledger_rows:
+        denominator = counters["candidates_handled"]
+        denominator_source = ("the job's own candidate tally (ok + skipped) — the "
+                              "ledger's startup_ids are thinner here, which is "
+                              "expected on the seed path")
+    attempts = summary["attempts"] or 0
+    unpriced = summary["unpriced_attempts"] or 0
+    missing = summary["usage_missing_attempts"] or 0
+    priced_share = ((attempts - unpriced) / attempts) if attempts else 0.0
+    usage_share = ((attempts - missing) / attempts) if attempts else 0.0
+    total_tokens = summary["total_tokens"]
+    cached = summary["cached_tokens"]
+    cost = summary["cost_usd"]
+
+    report = {
+        "scope": {"job_id": job_id, "since": since},
+        "attempts": attempts,
+        "ok_attempts": summary["ok_attempts"],
+        "failed_attempts": summary["failed_attempts"],
+        "retried_attempts": summary["retried_attempts"],
+        "retried_share": round(summary["retried_attempts"] / attempts, 4) if attempts else None,
+        "rows": ledger_rows,
+        "denominator": denominator,
+        "denominator_source": denominator_source,
+        "job_counters": counters,
+        "total_tokens": total_tokens,
+        "cached_tokens": cached,
+        "cached_share": (round(cached / total_tokens, 4)
+                         if cached is not None and total_tokens else None),
+        "cost_usd": cost,
+        "cost_complete": summary["cost_complete"],
+        "unpriced_attempts": unpriced,
+        "usage_missing_attempts": missing,
+        "priced_share": round(priced_share, 4),
+        "usage_share": round(usage_share, 4),
+        # Per-ROW figures: null (not 0) when there is no denominator to divide by.
+        "tokens_per_row": (round(total_tokens / denominator, 2)
+                           if total_tokens is not None and denominator else None),
+        "cost_per_row": (round(cost / denominator, 8)
+                         if cost is not None and denominator else None),
+        "metering_failures": _failures,
+        # The counter is per PROCESS, not per window: a write that failed during an
+        # earlier batch is not evidence about this one, and the report must not
+        # imply otherwise. Scope travels with the number.
+        "metering_failures_scope": "process lifetime (not this window)",
+        "ledger_error": ledger_error,
+        "rate_versions": _rate_versions(job_id=job_id, since=since),
+        "rates": rates_source(),
+        "confident": bool(attempts) and priced_share >= min_share and usage_share >= min_share,
+        "min_share": min_share,
+    }
+    report["caveats"] = _report_caveats(report)
+    return report
+
+
+def _rate_versions(job_id: str | None = None, since: str | None = None) -> list[dict]:
+    """Which rate tables actually priced these rows — the audit trail, grouped."""
+    where, params = _where(since, job_id)
+    conn = None
+    try:
+        conn = db.connect()  # inside the guard: an unopenable store fails here too
+        cur = conn.execute(
+            f"""SELECT COALESCE(price_used, '(none)') AS price_used, COUNT(*) AS attempts
+                FROM llm_usage{where}
+                GROUP BY 1 ORDER BY 2 DESC""",
+            params,
+        )
+        return [{"price_used": r["price_used"], "attempts": int(r["attempts"])}
+                for r in cur.fetchall()]
+    except sqlite3.Error:
+        # No ledger to audit (a store that has not been migrated yet, or one that
+        # cannot be opened): the report says so through ledger_error rather than
+        # dying here.
+        return []
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def _report_caveats(report: dict) -> list[str]:
+    """Every reason to distrust the number, in words — empty when there is none."""
+    out: list[str] = []
+    if report.get("ledger_error"):
+        return [f"the spend ledger could not be read ({report['ledger_error']}): every "
+                f"figure here is unknown, not zero. On a store that has not been "
+                f"migrated yet this means the API has not been started since metering "
+                f"shipped — start it once and re-run"]
+    if not report["attempts"]:
+        out.append("no attempts in this window: there is nothing to report, and "
+                   "the figures are null rather than 0")
+        return out
+    if report["unpriced_attempts"]:
+        out.append(f"{report['unpriced_attempts']} of {report['attempts']} attempts "
+                   f"have no price (unknown model, blank rate, or no usage block), "
+                   f"so the $ is a FLOOR")
+    if report["usage_missing_attempts"]:
+        out.append(f"{report['usage_missing_attempts']} of {report['attempts']} "
+                   f"responses carried no usage block, so their tokens are unknown")
+    if report["metering_failures"]:
+        out.append(f"{report['metering_failures']} usage row(s) failed to write during "
+                   f"this PROCESS's lifetime — not necessarily in this window, so read "
+                   f"it as a warning about the process, not as a count for these "
+                   f"figures")
+    if report["denominator"] == 0:
+        out.append("no rows to divide by: the $/row figures are null, not zero")
+    elif report["denominator_source"].startswith("the job's own"):
+        out.append("$/row divides by the JOB's candidate tally, not the ledger's "
+                   "startup_ids — see denominator_source")
+    unpriced_versions = [v for v in report["rate_versions"] if v["price_used"].startswith("unpriced:")]
+    if unpriced_versions:
+        reasons = ", ".join(sorted({v["price_used"].split(":", 1)[1] for v in unpriced_versions}))
+        out.append(f"unpriced rows by reason: {reasons}")
+    return out
+
+
+def job_counters(job_id: str) -> dict | None:
+    """The job's OWN tally from the jobs table, or None when it is not there.
+
+    Read straight from the table rather than through `seeder` (which imports this
+    module — going the other way would be a cycle), and read-only.
+    """
+    conn = None
+    try:
+        conn = db.connect()  # inside the guard: an unopenable store fails here too
+        row = conn.execute(
+            "SELECT status, ok, skipped, failed, done, total, created_at, finished_at, "
+            "result_json FROM jobs WHERE id = ?",
+            (job_id,),
+        ).fetchone()
+    except sqlite3.Error:
+        return None
+    finally:
+        if conn is not None:
+            conn.close()
+    if row is None:
+        return None
+    counters = {k: row[k] for k in ("status", "ok", "skipped", "failed", "done",
+                                    "total", "created_at", "finished_at")}
+    counters["candidates_handled"] = int(row["ok"] or 0) + int(row["skipped"] or 0)
+    counters["stop_reason"] = None
+    if row["result_json"]:
+        try:
+            counters["stop_reason"] = (json.loads(row["result_json"]) or {}).get("stop_reason")
+        except (TypeError, ValueError):
+            counters["stop_reason"] = None
+    return counters
 
 
 def table_present() -> bool:
