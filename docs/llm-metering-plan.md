@@ -45,6 +45,24 @@ A braked job currently ends as `status="failed"` with `result.stop_reason="budge
 2. **Rows are per ATTEMPT, not per call.** `llm_json` retries once and the provider bills both attempts. `job_summary` reports attempts, retried attempts and DISTINCT rows touched separately, so a retry cannot inflate $/row.
 3. **NULL means "not known", never zero.** No usage block → NULL tokens + `usage_missing=1`. Unknown/unfilled model → NULL cost + a stated reason. Nothing is ever estimated into a number that looks measured.
 
+### The blind brake (found by booting the real app, 2026-10-02)
+
+The live archive has not been booted since before §7.4 task 1, so its `llm_usage` table did not exist yet — and `spend_usd()` raised a raw `sqlite3.OperationalError` on it. Left raw inside `llm_json`, that would have been recorded as a **failed LLM attempt** (a lying error) and the per-candidate handler would have burned the whole batch on it.
+
+Now: `check_budget()` catches an unreadable ledger and raises `LedgerUnreadable` (a `BudgetExceeded`, `kind="metering"`) — it **fails closed**, opens no socket, and the job records `stop_reason="metering"` so it is never confused with a genuine cap breach (`stop_reason="budget"`). `budget_status()` reports `ledger_error` instead of 500ing. A brake that silently disables itself when its meter is unreadable is not a brake.
+
+## Live install state (checked 2026-10-02)
+
+The running install had **not been booted since 2026-09-17**, so it is several migrations behind; the next boot runs them all, and a boot probe on copies of the real stores proved each one lands cleanly on the real data:
+
+| Step | Effect on the real archive |
+|---|---|
+| Phase P FTS5 | creates `startups_fts`, `startups_vocab`, `app_search_word`, `app_meta`; logs `fts index rebuilt (schema version 2)` |
+| §7.4 ledger | adds `llm_usage` (1258 startup rows untouched; `canonical_domain backfill: 1258 rows filled`) |
+| Auto-verify | queues a **verify job over all 1,258 stale entries** on startup (deterministic, no LLM spend — but it does fetch every URL) |
+
+Archive: 1,258 rows, all `active` (1,205 website / 52 github / 1 founder); `verified` 1,254; `dead` 0; last checked 2026-09-17. Jobs table: capture/done 3, verify/done 8, verify/failed 5, seed/failed 1. Settings: `active_gateway = gemini`, no per-gateway overrides, no budget set, no stored rate table (built-ins in use).
+
 ## Rate provenance (read 2026-09-28)
 
 | Model | Input | Output | Cached read | Source |

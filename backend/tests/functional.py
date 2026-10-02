@@ -3578,7 +3578,8 @@ try:
           and _t4_raised.job_id == "t3-job" and _t4_raised.scope == "job"
           and _t4_raised.spend_usd == _t4_spend
           and _t4_raised.rate_version == meter_mod.rates_source()["version"]
-          and "$" in str(_t4_raised) and "budget reached" in str(_t4_raised),
+          and _t4_raised.kind == "budget"
+          and "$" in str(_t4_raised) and "spend brake stopped job t3-job" in str(_t4_raised),
           str(_t4_raised))
     check("meter: the refusal names the cap it hit, not just 'budget exceeded'",
           f"{_t4_raised.cap_usd:.4f}" in str(_t4_raised)
@@ -3735,6 +3736,81 @@ try:
           and _t4_cap_job["result"]["stop_reason"] == "budget"
           and _t4_cap_job["result"]["spend_usd"] == 0.02,
           json.dumps(_t4_cap_job.get("result")))
+
+    # --- the blind brake: an unreadable ledger fails CLOSED, not silently open
+    # Discovered by booting the real app: on a store where the migration has not
+    # run yet, spend_usd() raises "no such table: llm_usage". Left raw, that error
+    # would escape into llm_json and be recorded as a FAILED LLM ATTEMPT - a lying
+    # error - and the per-candidate handler would burn the whole batch on it.
+    _t4_unreadable = sqlite3.OperationalError("no such table: llm_usage")
+    _t4_real_spend = meter_mod.spend_usd
+    meter_mod.spend_usd = lambda *a, **k: (_ for _ in ()).throw(_t4_unreadable)
+    try:
+        meter_mod.set_budget(5.0)
+        _t4_blind = None
+        try:
+            meter_mod.check_budget(job_id="t4-blind-job")
+        except meter_mod.BudgetExceeded as exc:
+            _t4_blind = exc
+        _t4_blind_status = meter_mod.budget_status(job_id="t4-blind-job")
+        _t4_hits.clear()
+        llm.httpx.post = _t4_post
+        llm.llm_json = _real_llm_json
+        gw_mod.guard_outbound = lambda url: None
+        _t4_blind_call = None
+        try:
+            with meter_mod.attributing(job_id="t4-blind-job"):
+                llm.llm_json("blind brake call")
+        except meter_mod.BudgetExceeded as exc:
+            _t4_blind_call = exc
+        finally:
+            llm.httpx.post = _real_post_t4
+            llm.llm_json = _real_llm_t4
+            gw_mod.guard_outbound = _real_guard_t4
+    finally:
+        meter_mod.spend_usd = _t4_real_spend
+    check("meter: an unreadable ledger raises LedgerUnreadable, not a raw sqlite error",
+          isinstance(_t4_blind, meter_mod.LedgerUnreadable)
+          and isinstance(_t4_blind, meter_mod.BudgetExceeded)
+          and _t4_blind.kind == "metering" and _t4_blind.spend_usd is None
+          and "could not be read" in str(_t4_blind)
+          and "no such table" in str(_t4_blind),
+          str(_t4_blind))
+    check("meter: the blind brake refuses before the request, like any other stop",
+          isinstance(_t4_blind_call, meter_mod.LedgerUnreadable) and not _t4_hits
+          and "failed after retries" not in str(_t4_blind_call),
+          f"{type(_t4_blind_call).__name__} requests_opened={len(_t4_hits)}")
+    check("meter: the status read REPORTS an unreadable ledger instead of 500ing",
+          _t4_blind_status["ledger_error"] is not None
+          and _t4_blind_status["spend_usd"] is None
+          and "no such table" in _t4_blind_status["ledger_error"],
+          json.dumps({k: _t4_blind_status[k] for k in ("ledger_error", "spend_usd", "budget_usd")}))
+    # And a job records the honest reason: metering, not budget.
+    _t4_meter_job = {"id": "t4-metering", "kind": "capture", "source": "capture",
+                     "params": {}, "status": "queued", "total": 0, "done": 0, "ok": 0,
+                     "skipped": 0, "failed": 0, "errors": [], "ok_urls": [],
+                     "skipped_urls": [], "current": "", "created_at": time.time(),
+                     "started_at": None, "finished_at": None}
+    _t4_cap_backup2 = capture.capture_teardown
+
+    def _t4_cap_blind(startup_id, **kw):
+        raise meter_mod.LedgerUnreadable(cap_usd=5.0, job_id="t4-metering",
+                                         cause="no such table: llm_usage")
+
+    capture.capture_teardown = _t4_cap_blind
+    try:
+        capture.run_capture_job(_t4_meter_job)
+    finally:
+        capture.capture_teardown = _t4_cap_backup2
+    check("meter: a job stopped by a blind brake records stop_reason='metering'",
+          _t4_meter_job["result"]["stop_reason"] == "metering"
+          and _t4_meter_job["errors"][-1].startswith("metering: ")
+          and _t4_meter_job["result"]["spend_usd"] is None,
+          json.dumps(_t4_meter_job["result"]))
+    check("meter: a genuine cap breach still records stop_reason='budget' (not blurred)",
+          _t4_cap_job["result"]["stop_reason"] == "budget",
+          json.dumps(_t4_cap_job["result"]["stop_reason"]))
+    meter_mod.set_budget(None)
 
     # --- the admin endpoints -------------------------------------------------
     with TestClient(api) as _t4_client:

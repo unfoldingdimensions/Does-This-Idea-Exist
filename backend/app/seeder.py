@@ -365,14 +365,14 @@ def _run(job: dict) -> None:
         job["status"] = "failed"
         job["result"] = {
             **(job.get("result") or {}),
-            "stop_reason": "budget",
+            "stop_reason": exc.kind,  # "budget" (cap reached) or "metering" (blind brake)
             "spend_usd": exc.spend_usd,
             "cap_usd": exc.cap_usd,
             "rate_version": exc.rate_version,
             "cost_complete": exc.cost_complete,
         }
-        job["errors"].append(f"budget: {exc}")
-        log.warning("seed job %s stopped by the budget brake: %s", job["id"], exc)
+        job["errors"].append(f"{exc.kind}: {exc}")
+        log.warning("seed job %s stopped by the spend brake: %s", job["id"], exc)
     except Exception as exc:  # noqa: BLE001 — job-level crash is a loud failure
         job["status"] = "failed"
         job["errors"].append(f"job: {exc}")

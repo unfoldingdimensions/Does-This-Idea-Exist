@@ -732,12 +732,20 @@ BUDGET_KEY = "llm_budget_usd"
 
 class BudgetExceeded(RuntimeError):
     """The spend brake fired. Carries the numbers: "budget exceeded" with no
-    figures is not actionable, and neither is a $ that hides what it covers."""
+    figures is not actionable, and neither is a $ that hides what it covers.
+
+    `kind` distinguishes WHY the batch stopped — "budget" (the cap was reached)
+    from "metering" (the ledger could not be read, so the cap could not be
+    checked). A job records it as `stop_reason`, so an operator never has to guess
+    which of the two happened.
+    """
+
+    kind = "budget"
 
     def __init__(
         self,
         *,
-        spend_usd: float,
+        spend_usd: float | None,
         cap_usd: float,
         rate_version: str,
         job_id: str | None,
@@ -750,11 +758,35 @@ class BudgetExceeded(RuntimeError):
         self.job_id = job_id
         self.scope = scope
         self.cost_complete = cost_complete
-        floor = "" if cost_complete else " (a FLOOR — this job has unpriced calls)"
-        super().__init__(
-            f"LLM budget reached for {scope} {job_id}: spent ${spend_usd:.4f}{floor} "
-            f"of a ${cap_usd:.4f} {scope} cap (rates {rate_version})"
-        )
+        if spend_usd is None:
+            detail = (f"the spend ledger could not be read, so a ${cap_usd:.4f} "
+                      f"{scope} cap could not be checked")
+        else:
+            floor = "" if cost_complete else " (a FLOOR — this job has unpriced calls)"
+            detail = (f"spent ${spend_usd:.4f}{floor} of a ${cap_usd:.4f} "
+                      f"{scope} cap (rates {rate_version})")
+        super().__init__(f"LLM spend brake stopped {scope} {job_id}: {detail}")
+
+
+class LedgerUnreadable(BudgetExceeded):
+    """The brake could not read the ledger, so it cannot prove the job is under
+    its cap. It fails CLOSED and says so.
+
+    Deliberately a BudgetExceeded: every caller that already stops a batch on the
+    brake handles this with no extra wiring, and `kind` keeps the two cases
+    distinguishable in the job's own record. Failing OPEN was the alternative and
+    it is the wrong default for a guard rail — a brake that silently disables
+    itself when its meter is unreadable is not a brake.
+    """
+
+    kind = "metering"
+
+    def __init__(self, *, cap_usd: float, job_id: str | None, cause: str,
+                 scope: str = "job"):
+        self.cause = cause
+        super().__init__(spend_usd=None, cap_usd=cap_usd, rate_version="unknown",
+                         job_id=job_id, scope=scope, cost_complete=False)
+        self.args = (f"{self.args[0]} — {cause}",)
 
 
 def budget_setting() -> dict:
@@ -810,13 +842,24 @@ def effective_budget(job_budget=None) -> float | None:
 
 
 def budget_status(job_id: str | None = None, job_budget=None) -> dict:
-    """Where the brake stands — what the admin endpoint and panel report."""
+    """Where the brake stands — what the admin endpoint and panel report.
+
+    Never raises: an unreadable ledger (a store that has not been migrated yet,
+    a locked file) is REPORTED as `ledger_error` with the spend left unknown,
+    because a 500 on the panel tells the operator nothing and hides the state
+    that actually needs attention.
+    """
     where = current_attribution()
     resolved_job = job_id if job_id is not None else where.get("job_id")
     resolved_override = job_budget if job_budget is not None else where.get("budget_usd")
     setting = budget_setting()
     cap = effective_budget(resolved_override)
-    spend = spend_usd(job_id=resolved_job)
+    ledger_error = None
+    try:
+        spend = spend_usd(job_id=resolved_job)
+    except Exception as exc:  # noqa: BLE001 — reported, not raised (see docstring)
+        spend = {}
+        ledger_error = str(exc)
     cost = spend.get("cost_usd")
     rates = rates_source()
     return {
@@ -825,6 +868,7 @@ def budget_status(job_id: str | None = None, job_budget=None) -> dict:
         # Which window the spend figure covers: a job's own ledger rows, or (with
         # no job in context) this install's whole history. Never blurred.
         "spend_window": "job" if resolved_job else "all-time",
+        "ledger_error": ledger_error,
         "budget_usd": cap,
         "budget_source": ("job" if resolved_override is not None and cap is not None
                           else setting["source"]),
@@ -850,6 +894,11 @@ def check_budget(job_id: str | None = None, job_budget=None) -> None:
 
     Unlimited (the default) returns immediately — that path is pinned by a test
     to be byte-identical to the product before §7.4 existed.
+
+    If the ledger cannot be READ, this raises LedgerUnreadable (a BudgetExceeded
+    with kind="metering") rather than letting a raw sqlite3 error escape into
+    llm_json, where it would be misreported as a failed LLM attempt. Fails closed:
+    an unverifiable cap is not a satisfied cap.
     """
     where = current_attribution()
     resolved_job = job_id if job_id is not None else where.get("job_id")
@@ -857,7 +906,11 @@ def check_budget(job_id: str | None = None, job_budget=None) -> None:
     cap = effective_budget(resolved_override)
     if cap is None or not resolved_job:
         return
-    spend = spend_usd(job_id=resolved_job)
+    try:
+        spend = spend_usd(job_id=resolved_job)
+    except Exception as exc:  # noqa: BLE001 — a blind brake must stop, loudly
+        log.error("spend ledger unreadable for job %s (%s) — stopping the batch", resolved_job, exc)
+        raise LedgerUnreadable(cap_usd=cap, job_id=resolved_job, cause=str(exc)) from exc
     cost = spend.get("cost_usd") or 0.0
     if cost >= cap:
         raise BudgetExceeded(
