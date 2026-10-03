@@ -239,7 +239,7 @@ export const MorphingDiscoveryBar: React.FC<MorphingDiscoveryBarProps> = ({
                     animate={{ opacity: 1, scale: 1 }}
                     exit={{ opacity: 0, scale: 0.8 }}
                     transition={{ duration: 0.15, ease: EASE }}
-                    className="pointer-events-none flex h-5 select-none items-center rounded border border-border/60 px-1.5 font-mono text-xs text-muted-foreground/70"
+                    className="pointer-events-none flex h-5 select-none items-center rounded border border-border/60 px-1.5 font-mono text-xs text-muted-foreground"
                   >
                     /
                   </motion.kbd>

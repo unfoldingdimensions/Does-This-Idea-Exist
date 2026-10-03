@@ -123,10 +123,14 @@ export function StatusPill({
       : "Not yet confirmed — click to change its status.";
 
   const pillClass = cn(
-    "gap-1.5 text-xs",
-    dead && "border-destructive/20 bg-destructive/10 text-destructive",
-    verified && "border-success/25 bg-success/12 text-success dark:bg-success/15 dark:text-success",
-    !dead && !verified && "text-muted-foreground",
+    "gap-1.5 text-xs border",
+    dead &&
+      "border-[var(--pill-dead-border)] bg-[var(--pill-dead-bg)] text-[var(--pill-dead-fg)]",
+    verified &&
+      "border-[var(--pill-verified-border)] bg-[var(--pill-verified-bg)] text-[var(--pill-verified-fg)]",
+    !dead &&
+      !verified &&
+      "border-[var(--pill-unverified-border)] bg-[var(--pill-unverified-bg)] text-[var(--pill-unverified-fg)]",
   );
 
   const confirm = pending ? CONFIRM_COPY[pending] : null;
@@ -466,7 +470,7 @@ export function StartupCard({
             </button>
             <p className="truncate font-mono text-xs tabular-nums text-muted-foreground">
               {founded.text && <span title={founded.title}>{founded.text}</span>}
-              {founded.text && startup.last_checked && <span className="text-border"> · </span>}
+              {founded.text && startup.last_checked && <span className="text-muted-foreground"> · </span>}
               {startup.last_checked && <>checked {shortDate(startup.last_checked)}</>}
             </p>
           </div>

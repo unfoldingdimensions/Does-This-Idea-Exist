@@ -265,7 +265,7 @@ export function CommandPalette({
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           {startup.verified && (
-                            <span className="text-[11px] font-mono text-emerald-500">
+                            <span className="text-[11px] font-mono text-success">
                               ✓ VERIFIED
                             </span>
                           )}

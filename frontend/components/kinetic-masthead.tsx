@@ -46,9 +46,9 @@ export function KineticMasthead({ className }: { className?: string }) {
           <Compass className="h-3 w-3 animate-[spin_12s_linear_infinite]" />
           <span>VAULT // 01</span>
         </span>
-        <span className="text-border">·</span>
+        <span className="text-muted-foreground">·</span>
         <span className="tabular-nums">LAT 37.77° N · LON 122.42° W</span>
-        <span className="text-border">·</span>
+        <span className="text-muted-foreground">·</span>
         <span className="text-success font-semibold flex items-center gap-1">
           <ShieldCheck className="h-3 w-3" />
           VERIFIED ARCHIVE

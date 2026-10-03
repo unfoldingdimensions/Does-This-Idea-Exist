@@ -74,7 +74,7 @@ export function LiveTelemetryBar({ stats, className }: LiveTelemetryBarProps) {
             </div>
             <span className="font-mono text-xs tabular-nums text-foreground/80">
               Latency: <span className="font-semibold text-success">{currentPing.latency}</span>
-              <span className="text-border"> · </span>
+              <span className="text-muted-foreground"> · </span>
               Target: <span className="font-medium">{currentPing.name}</span> ({currentPing.code})
             </span>
           </div>

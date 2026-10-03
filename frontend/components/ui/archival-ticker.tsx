@@ -27,15 +27,20 @@ export interface TickerItem {
 const STATUS_META: Record<TickerItem["status"], { label: string; className: string }> = {
   verified: {
     label: "VERIFIED",
-    className: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+    // The sanctioned sage, not emerald — Status-Is-Sacred allows exactly three
+    // semantic hues (sage / brick / warm grey) and emerald was a fourth.
+    className:
+      "bg-[var(--pill-verified-bg)] text-[var(--pill-verified-fg)] border-[var(--pill-verified-border)]",
   },
   unverified: {
     label: "UNVERIFIED",
-    className: "bg-muted text-muted-foreground border-border/60",
+    className:
+      "bg-[var(--pill-unverified-bg)] text-[var(--pill-unverified-fg)] border-[var(--pill-unverified-border)]",
   },
   filed: {
     label: "FILED",
-    className: "bg-destructive/10 text-destructive border-destructive/20",
+    className:
+      "bg-[var(--pill-dead-bg)] text-[var(--pill-dead-fg)] border-[var(--pill-dead-border)]",
   },
 };
 
@@ -62,8 +67,8 @@ export function ArchivalTicker({
       {/* Ticker Lead Tag */}
       <div className="relative z-10 flex shrink-0 items-center gap-2 border-r border-border/40 bg-background/80 px-3 py-0.5 text-xs font-mono tracking-widest uppercase text-muted-foreground backdrop-blur-sm">
         <span className="relative flex size-2">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-          <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" />
+          <span className="relative inline-flex size-2 rounded-full bg-success" />
         </span>
         <span className="hidden sm:inline">LIVE FEED</span>
       </div>

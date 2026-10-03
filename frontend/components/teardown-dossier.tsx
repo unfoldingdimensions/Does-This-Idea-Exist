@@ -115,7 +115,7 @@ function SourceLine({
       {urls.length > 0 ? (
         urls.map((url, i) => (
           <React.Fragment key={url}>
-            {i > 0 && <span className="text-border"> · </span>}
+            {i > 0 && <span className="text-muted-foreground"> · </span>}
             <a
               href={url}
               target="_blank"

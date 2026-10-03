@@ -43,7 +43,7 @@ export default function ErrorPage({
           </Link>
         </div>
         {error.digest && (
-          <p className="mt-6 font-mono text-[11px] text-muted-foreground/70">
+          <p className="mt-6 font-mono text-[11px] text-muted-foreground">
             reference {error.digest}
           </p>
         )}
