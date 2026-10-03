@@ -200,7 +200,7 @@ export function SkyStage({ className }: SkyStageProps) {
       aria-label="Celestial sky orbit"
       className="fixed bottom-3 right-3 z-40 flex items-center gap-1 rounded-full border border-border/50 bg-background/70 p-1 backdrop-blur-xl shadow-xl transition-all hover:scale-105"
     >
-      <span className="pl-2 pr-1 font-mono text-[9px] font-bold uppercase tracking-widest text-muted-foreground hidden sm:inline">
+      <span className="pl-2 pr-1 font-mono text-[11px] font-bold uppercase tracking-widest text-muted-foreground hidden sm:inline">
         Sky Orbit
       </span>
       <button
@@ -257,7 +257,7 @@ export function SkyStage({ className }: SkyStageProps) {
         aria-label="Scroll-linked automatic orbit"
         title="Auto Scroll-Linked"
         className={cn(
-          "px-2 h-6 flex items-center justify-center rounded-full font-mono text-[9px] uppercase tracking-wider transition-colors",
+          "px-2 h-6 flex items-center justify-center rounded-full font-mono text-[11px] uppercase tracking-wider transition-colors",
           phase === "scroll" ? "bg-primary text-primary-foreground font-bold" : "text-muted-foreground hover:text-foreground",
         )}
       >

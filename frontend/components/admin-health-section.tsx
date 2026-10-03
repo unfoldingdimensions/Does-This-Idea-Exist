@@ -221,15 +221,15 @@ export function HealthCheckSection({
           {/* Breakdown — the archive composition at check time */}
           <dl className="grid grid-cols-3 gap-2 text-center">
             <div className="rounded-lg bg-background/60 p-2">
-              <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Verified</dt>
+              <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">Verified</dt>
               <dd className="font-mono text-lg font-bold tabular-nums text-success">{b.verified}</dd>
             </div>
             <div className="rounded-lg bg-background/60 p-2">
-              <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Unverified</dt>
+              <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">Unverified</dt>
               <dd className="font-mono text-lg font-bold tabular-nums text-muted-foreground">{b.unverified}</dd>
             </div>
             <div className="rounded-lg bg-background/60 p-2">
-              <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Dead</dt>
+              <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">Dead</dt>
               <dd className="font-mono text-lg font-bold tabular-nums text-destructive">{b.dead}</dd>
             </div>
           </dl>
@@ -258,9 +258,9 @@ export function HealthCheckSection({
                     {job.failed} failed — show details
                   </button>
                   {expanded.has(`herr:${job.id}`) && (
-                    <ul className="max-h-32 space-y-1 overflow-y-auto rounded bg-background/60 p-2 text-[11px] text-muted-foreground">
+                    <ul className="max-h-32 space-y-1 overflow-y-auto rounded bg-background/60 p-2 text-xs text-muted-foreground">
                       {job.errors.map((err, i) => (
-                        <li key={i} className="break-words font-mono text-[10px]">{err}</li>
+                        <li key={i} className="break-words font-mono text-[11px]">{err}</li>
                       ))}
                     </ul>
                   )}
@@ -283,7 +283,7 @@ export function HealthCheckSection({
                   type="button"
                   onClick={() => onToggle(`hsuggested:${job.id}`)}
                   disabled={(result?.suggested.length ?? 0) === 0}
-                  className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-[11px] font-medium text-foreground transition-colors hover:bg-accent/50 disabled:cursor-default"
+                  className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-xs font-medium text-foreground transition-colors hover:bg-accent/50 disabled:cursor-default"
                 >
                   {(result?.suggested.length ?? 0) > 0 ? (
                     <CheckCircle2
@@ -315,7 +315,7 @@ export function HealthCheckSection({
                   type="button"
                   onClick={() => onToggle(`hfailed:${job.id}`)}
                   disabled={(result?.failed_list.length ?? 0) === 0}
-                  className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-[11px] font-medium text-destructive transition-colors hover:bg-accent/50 disabled:cursor-default"
+                  className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-xs font-medium text-destructive transition-colors hover:bg-accent/50 disabled:cursor-default"
                 >
                   {(result?.failed_list.length ?? 0) > 0 ? (
                     <TriangleAlert
@@ -352,7 +352,7 @@ export function HealthCheckSection({
                     type="button"
                     onClick={() => onToggle(`hskipped:${job.id}`)}
                     disabled={(result?.skipped_list?.length ?? 0) === 0}
-                    className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 disabled:cursor-default"
+                    className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-xs font-medium text-muted-foreground transition-colors hover:bg-accent/50 disabled:cursor-default"
                   >
                     {(result?.skipped_list?.length ?? 0) > 0 ? (
                       <CircleDashed
@@ -369,7 +369,7 @@ export function HealthCheckSection({
                   {expanded.has(`hskipped:${job.id}`) && (result?.skipped_list?.length ?? 0) > 0 && (
                     <ul className="max-h-40 space-y-1 overflow-y-auto px-2 pb-2">
                       {result?.skipped_list?.map((x, i) => (
-                        <li key={`${x.name}-${i}`} className="px-1 text-[11px]">
+                        <li key={`${x.name}-${i}`} className="px-1 text-xs">
                           <span className="font-medium text-foreground">{x.name}</span>
                           {x.reason && (
                             <span className="text-muted-foreground"> — {x.reason}</span>

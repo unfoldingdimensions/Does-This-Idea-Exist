@@ -123,7 +123,7 @@ export function StatusPill({
       : "Not yet confirmed — click to change its status.";
 
   const pillClass = cn(
-    "gap-1.5 text-[11px]",
+    "gap-1.5 text-xs",
     dead && "border-destructive/20 bg-destructive/10 text-destructive",
     verified && "border-success/25 bg-success/12 text-success dark:bg-success/15 dark:text-success",
     !dead && !verified && "text-muted-foreground",
@@ -141,7 +141,7 @@ export function StatusPill({
           <button
             type="button"
             className={cn(
-              "inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors",
+              "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
               pillClass,
               "hover:border-primary/40 hover:text-foreground",
             )}
@@ -161,7 +161,7 @@ export function StatusPill({
         </PopoverTrigger>
         <PopoverContent align="end" sideOffset={6} className="w-64 p-3">
           <p className="text-xs leading-relaxed text-muted-foreground">{hint}</p>
-          <p className="mt-2 border-t border-border/60 pt-2 text-[11px] leading-relaxed text-muted-foreground/80">
+          <p className="mt-2 border-t border-border/60 pt-2 text-xs leading-relaxed text-muted-foreground/80">
             How verification works: most filings pass the automated liveness gate
             (marked &ldquo;Machine approved&rdquo;); anything the gate is unsure
             about waits for a human, whose stamp reads &ldquo;Verified&rdquo;.
@@ -181,7 +181,7 @@ export function StatusPill({
             aria-haspopup="dialog"
             aria-expanded={menuOpen}
             className={cn(
-              "relative inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors",
+              "relative inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
               pillClass,
               "hover:border-primary/40 hover:text-foreground",
             )}
@@ -235,7 +235,7 @@ export function StatusPill({
           </button>
         </PopoverTrigger>
         <PopoverContent align="end" sideOffset={6} className="w-44 p-1">
-          <div className="px-2.5 pb-1.5 pt-1 text-[11px] text-muted-foreground">{hint}</div>
+          <div className="px-2.5 pb-1.5 pt-1 text-xs text-muted-foreground">{hint}</div>
           {/* Plain buttons (Tab navigates them) — deliberately NOT role=menu:
               a Popover has no arrow-key menu semantics, and the ARIA menu
               contract would promise navigation this doesn't implement. */}
@@ -386,11 +386,11 @@ export function StartupCard({
             >
               {startup.name}
             </button>
-            <p className="truncate font-mono text-[10px] text-muted-foreground">
+            <p className="truncate font-mono text-xs text-muted-foreground">
               {startup.tagline || (startup.category ? titleCase(startup.category) : "Uncategorized")}
             </p>
             {reason && (
-              <p className="truncate font-mono text-[10px] text-primary/80" title={reason}>
+              <p className="truncate font-mono text-xs text-primary/80" title={reason}>
                 match: {reason}
               </p>
             )}
@@ -399,14 +399,14 @@ export function StartupCard({
 
         <div className="hidden sm:flex items-center gap-2">
           {startup.category && (
-            <Badge variant="secondary" className="text-[10px] py-0 px-2 font-mono">
+            <Badge variant="secondary" className="text-xs py-0 px-2 font-mono">
               {titleCase(startup.category)}
             </Badge>
           )}
           {founded.text && (
             <span
               title={founded.title}
-              className="font-mono text-[10px] tabular-nums text-muted-foreground"
+              className="font-mono text-xs tabular-nums text-muted-foreground"
             >
               {founded.text}
             </span>
@@ -419,7 +419,7 @@ export function StartupCard({
             type="button"
             variant="outline"
             size="xs"
-            className="h-7 px-2 text-[11px]"
+            className="h-7 px-2 text-xs"
             onClick={() => onDetails?.(startup)}
           >
             Details
@@ -446,7 +446,7 @@ export function StartupCard({
         {dead && (
           <span
             aria-hidden
-            className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-6 rounded border border-destructive/25 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-destructive/55"
+            className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-6 rounded border border-destructive/25 px-2 py-0.5 font-mono text-xs font-bold uppercase tracking-[0.2em] text-destructive/55"
           >
             Filed
           </span>
@@ -464,7 +464,7 @@ export function StartupCard({
             >
               {startup.name}
             </button>
-            <p className="truncate font-mono text-[11px] tabular-nums text-muted-foreground">
+            <p className="truncate font-mono text-xs tabular-nums text-muted-foreground">
               {founded.text && <span title={founded.title}>{founded.text}</span>}
               {founded.text && startup.last_checked && <span className="text-border"> · </span>}
               {startup.last_checked && <>checked {shortDate(startup.last_checked)}</>}
@@ -474,13 +474,13 @@ export function StartupCard({
         </div>
 
         {startup.tagline && (
-          <p className="line-clamp-2 min-h-9 text-[13px] font-medium leading-snug">
+          <p className="line-clamp-2 min-h-9 text-sm font-medium leading-snug">
             {startup.tagline}
           </p>
         )}
 
         {reason && (
-          <p className="truncate font-mono text-[10px] text-primary/80" title={reason}>
+          <p className="truncate font-mono text-xs text-primary/80" title={reason}>
             match: {reason}
           </p>
         )}
@@ -500,7 +500,7 @@ export function StartupCard({
             >
               <p
                 className={cn(
-                  "text-[13px] leading-relaxed text-muted-foreground",
+                  "text-sm leading-relaxed text-muted-foreground",
                   !expanded && "line-clamp-3",
                 )}
               >
@@ -527,7 +527,7 @@ export function StartupCard({
               whileTap={reduce ? undefined : { scale: 0.95 }}
               transition={{ type: "spring", stiffness: 480, damping: 24 }}
             >
-              <Badge variant="secondary" className="text-[11px]">
+              <Badge variant="secondary" className="text-xs">
                 {titleCase(startup.category)}
               </Badge>
             </motion.div>
@@ -538,13 +538,13 @@ export function StartupCard({
               whileTap={reduce ? undefined : { scale: 0.95 }}
               transition={{ type: "spring", stiffness: 480, damping: 24 }}
             >
-              <Badge variant="outline" className="text-[11px]">
+              <Badge variant="outline" className="text-xs">
                 {titleCase(startup.language)}
               </Badge>
             </motion.div>
           )}
           {typeof startup.stars === "number" && startup.stars > 0 && (
-            <span className="ml-auto flex items-center gap-1 font-mono text-[11px] tabular-nums text-muted-foreground">
+            <span className="ml-auto flex items-center gap-1 font-mono text-xs tabular-nums text-muted-foreground">
               <Star className="h-3 w-3" /> {startup.stars.toLocaleString()}
             </span>
           )}
@@ -554,7 +554,7 @@ export function StartupCard({
               onClick={() => onSearchName?.(startup.name)}
               title={`${filings} filings share this name — check which one you mean`}
               className={cn(
-                "flex items-center rounded-full border border-border/70 px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground",
+                "flex items-center rounded-full border border-border/70 px-1.5 py-0.5 font-mono text-xs tabular-nums text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground",
                 // Right-align only when the stars counter isn't already
                 // claiming the row's auto margin.
                 !(typeof startup.stars === "number" && startup.stars > 0) && "ml-auto",

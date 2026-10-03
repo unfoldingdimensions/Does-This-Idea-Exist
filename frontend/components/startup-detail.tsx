@@ -238,7 +238,7 @@ export function StartupDetail({
                 wheel here (otherwise the page behind the modal scrolls). */}
             <div data-lenis-prevent className="flex-1 space-y-4 overflow-y-auto p-5">
               {startup.description && (
-                <p className="max-w-[60ch] text-[13px] leading-relaxed text-muted-foreground">
+                <p className="max-w-[60ch] text-sm leading-relaxed text-muted-foreground">
                   {startup.description}
                 </p>
               )}
@@ -324,7 +324,7 @@ export function StartupDetail({
                         <HueAvatar name={s.name} size="sm" />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-xs font-semibold">{s.name}</span>
-                          <span className="block truncate text-[11px] text-muted-foreground">
+                          <span className="block truncate text-xs text-muted-foreground">
                             {s.tagline || titleCase(s.category)}
                           </span>
                         </span>

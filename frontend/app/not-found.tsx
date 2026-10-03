@@ -22,7 +22,7 @@ export default function NotFound() {
         >
           Back to the archive
         </Link>
-        <p className="mt-6 font-mono text-[10px] text-muted-foreground">
+        <p className="mt-6 font-mono text-[11px] text-muted-foreground">
           Dead links, unlike dead startups, are recoverable. — The Curator
         </p>
       </div>

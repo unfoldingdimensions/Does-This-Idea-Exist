@@ -60,7 +60,7 @@ export function ArchivalTicker({
       aria-label="Live archival filings ticker"
     >
       {/* Ticker Lead Tag */}
-      <div className="relative z-10 flex shrink-0 items-center gap-2 border-r border-border/40 bg-background/80 px-3 py-0.5 text-[10px] font-mono tracking-widest uppercase text-muted-foreground backdrop-blur-sm">
+      <div className="relative z-10 flex shrink-0 items-center gap-2 border-r border-border/40 bg-background/80 px-3 py-0.5 text-xs font-mono tracking-widest uppercase text-muted-foreground backdrop-blur-sm">
         <span className="relative flex size-2">
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
           <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
@@ -70,7 +70,7 @@ export function ArchivalTicker({
 
       {/* Marquee Track */}
       <div className="flex w-full overflow-hidden">
-        <div className="animate-marquee flex items-center gap-6 pl-4 font-mono text-[11px] text-muted-foreground">
+        <div className="animate-marquee flex items-center gap-6 pl-4 font-mono text-xs text-muted-foreground">
           {displayItems.map((item, idx) => (
             <button
               key={`${item.name}-${idx}`}
@@ -86,21 +86,21 @@ export function ArchivalTicker({
               </span>
               {item.category && (
                 <>
-                  <span className="text-[10px] text-muted-foreground/60">/</span>
+                  <span className="text-xs text-muted-foreground/60">/</span>
                   <span className="text-muted-foreground/80">{item.category}</span>
                 </>
               )}
               {item.vintage && (
                 <>
-                  <span className="text-[10px] text-muted-foreground/60">·</span>
-                  <span className="text-[10px] tracking-wider text-muted-foreground/60">
+                  <span className="text-xs text-muted-foreground/60">·</span>
+                  <span className="text-xs tracking-wider text-muted-foreground/60">
                     EST. {item.vintage}
                   </span>
                 </>
               )}
               <span
                 className={cn(
-                  "inline-flex items-center rounded-full border px-1.5 py-0.2 text-[9px] font-medium",
+                  "inline-flex items-center rounded-full border px-1.5 py-0.2 text-xs font-medium",
                   STATUS_META[item.status].className,
                 )}
               >

@@ -42,7 +42,7 @@ const BAND_LABELS: Record<GapBand, string> = {
 };
 
 const TH_CLASS =
-  "border-b border-border/60 px-2 py-1.5 text-left align-bottom font-mono text-[11px] font-medium uppercase tracking-wider text-muted-foreground";
+  "border-b border-border/60 px-2 py-1.5 text-left align-bottom font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground";
 
 /** A scheme-less source like `noted.app/docs` (the format doc's own example) is
  * still a page the reader can open; prose like "pricing lists Free only" is not
@@ -109,7 +109,7 @@ function SourceCell({ source, capturedAt }: { source: string; capturedAt: string
           </React.Fragment>
         ))
       )}
-      {captured && <span className="ml-1.5 text-[11px] text-muted-foreground/80">(captured {shortDate(captured)})</span>}
+      {captured && <span className="ml-1.5 text-xs text-muted-foreground/80">(captured {shortDate(captured)})</span>}
     </span>
   );
 }
@@ -146,7 +146,7 @@ function BandSection({
       <h3
         id={headingId}
         className={cn(
-          "font-mono text-[11px] font-bold uppercase tracking-[0.14em]",
+          "font-mono text-xs font-bold uppercase tracking-[0.14em]",
           demand ? "text-primary" : "text-muted-foreground",
         )}
       >

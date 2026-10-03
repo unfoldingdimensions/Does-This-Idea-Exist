@@ -252,7 +252,7 @@ export function VerificationSection({
               {submissions.length > 0 && (
                 <div className="space-y-1">
                   <div className="flex items-center justify-between pt-0.5">
-                    <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                    <span className="font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                       Founder publish requests · {submissions.length}
                     </span>
                   </div>
@@ -280,13 +280,13 @@ export function VerificationSection({
               {groups.map(([day, items]) => (
                 <div key={day} className="space-y-1">
                   <div className="flex items-center justify-between pt-0.5">
-                    <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                    <span className="font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                       {dayLabel(day)} · {items.length}
                     </span>
                     <Button
                       variant="outline"
                       size="sm"
-                      className="h-6 gap-1 px-2 text-[10px]"
+                      className="h-6 gap-1 px-2 text-[11px]"
                       onClick={() => setConfirm({ kind: "batch", day, count: items.length })}
                       disabled={approvingAll}
                     >

@@ -179,7 +179,7 @@ export function SeedSection({
                     <span className="flex items-center gap-1.5 font-medium">
                       {SOURCE_LABELS[job.source] ?? job.source}
                       {job.status === "queued" && (
-                        <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                        <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">
                           queued #{job.queue_position ?? "?"}
                         </span>
                       )}
@@ -198,15 +198,15 @@ export function SeedSection({
                   </div>
                   <Progress value={pct} className="h-1.5" />
                   {job.status === "running" ? (
-                    <p className="truncate text-[11px] text-muted-foreground">
+                    <p className="truncate text-xs text-muted-foreground">
                       {job.current ? `Fetching ${job.current}…` : "Preparing…"}
                     </p>
                   ) : job.status === "paused" ? (
-                    <p className="text-[11px] text-amber-600 dark:text-amber-500">
+                    <p className="text-xs text-amber-600 dark:text-amber-500">
                       {parkedReason(job)} — the rows it already wrote were kept
                     </p>
                   ) : (
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="text-xs text-muted-foreground">
                       Waiting for the current seed to finish — seeds never run in parallel
                       (verification can run alongside).
                     </p>
@@ -227,9 +227,9 @@ export function SeedSection({
                         {job.failed} failed — show details
                       </button>
                       {expanded.has(`err:${job.id}`) && (
-                        <ul className="max-h-32 space-y-1 overflow-y-auto rounded bg-background/60 p-2 text-[11px] text-muted-foreground">
+                        <ul className="max-h-32 space-y-1 overflow-y-auto rounded bg-background/60 p-2 text-xs text-muted-foreground">
                           {job.errors.map((err, i) => (
-                            <li key={i} className="break-words font-mono text-[10px]">
+                            <li key={i} className="break-words font-mono text-[11px]">
                               {err}
                             </li>
                           ))}

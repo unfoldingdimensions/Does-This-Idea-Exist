@@ -139,7 +139,7 @@ function KeyStatePill({ source }: { source: KeySource }) {
   return (
     <span
       className={cn(
-        "rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap",
+        "rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap",
         pill[source].className,
       )}
     >
@@ -150,11 +150,11 @@ function KeyStatePill({ source }: { source: KeySource }) {
 
 function OverrideMark({ overridden }: { overridden: boolean }) {
   return overridden ? (
-    <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-semibold text-secondary-foreground">
+    <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[11px] font-semibold text-secondary-foreground">
       overridden
     </span>
   ) : (
-    <span className="text-[10px] text-muted-foreground">default</span>
+    <span className="text-[11px] text-muted-foreground">default</span>
   );
 }
 
@@ -272,17 +272,17 @@ function GatewayCard({
         <span className="text-xs font-semibold text-foreground">{g.label}</span>
         <KeyStatePill source={g.key_source} />
         {g.is_active && (
-          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary whitespace-nowrap">
+          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary whitespace-nowrap">
             Active
           </span>
         )}
-        <span className="font-mono text-[10px] text-muted-foreground">{g.id}</span>
+        <span className="font-mono text-[11px] text-muted-foreground">{g.id}</span>
         {g.docs_url && (
           <a
             href={g.docs_url}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-0.5 text-[10px] font-medium text-primary underline-offset-2 hover:underline"
+            className="inline-flex items-center gap-0.5 text-[11px] font-medium text-primary underline-offset-2 hover:underline"
           >
             docs
             <ExternalLink className="h-3 w-3" aria-hidden="true" />
@@ -292,12 +292,12 @@ function GatewayCard({
 
       {/* The effective pair, monospace and allowed to wrap — the fields below
           are the editable copy of the same two values. */}
-      <p className="break-all font-mono text-[10px] text-muted-foreground">
+      <p className="break-all font-mono text-[11px] text-muted-foreground">
         {g.base_url} · {g.model}
       </p>
 
       {g.notes && (
-        <p className="text-[11px] leading-snug text-muted-foreground">{g.notes}</p>
+        <p className="text-xs leading-snug text-muted-foreground">{g.notes}</p>
       )}
 
       {/* API key — write-only, two explicit actions */}
@@ -305,11 +305,11 @@ function GatewayCard({
         <div className="flex flex-wrap items-baseline justify-between gap-x-2">
           <Label
             htmlFor={`llm-key-${g.id}`}
-            className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase"
+            className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase"
           >
             API key
           </Label>
-          <span className="text-[10px] text-muted-foreground">{keyNote}</span>
+          <span className="text-[11px] text-muted-foreground">{keyNote}</span>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <Input
@@ -359,7 +359,7 @@ function GatewayCard({
         <div className="flex flex-wrap items-baseline justify-between gap-x-2">
           <Label
             htmlFor={`llm-model-${g.id}`}
-            className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase"
+            className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase"
           >
             Model
           </Label>
@@ -415,7 +415,7 @@ function GatewayCard({
         <div className="flex flex-wrap items-baseline justify-between gap-x-2">
           <Label
             htmlFor={`llm-base-${g.id}`}
-            className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase"
+            className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase"
           >
             Base URL
           </Label>
@@ -484,7 +484,7 @@ function GatewayCard({
                 <Zap className="h-3.5 w-3.5" aria-hidden="true" />
                 Make active
               </Button>
-              <span className="text-[10px] text-muted-foreground">{blocked}</span>
+              <span className="text-[11px] text-muted-foreground">{blocked}</span>
             </span>
           ) : (
             <Button size="sm" onClick={() => void makeActive()} disabled={disabled}>
@@ -502,7 +502,7 @@ function GatewayCard({
         <div
           role="status"
           className={cn(
-            "space-y-0.5 rounded-md px-2 py-1.5 text-[10px]",
+            "space-y-0.5 rounded-md px-2 py-1.5 text-[11px]",
             test.ok ? "bg-success/10" : "bg-destructive/10",
           )}
         >
@@ -681,7 +681,7 @@ export function LlmGatewaysSection({ onLocked }: { onLocked: (msg?: string) => v
                 <span className="font-medium text-foreground">{effective?.label}</span>
                 <span
                   className={cn(
-                    "rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap",
+                    "rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap",
                     effective?.ready
                       ? "bg-success/15 text-success"
                       : "bg-destructive/10 text-destructive",
@@ -690,7 +690,7 @@ export function LlmGatewaysSection({ onLocked }: { onLocked: (msg?: string) => v
                   {effective?.ready ? "ready" : (effectiveShort ?? "not ready")}
                 </span>
               </p>
-              <p className="break-all font-mono text-[10px] text-muted-foreground">
+              <p className="break-all font-mono text-[11px] text-muted-foreground">
                 {effective?.base_url} · {effective?.model}
               </p>
             </div>
@@ -723,7 +723,7 @@ export function LlmGatewaysSection({ onLocked }: { onLocked: (msg?: string) => v
             />
           ))}
 
-          <p className="text-[10px] text-muted-foreground">
+          <p className="text-[11px] text-muted-foreground">
             A stored key is write-only: no response ever contains it, so the field starts
             empty every time and shows only the last four characters.
           </p>

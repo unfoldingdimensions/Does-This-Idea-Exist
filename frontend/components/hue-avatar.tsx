@@ -24,7 +24,7 @@ export function HueAvatar({
       role="img"
       className={cn(
         "shrink-0 rounded-md bg-muted",
-        size === "sm" && "size-6 text-[10px]",
+        size === "sm" && "size-6 text-[11px]",
         size === "md" && "size-8 text-xs",
         size === "lg" && "size-12 text-base",
         className,

@@ -233,6 +233,26 @@
 }
 
 @layer base {
+  /* ---- The type ramp (roles, not values) ------------------------------------
+     Every size in the product comes from this list. There are no arbitrary
+     one-offs left below 12px, and the 11px tier is chrome only — never content.
+
+       display  the hero question only            Space Grotesk 700, 36/60px
+       title    card + dialog names               Jakarta 700,  text-sm  (14px)
+       body     taglines, descriptions, prose     Jakarta 500,  text-sm  (14px)
+       data     dates, stars, counts, evidence    Geist Mono 500 tabular-nums,
+                                                  text-xs  (12px)  <- the FLOOR
+       label    ledger headers, section rules     Geist Mono 700 caps 0.14em,
+                                                  text-xs  (12px)
+       chrome   dock labels, kbd hints, status
+                chips — non-content affordances   text-[11px]  (11px)
+
+     The 12px data floor is the reason this ramp exists: evidence set smaller than
+     its surroundings is evidence a reader skips, and the card metadata that
+     carries the product's whole claim ("est. 2018 · checked Oct 3") was 11px
+     before it. See .impeccable/critique/2026-10-03T15-13-15Z__frontend-app-page-tsx.md
+     Body stays at Jakarta 500 by design (DESIGN.md body.fontWeight) — the ramp
+     buys legibility with SIZE, and keeps weight for hierarchy. */
   * {
     @apply border-border outline-ring/50;
   }
@@ -305,7 +325,7 @@
   /* Hairline-ruled ledger header: mono small-caps + rule — the asymmetry that
      breaks the centered cluster (antislop guard) without breaking minimalism. */
   .ledger-header {
-    @apply flex items-center gap-1.5 border-b font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground;
+    @apply flex items-center gap-1.5 border-b font-mono text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground;
   }
 
   /* Cards dealt onto the desk: 380ms rise + straighten, 45ms stagger capped

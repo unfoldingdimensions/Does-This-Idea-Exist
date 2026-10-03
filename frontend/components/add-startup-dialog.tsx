@@ -210,7 +210,7 @@ export function AddStartupDialog({
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
                 <h2 className="font-display text-xl font-bold tracking-tight">Add a startup</h2>
-                <p className="mt-1.5 max-w-[42ch] text-[13px] leading-relaxed text-muted-foreground">
+                <p className="mt-1.5 max-w-[42ch] text-sm leading-relaxed text-muted-foreground">
                   Paste a GitHub repo or a website — the backend fetches the details and writes
                   the profile. Entries start <span className="font-medium text-foreground">unchecked</span> until
                   you review them.

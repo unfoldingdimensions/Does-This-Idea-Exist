@@ -64,7 +64,7 @@ export function FunnelImportSection({
       <p className="text-xs text-muted-foreground">
         Apply a completed liveness-funnel run (a run directory the audit tool
         wrote, relative to the backend root — e.g.{" "}
-        <code className="rounded bg-muted/60 px-1 font-mono text-[10px]">
+        <code className="rounded bg-muted/60 px-1 font-mono text-[11px]">
           liveness-out/liveness-2026-09-19-0013
         </code>
         ). Clean LIVE rows are machine-admitted; walled/unknown/non-company rows
@@ -100,7 +100,7 @@ export function FunnelImportSection({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="font-medium">
               {plan.dry_run ? "Plan" : "Applied"} —{" "}
-              <span className="font-mono text-[10px]">{plan.states_file}</span>
+              <span className="font-mono text-[11px]">{plan.states_file}</span>
             </span>
             <span className="text-muted-foreground tabular-nums">
               {plan.total_rows} rows · {plan.already_admitted} already admitted ·{" "}
@@ -112,7 +112,7 @@ export function FunnelImportSection({
               <span className="block font-mono text-sm font-bold text-success tabular-nums">
                 {plan.dry_run ? plan.admit_eligible : plan.admitted.length}
               </span>
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-[11px] text-muted-foreground">
                 {plan.dry_run ? "admit-eligible" : "admitted"}
               </span>
             </li>
@@ -120,17 +120,17 @@ export function FunnelImportSection({
               <span className="block font-mono text-sm font-bold tabular-nums">
                 {plan.queued.length}
               </span>
-              <span className="text-[10px] text-muted-foreground">queued for you</span>
+              <span className="text-[11px] text-muted-foreground">queued for you</span>
             </li>
             <li className="rounded-md bg-background/60 p-2">
               <span className="block font-mono text-sm font-bold text-muted-foreground tabular-nums">
                 {plan.ignored.length}
               </span>
-              <span className="text-[10px] text-muted-foreground">dead — drop&apos;s job</span>
+              <span className="text-[11px] text-muted-foreground">dead — drop&apos;s job</span>
             </li>
           </ul>
           {plan.queued.length > 0 && (
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Queued:{" "}
               {plan.queued
                 .slice(0, 6)

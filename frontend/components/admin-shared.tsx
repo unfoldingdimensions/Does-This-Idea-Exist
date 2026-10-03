@@ -82,7 +82,7 @@ export function SummaryRow({
         onClick={onToggle}
         disabled={count === 0}
         className={cn(
-          "flex w-full items-center gap-1.5 px-2 py-1 text-left text-[11px] font-medium transition-colors",
+          "flex w-full items-center gap-1.5 px-2 py-1 text-left text-xs font-medium transition-colors",
           count === 0 ? "cursor-default" : "hover:bg-accent/50",
           tone === "destructive"
             ? "text-destructive"
@@ -105,9 +105,9 @@ export function SummaryRow({
         </span>
       </button>
       {open && count > 0 && (
-        <ul className="max-h-32 space-y-0.5 overflow-y-auto px-2 pb-2 text-[11px] text-muted-foreground">
+        <ul className="max-h-32 space-y-0.5 overflow-y-auto px-2 pb-2 text-xs text-muted-foreground">
           {items.map((item, i) => (
-            <li key={i} className="break-words font-mono text-[10px]">
+            <li key={i} className="break-words font-mono text-[11px]">
               {item}
             </li>
           ))}
@@ -135,10 +135,10 @@ export function BucketItem({
   approveLabel?: string;
 }) {
   return (
-    <li className="flex items-center gap-1.5 rounded-md bg-background/60 px-2 py-1 text-[11px]">
+    <li className="flex items-center gap-1.5 rounded-md bg-background/60 px-2 py-1 text-xs">
       <span className="min-w-0 flex-1 truncate" title={reason ?? name}>
         {name}
-        {reason && <span className="ml-1.5 text-[10px] text-muted-foreground">{reason}</span>}
+        {reason && <span className="ml-1.5 text-[11px] text-muted-foreground">{reason}</span>}
       </span>
       {url && (
         <a
@@ -146,7 +146,7 @@ export function BucketItem({
           target="_blank"
           rel="noopener noreferrer"
           aria-label={`Open ${name || "the filing"} in a new tab`}
-          className="shrink-0 text-[10px] font-medium text-primary underline-offset-2 hover:underline"
+          className="shrink-0 text-[11px] font-medium text-primary underline-offset-2 hover:underline"
         >
           open
         </a>
@@ -156,7 +156,7 @@ export function BucketItem({
           type="button"
           onClick={onApprove}
           disabled={approving}
-          className="shrink-0 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success transition-colors hover:bg-success/25 disabled:opacity-50"
+          className="shrink-0 rounded-full bg-success/15 px-2 py-0.5 text-[11px] font-semibold text-success transition-colors hover:bg-success/25 disabled:opacity-50"
         >
           {approving ? "…" : approveLabel ?? "Mark verified"}
         </button>

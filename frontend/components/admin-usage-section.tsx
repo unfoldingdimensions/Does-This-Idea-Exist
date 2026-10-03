@@ -16,7 +16,6 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   AdminUnauthorized,
   cancelSeed,
@@ -64,26 +63,26 @@ function SpendTile({ label, window }: { label: string; window?: SpendWindow }) {
   if (!window) {
     return (
       <div className="rounded-lg bg-muted/40 p-3">
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+        <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</p>
         <p className="mt-1 text-lg font-semibold tabular-nums text-muted-foreground">unknown</p>
-        <p className="text-[11px] text-muted-foreground">the ledger could not be read</p>
+        <p className="text-xs text-muted-foreground">the ledger could not be read</p>
       </div>
     );
   }
   return (
     <div className="rounded-lg bg-muted/40 p-3">
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className="mt-1 text-lg font-semibold tabular-nums">{money(window.cost_usd)}</p>
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         {window.attempts} {window.attempts === 1 ? "call" : "calls"} · {num(window.total_tokens)} tokens
       </p>
       {!window.cost_complete && window.attempts > 0 && (
-        <p className="mt-0.5 text-[11px] text-amber-600 dark:text-amber-500">
+        <p className="mt-0.5 text-xs text-amber-600 dark:text-amber-500">
           a floor — {window.unpriced_attempts} unpriced
         </p>
       )}
       {window.usage_missing_share !== null && window.usage_missing_share > 0 && (
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
+        <p className="mt-0.5 text-xs text-muted-foreground">
           {Math.round(window.usage_missing_share * 100)}% of calls sent no usage block
         </p>
       )}
@@ -93,7 +92,7 @@ function SpendTile({ label, window }: { label: string; window?: SpendWindow }) {
 
 function Row({ label, value, tone }: { label: string; value: React.ReactNode; tone?: "warn" }) {
   return (
-    <div className="flex items-baseline justify-between gap-2 py-0.5 text-[11px]">
+    <div className="flex items-baseline justify-between gap-2 py-0.5 text-xs">
       <span className="text-muted-foreground">{label}</span>
       <span className={cn("tabular-nums", tone === "warn" && "text-amber-600 dark:text-amber-500")}>
         {value}
@@ -118,8 +117,8 @@ function RateEditorRow({
   return (
     <div className="rounded-lg bg-muted/40 p-2">
       <div className="flex flex-wrap items-center justify-between gap-x-2">
-        <span className="font-mono text-[11px] font-medium">{model}</span>
-        <span className="text-[10px] text-muted-foreground">
+        <span className="font-mono text-xs font-medium">{model}</span>
+        <span className="text-[11px] text-muted-foreground">
           {row.verified ? "verified" : "unverified"} · {row.as_of ?? "no date"}
           {row.source ? ` · ${row.source.replace(/^https?:\/\//, "").slice(0, 40)}` : ""}
         </span>
@@ -127,7 +126,7 @@ function RateEditorRow({
       <div className="mt-1.5 grid grid-cols-3 gap-2">
         {(["input", "output", "cached_input"] as const).map((field) => (
           <label key={field} className="space-y-0.5">
-            <span className="block text-[10px] uppercase tracking-wider text-muted-foreground">
+            <span className="block text-[11px] uppercase tracking-wider text-muted-foreground">
               {field === "cached_input" ? "cached read" : field}
             </span>
             <Input
@@ -135,13 +134,13 @@ function RateEditorRow({
               onChange={(e) => onChange(model, field, e.target.value)}
               inputMode="decimal"
               placeholder="—"
-              className="h-7 text-[11px] tabular-nums"
+              className="h-7 text-xs tabular-nums"
             />
           </label>
         ))}
       </div>
       {unpriced && (
-        <p className="mt-1 text-[10px] text-amber-600 dark:text-amber-500">
+        <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-500">
           no prices: calls on this model are recorded unpriced {row.notes ? `— ${row.notes}` : ""}
         </p>
       )}
@@ -285,7 +284,7 @@ export function UsageSection({ onLocked }: { onLocked: (msg?: string) => void })
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           Every LLM call this install makes is recorded, priced and attributed to the
           batch that made it. Prices are list prices, not an invoice.
         </p>
@@ -297,12 +296,12 @@ export function UsageSection({ onLocked }: { onLocked: (msg?: string) => void })
           className="shrink-0"
         >
           {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-          <span className="ml-1 text-[11px]">Refresh</span>
+          <span className="ml-1 text-xs">Refresh</span>
         </Button>
       </div>
 
       {loadError && (
-        <div className="flex items-start gap-2 rounded-lg bg-destructive/10 p-2 text-[11px] text-destructive">
+        <div className="flex items-start gap-2 rounded-lg bg-destructive/10 p-2 text-xs text-destructive">
           <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>{loadError}</span>
         </div>
@@ -310,7 +309,7 @@ export function UsageSection({ onLocked }: { onLocked: (msg?: string) => void })
 
       {/* The ledger itself: the state the panel must not paper over. */}
       {report && (report.ledger_error || !report.ledger_present) && (
-        <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 p-2 text-[11px] text-amber-700 dark:text-amber-400">
+        <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-400">
           <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
             <strong>Nothing below is a measurement yet.</strong>{" "}
@@ -332,14 +331,14 @@ export function UsageSection({ onLocked }: { onLocked: (msg?: string) => void })
               <p className="text-xs font-medium">
                 A {job.kind} batch is parked · {job.ok} filed, {job.done}/{job.total} done
               </p>
-              <p className="text-[11px] text-muted-foreground">{parkedReason(job as never)}</p>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">{parkedReason(job as never)}</p>
+              <p className="text-xs text-muted-foreground">
                 Everything it wrote was kept. Resuming continues where it stopped and skips
                 what it already handled — nothing is re-paid for.
               </p>
               <div className="mt-2 flex flex-wrap items-end gap-2">
                 <label className="space-y-0.5">
-                  <span className="block text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <span className="block text-[11px] uppercase tracking-wider text-muted-foreground">
                     new budget (USD, blank = keep)
                   </span>
                   <Input
@@ -349,7 +348,7 @@ export function UsageSection({ onLocked }: { onLocked: (msg?: string) => void })
                     }
                     inputMode="decimal"
                     placeholder="unlimited"
-                    className="h-7 w-32 text-[11px] tabular-nums"
+                    className="h-7 w-32 text-xs tabular-nums"
                   />
                 </label>
                 <Button
@@ -409,7 +408,7 @@ export function UsageSection({ onLocked }: { onLocked: (msg?: string) => void })
           ))}
         </div>
         {report && report.metering_failures > 0 && (
-          <p className="text-[11px] text-destructive">
+          <p className="text-xs text-destructive">
             {report.metering_failures} usage row{report.metering_failures === 1 ? "" : "s"} could
             not be written, so the figures above are a floor
             {report.last_failure ? ` — ${report.last_failure}` : ""}.
@@ -444,7 +443,7 @@ export function UsageSection({ onLocked }: { onLocked: (msg?: string) => void })
               tone={report.last_job.cost_complete ? undefined : "warn"}
             />
             {!report.last_job.cost_complete && (
-              <p className="pt-0.5 text-[10px] text-amber-600 dark:text-amber-500">
+              <p className="pt-0.5 text-[11px] text-amber-600 dark:text-amber-500">
                 {report.last_job.unpriced_attempts} attempt
                 {report.last_job.unpriced_attempts === 1 ? "" : "s"} had no price — $/row is a
                 floor, not the bill
@@ -498,7 +497,7 @@ export function UsageSection({ onLocked }: { onLocked: (msg?: string) => void })
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Budget per batch
         </h3>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           One cap for each batch. When a batch reaches it, the batch <strong>parks</strong> — it
           keeps everything it wrote and waits for you here. Unset means unlimited, which is how
           this install behaves out of the box.
@@ -517,7 +516,7 @@ export function UsageSection({ onLocked }: { onLocked: (msg?: string) => void })
         )}
         <div className="flex flex-wrap items-end gap-2">
           <label className="space-y-0.5">
-            <span className="block text-[10px] uppercase tracking-wider text-muted-foreground">
+            <span className="block text-[11px] uppercase tracking-wider text-muted-foreground">
               new cap (USD)
             </span>
             <Input
@@ -525,7 +524,7 @@ export function UsageSection({ onLocked }: { onLocked: (msg?: string) => void })
               onChange={(e) => setBudgetDraft(e.target.value)}
               inputMode="decimal"
               placeholder="unlimited"
-              className="h-7 w-32 text-[11px] tabular-nums"
+              className="h-7 w-32 text-xs tabular-nums"
             />
           </label>
           <Button
@@ -565,7 +564,7 @@ export function UsageSection({ onLocked }: { onLocked: (msg?: string) => void })
             Rate table · per 1M tokens, USD
           </h3>
           {report && (
-            <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+            <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
               {report.rates.origin === "builtin" ? (
                 <>
                   <CircleCheck className="h-3 w-3 text-success" />
@@ -580,7 +579,7 @@ export function UsageSection({ onLocked }: { onLocked: (msg?: string) => void })
             </span>
           )}
         </div>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           Every priced row names the table version it used, so editing a price changes future
           rows only. A blank field means the price is unknown and calls are recorded unpriced —
           it never means free.
@@ -623,7 +622,7 @@ export function UsageSection({ onLocked }: { onLocked: (msg?: string) => void })
             <span className="ml-1">Use built-ins</span>
           </Button>
           {ratesDirty && (
-            <span className="text-[10px] text-amber-600 dark:text-amber-500">unsaved edits</span>
+            <span className="text-[11px] text-amber-600 dark:text-amber-500">unsaved edits</span>
           )}
         </div>
       </section>

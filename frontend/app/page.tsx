@@ -605,7 +605,7 @@ export default function HomePage() {
             >
               <Command className="size-3" />
               <span>Search</span>
-              <kbd className="rounded border border-border/70 bg-muted px-1 py-0.2 text-[9px] text-muted-foreground">⌘K</kbd>
+              <kbd className="rounded border border-border/70 bg-muted px-1 py-0.2 text-xs text-muted-foreground">⌘K</kbd>
             </Button>
             <AudioToggle />
             <ThemeToggle />
@@ -622,7 +622,7 @@ export default function HomePage() {
             <ServerCrash className="h-3.5 w-3.5 shrink-0" />
             <span>The archive is unreachable.</span>
             {process.env.NODE_ENV !== "production" && (
-              <code className="hidden font-mono text-[10px] text-muted-foreground sm:inline">
+              <code className="hidden font-mono text-xs text-muted-foreground sm:inline">
                 uvicorn app.main:app --port 8020
               </code>
             )}
@@ -684,7 +684,7 @@ export default function HomePage() {
               itself carries the live count as "All 94"). Distilled from the
               former three-band hero per critique P2. */}
           <div
-            className="reveal mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 font-mono text-[10px] text-muted-foreground"
+            className="reveal mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 font-mono text-xs text-muted-foreground"
             style={{ animationDelay: "240ms" }}
           >
             {stats?.last_checked && (
@@ -708,7 +708,7 @@ export default function HomePage() {
         {/* Exhibition Density & Filter Bar controls */}
         <div className="mb-2 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            <span className="font-mono text-xs font-bold uppercase tracking-wider text-muted-foreground">
               Exhibition
             </span>
             <DensityToggle value={density} onChange={setDensity} />
@@ -790,7 +790,7 @@ export default function HomePage() {
               record.
             </p>
             <div className="mt-4 flex justify-center">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-success/25 bg-success/12 px-2.5 py-0.5 text-[11px] font-medium text-success dark:bg-success/15">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-success/25 bg-success/12 px-2.5 py-0.5 text-xs font-medium text-success dark:bg-success/15">
                 <span className="size-1.5 rounded-full bg-success" aria-hidden />
                 <ShieldCheck className="h-3 w-3" /> Verified
               </span>
@@ -891,18 +891,18 @@ export default function HomePage() {
             ) : (
               <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
             )}
-            <span className="font-mono text-[11px] tabular-nums">
+            <span className="font-mono text-xs tabular-nums">
               <OdometerNumber value={stats?.total ?? 0} /> startups
             </span>
           </span>
           <span className="flex items-center gap-1">
             <ShieldCheck className="h-3.5 w-3.5" />
-            <span className="font-mono text-[11px] tabular-nums">
+            <span className="font-mono text-xs tabular-nums">
               <OdometerNumber value={stats?.verified ?? 0} /> verified
             </span>
           </span>
           <span
-            className="hidden font-mono text-[11px] tabular-nums md:inline"
+            className="hidden font-mono text-xs tabular-nums md:inline"
             onClick={handleMantraClick}
           >
             Dead is a status, not an erasure. Filed honestly, re-checked on a schedule.

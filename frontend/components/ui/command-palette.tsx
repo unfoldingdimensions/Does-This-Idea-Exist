@@ -170,7 +170,7 @@ export function CommandPalette({
                 className="flex h-6 w-full bg-transparent text-sm placeholder:text-muted-foreground/60 focus:outline-hidden text-foreground"
               />
               <div className="flex items-center gap-1.5 ml-2">
-                <kbd className="hidden sm:inline-flex items-center gap-0.5 rounded border border-border/60 bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                <kbd className="hidden sm:inline-flex items-center gap-0.5 rounded border border-border/60 bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
                   ESC
                 </kbd>
                 <button
@@ -189,7 +189,7 @@ export function CommandPalette({
               {/* Quick Actions */}
               {quickActions.length > 0 && (
                 <div className="mb-2">
-                  <div className="px-3 py-1 font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
+                  <div className="px-3 py-1 font-mono text-[11px] tracking-wider uppercase text-muted-foreground">
                     Quick Commands
                   </div>
                   {quickActions.map((action, i) => {
@@ -218,7 +218,7 @@ export function CommandPalette({
 
               {/* Startups List */}
               <div>
-                <div className="px-3 py-1 font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
+                <div className="px-3 py-1 font-mono text-[11px] tracking-wider uppercase text-muted-foreground">
                   {query ? `Matching Startups (${filteredStartups.length})` : "Featured Archival Entries"}
                 </div>
                 {filteredStartups.length === 0 ? (
@@ -251,13 +251,13 @@ export function CommandPalette({
                             <div className="flex items-center gap-2">
                               <span className="font-medium text-foreground">{startup.name}</span>
                               {startup.category && (
-                                <span className="rounded bg-muted px-1.5 py-0.2 text-[10px] text-muted-foreground font-mono">
+                                <span className="rounded bg-muted px-1.5 py-0.2 text-[11px] text-muted-foreground font-mono">
                                   {startup.category}
                                 </span>
                               )}
                             </div>
                             {startup.description && (
-                              <span className="text-[11px] text-muted-foreground truncate max-w-sm text-left">
+                              <span className="text-xs text-muted-foreground truncate max-w-sm text-left">
                                 {startup.description}
                               </span>
                             )}
@@ -265,7 +265,7 @@ export function CommandPalette({
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           {startup.verified && (
-                            <span className="text-[10px] font-mono text-emerald-500">
+                            <span className="text-[11px] font-mono text-emerald-500">
                               ✓ VERIFIED
                             </span>
                           )}
@@ -279,7 +279,7 @@ export function CommandPalette({
             </div>
 
             {/* Footer Status Tip */}
-            <div className="flex items-center justify-between border-t border-border/40 bg-muted/30 px-4 py-2 text-[11px] text-muted-foreground font-mono">
+            <div className="flex items-center justify-between border-t border-border/40 bg-muted/30 px-4 py-2 text-xs text-muted-foreground font-mono">
               <div className="flex items-center gap-3">
                 <span>Navigate <kbd className="font-sans">↑↓</kbd></span>
                 <span>Select <kbd className="font-sans">↵</kbd></span>

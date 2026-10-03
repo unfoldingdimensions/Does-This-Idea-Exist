@@ -239,7 +239,7 @@ export const MorphingDiscoveryBar: React.FC<MorphingDiscoveryBarProps> = ({
                     animate={{ opacity: 1, scale: 1 }}
                     exit={{ opacity: 0, scale: 0.8 }}
                     transition={{ duration: 0.15, ease: EASE }}
-                    className="pointer-events-none flex h-5 select-none items-center rounded border border-border/60 px-1.5 font-mono text-[10px] text-muted-foreground/70"
+                    className="pointer-events-none flex h-5 select-none items-center rounded border border-border/60 px-1.5 font-mono text-xs text-muted-foreground/70"
                   >
                     /
                   </motion.kbd>
@@ -309,7 +309,7 @@ export const MorphingDiscoveryBar: React.FC<MorphingDiscoveryBarProps> = ({
                   {typeof cat.count === "number" && (
                     <span
                       className={cn(
-                        "text-[10px] tabular-nums",
+                        "text-xs tabular-nums",
                         // /90 not /70 — the count carries data; /70 dipped
                         // below AA at this size.
                         active ? "text-primary-foreground/90" : "text-muted-foreground",
@@ -399,7 +399,7 @@ export const MorphingDiscoveryBar: React.FC<MorphingDiscoveryBarProps> = ({
                           {cat.icon && <span className="opacity-80">{cat.icon}</span>}
                           <span className="min-w-0 flex-1 truncate">{cat.label}</span>
                           {typeof cat.count === "number" && (
-                            <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+                            <span className="font-mono text-xs tabular-nums text-muted-foreground">
                               {cat.count}
                             </span>
                           )}

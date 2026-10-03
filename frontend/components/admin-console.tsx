@@ -256,7 +256,7 @@ export function AdminConsole({
     <div className="mx-auto w-full max-w-6xl px-4 pt-8 pb-16 sm:px-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
+          <p className="font-mono text-xs tracking-wide text-muted-foreground uppercase">
             Owner-only
           </p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">Admin — settings</h1>
@@ -339,7 +339,7 @@ export function AdminConsole({
                   <span className={cn("shrink-0", on && "text-primary")}>{s.icon}</span>
                   <span className="font-medium whitespace-nowrap">{s.title}</span>
                   {badge && (
-                    <span className="ml-auto shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400">
+                    <span className="ml-auto shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">
                       {badge}
                     </span>
                   )}

@@ -28,7 +28,7 @@ function Strip({
       <div className="ledger-header pb-2">
         {icon} {title}
         {footnote && (
-          <span className="ml-2 hidden font-sans text-[10px] font-normal normal-case tracking-normal text-muted-foreground/80 sm:inline">
+          <span className="ml-2 hidden font-sans text-xs font-normal normal-case tracking-normal text-muted-foreground/80 sm:inline">
             {footnote}
           </span>
         )}
@@ -58,7 +58,7 @@ function Strip({
               <HueAvatar name={s.name} size="sm" />
               <span className="min-w-0">
                 <span className="block truncate text-xs font-semibold">{s.name}</span>
-                <span className="block truncate text-[11px] text-muted-foreground">
+                <span className="block truncate text-xs text-muted-foreground">
                   {s.tagline || titleCase(s.category)}
                 </span>
               </span>

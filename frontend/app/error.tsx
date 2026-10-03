@@ -43,11 +43,11 @@ export default function ErrorPage({
           </Link>
         </div>
         {error.digest && (
-          <p className="mt-6 font-mono text-[10px] text-muted-foreground/70">
+          <p className="mt-6 font-mono text-[11px] text-muted-foreground/70">
             reference {error.digest}
           </p>
         )}
-        <p className="mt-4 font-mono text-[10px] text-muted-foreground">
+        <p className="mt-4 font-mono text-[11px] text-muted-foreground">
           Even the best cataloguers drop a card sometimes. — The Curator
         </p>
       </div>

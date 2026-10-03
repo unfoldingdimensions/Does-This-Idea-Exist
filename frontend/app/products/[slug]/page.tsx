@@ -147,7 +147,7 @@ export default function ProductPage() {
             The archive could not be read{error ? ` — ${error}` : ""}. This is a connection problem,
             not a missing filing.
           </span>
-          <Button variant="outline" size="sm" onClick={() => void load()} className="h-7 gap-1.5 text-[11px]">
+          <Button variant="outline" size="sm" onClick={() => void load()} className="h-7 gap-1.5 text-xs">
             <RefreshCw className="h-3 w-3" /> Retry
           </Button>
         </div>
@@ -170,7 +170,7 @@ export default function ProductPage() {
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="font-display text-3xl font-bold tracking-tight">{record.resolved_name}</h1>
           {record.category && (
-            <Badge variant="secondary" className="text-[11px]">
+            <Badge variant="secondary" className="text-xs">
               {titleCase(record.category)}
             </Badge>
           )}
@@ -178,7 +178,7 @@ export default function ProductPage() {
         {record.tagline && (
           <p className="mt-1 text-sm text-muted-foreground">{record.tagline}</p>
         )}
-        <p className="mt-2 font-mono text-[10px] text-muted-foreground">
+        <p className="mt-2 font-mono text-xs text-muted-foreground">
           /products/{record.slug}
           {founded.text && (
             <>
@@ -197,7 +197,7 @@ export default function ProductPage() {
           confirmed, and the export buttons only appear once it exists. */}
       <section className="mt-8 border-t border-border/60 pt-6" aria-label="Compare with your app">
         <h2 className="ledger-header">Compare with your app</h2>
-        <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+        <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
           Describe your app — by URL, by form, or by pasting a payload your own agent produced — then
           review and confirm the draft. The gap table only runs against a draft you have confirmed.
           Reopening this link with <span className="font-mono">?you=&lt;id&gt;</span> resumes the
@@ -209,7 +209,7 @@ export default function ProductPage() {
             {draft ? "Edit my app" : "Compare with my app"}
           </Button>
           {draft && (
-            <span className="font-mono text-[10px] text-muted-foreground">
+            <span className="font-mono text-xs text-muted-foreground">
               your app: {draft.profile?.name || `founder app ${draft.founder_app_id}`} · status{" "}
               {draft.archive_status}
             </span>

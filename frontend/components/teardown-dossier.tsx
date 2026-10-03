@@ -104,13 +104,13 @@ function SourceLine({
     .filter((s) => s && isHttpUrl(s));
   if (urls.length === 0 && !capturedAt) {
     return (
-      <p className={cn("text-[11px] text-muted-foreground/80", className)}>
+      <p className={cn("text-xs text-muted-foreground/80", className)}>
         source and capture date not recorded
       </p>
     );
   }
   return (
-    <p className={cn("text-[11px] text-muted-foreground", className)}>
+    <p className={cn("text-xs text-muted-foreground", className)}>
       per{" "}
       {urls.length > 0 ? (
         urls.map((url, i) => (
@@ -140,7 +140,7 @@ function UnknownSection({ what, note }: { what: string; note: string }) {
   return (
     <div className="rounded-xl border border-dashed border-border/60 px-3 py-2.5">
       <h4 className="ledger-header">{what}</h4>
-      <p className="mt-1 flex items-start gap-1.5 text-[11px] leading-relaxed text-muted-foreground">
+      <p className="mt-1 flex items-start gap-1.5 text-xs leading-relaxed text-muted-foreground">
         <Info className="mt-0.5 h-3 w-3 shrink-0" />
         <span>
           <span className="font-mono font-semibold">unknown</span> — {note}
@@ -182,7 +182,7 @@ function TrustBadges({ record }: { record: StartupRecord | null }) {
       >
         <span
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium",
+            "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
             record.admin_verified
               ? "border-success/25 bg-success/12 text-success dark:bg-success/15"
               : machineAdmitted
@@ -192,7 +192,7 @@ function TrustBadges({ record }: { record: StartupRecord | null }) {
         >
           {machineAdmitted ? <Bot className="h-3 w-3" /> : <BadgeCheck className="h-3 w-3" />}
           {machineAdmitted ? "Machine Approved" : "Admin Verified"}
-          <span className="font-mono text-[10px] font-normal opacity-80">
+          <span className="font-mono text-[11px] font-normal opacity-80">
             {machineAdmitted
               ? `${record.approved_by ?? "funnel"} - ${
                   record.admin_verified_at
@@ -208,7 +208,7 @@ function TrustBadges({ record }: { record: StartupRecord | null }) {
         </span>
         <span
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium",
+            "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
             record.machine_verified
               ? "border-primary/25 bg-primary/10 text-primary"
               : "border-border/60 text-muted-foreground",
@@ -216,7 +216,7 @@ function TrustBadges({ record }: { record: StartupRecord | null }) {
         >
           <Bot className="h-3 w-3" />
           Machine Verified
-          <span className="font-mono text-[10px] font-normal opacity-80">
+          <span className="font-mono text-[11px] font-normal opacity-80">
             {record.machine_verified
               ? `last checked ${shortDate(record.machine_verified_at)}`
               : record.machine_verified_at
@@ -225,7 +225,7 @@ function TrustBadges({ record }: { record: StartupRecord | null }) {
           </span>
         </span>
       </div>
-      <p className="text-[10px] leading-relaxed text-muted-foreground/80">
+      <p className="text-[11px] leading-relaxed text-muted-foreground/80">
         These two describe the <strong className="font-semibold">record</strong> — that a human
         admitted the business, and whether automation last reached the link. They say
         nothing about the truth of any claim below; each claim carries its own source instead.
@@ -264,7 +264,7 @@ function PricingSection({ row }: { row: object | null }) {
           <li key={`${plan.name}-${i}`} className="flex flex-wrap items-baseline gap-x-2 text-xs">
             <span className="font-semibold">{plan.name || "unnamed plan"}</span>
             <span className="font-mono tabular-nums text-muted-foreground">{plan.price || "price not stated"}</span>
-            {plan.period && <span className="text-[11px] text-muted-foreground/80">/ {plan.period}</span>}
+            {plan.period && <span className="text-xs text-muted-foreground/80">/ {plan.period}</span>}
           </li>
         ))}
       </ul>
@@ -294,7 +294,7 @@ function FeaturesSection({ row }: { row: object | null }) {
       <ul className="mt-1.5 flex flex-wrap gap-1.5">
         {list.map((feature) => (
           <li key={feature}>
-            <Badge variant="secondary" className="text-[11px] font-normal">
+            <Badge variant="secondary" className="text-xs font-normal">
               {feature}
             </Badge>
           </li>
@@ -323,7 +323,7 @@ function PositioningSection({ row, evidence }: { row: object | null; evidence: E
       <h4 className="ledger-header">Positioning / target user</h4>
       {positioning && <p className="mt-1.5 text-xs leading-relaxed">“{positioning}”</p>}
       {targetUsers && (
-        <p className="mt-1 text-[11px] text-muted-foreground">
+        <p className="mt-1 text-xs text-muted-foreground">
           Target user: <span className="text-foreground/80">{targetUsers}</span>
         </p>
       )}
@@ -372,7 +372,7 @@ function LivenessSection({ row }: { row: object | null }) {
           <span className="font-mono text-muted-foreground">unknown — never checked</span>
         )}
       </p>
-      {summary && <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{summary}</p>}
+      {summary && <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{summary}</p>}
       <SourceLine source={col(row, "website_url")} capturedAt={lastChecked} label="liveness" className="mt-1.5" />
     </div>
   );
@@ -442,7 +442,7 @@ function DoesntDoSection({ evidence }: { evidence: EvidenceRow[] }) {
           );
         })}
       </ul>
-      <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground/80">
+      <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground/80">
         Each entry is a fact about a page you can open — not a claim about what the product lacks.
       </p>
     </div>
@@ -556,7 +556,7 @@ function RecordMeta({ record, row }: { record: StartupRecord | null; row: object
     const source = col(row, "source");
     if (source) rows.push({ term: "Filed via", value: titleCase(source) });
     if (record?.provenance) {
-      rows.push({ term: "Provenance", value: <span className="font-mono text-[11px]">{record.provenance}</span> });
+      rows.push({ term: "Provenance", value: <span className="font-mono text-xs">{record.provenance}</span> });
     }
     if (record) {
       rows.push({
@@ -574,7 +574,7 @@ function RecordMeta({ record, row }: { record: StartupRecord | null; row: object
             <dt className="text-muted-foreground">{r.term}</dt>
             <dd className="text-right font-medium">{r.value}</dd>
           </div>
-          {r.note && <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground/80">{r.note}</p>}
+          {r.note && <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground/80">{r.note}</p>}
         </div>
       ))}
     </dl>
@@ -642,20 +642,20 @@ export function TeardownDossier({
       {error && (
         <div
           role="alert"
-          className="flex flex-wrap items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-[11px] text-destructive"
+          className="flex flex-wrap items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive"
         >
           <span>
             The teardown could not be read — {error}. The record&rsquo;s identity below is still the
             row you opened; its badges and sourced claims are not shown rather than guessed.
           </span>
-          <Button variant="outline" size="xs" onClick={() => void load()} className="h-6 gap-1 text-[10px]">
+          <Button variant="outline" size="xs" onClick={() => void load()} className="h-6 gap-1 text-[11px]">
             <RefreshCw className="h-3 w-3" /> Retry
           </Button>
         </div>
       )}
 
       {!record && loading && (
-        <p className="text-[11px] text-muted-foreground" aria-live="polite">
+        <p className="text-xs text-muted-foreground" aria-live="polite">
           Reading the teardown…
         </p>
       )}
@@ -672,7 +672,7 @@ export function TeardownDossier({
       </div>
 
       {record && record.duplicate_group.length > 1 && (
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
+        <p className="text-xs leading-relaxed text-muted-foreground">
           <strong className="font-semibold">Same-name filings:</strong>{" "}
           {record.duplicate_group
             .map((d) => `${d.name} (id ${d.id}${d.verified ? ", human-verified" : ""})`)

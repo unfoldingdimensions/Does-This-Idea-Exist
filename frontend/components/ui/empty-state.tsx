@@ -43,7 +43,7 @@ export function EmptyState({
         </span>
       </div>
 
-      <div className="font-mono text-[11px] tracking-widest uppercase text-muted-foreground mb-1">
+      <div className="font-mono text-xs tracking-widest uppercase text-muted-foreground mb-1">
         {"// COORDINATE STATUS: 0 MATCHES"}
       </div>
 

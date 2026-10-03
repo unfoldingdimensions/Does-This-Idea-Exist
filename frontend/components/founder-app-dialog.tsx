@@ -259,17 +259,17 @@ function ReviewField({
 }) {
   return (
     <div className={className}>
-      <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+      <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
         {label}
       </dt>
-      <dd className="mt-0.5 text-[13px] leading-relaxed">{children}</dd>
+      <dd className="mt-0.5 text-sm leading-relaxed">{children}</dd>
     </div>
   );
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <h4 className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+    <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
       {children}
     </h4>
   );
@@ -295,11 +295,11 @@ function ProfileReview({
   return (
     <div className="space-y-4 rounded-3xl border border-border/60 bg-background/40 p-4">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge variant="secondary" className="text-[11px]">
+        <Badge variant="secondary" className="text-xs">
           {sourceKind ? SOURCE_LABEL[sourceKind] : "Unknown source"}
         </Badge>
         {profile.category ? (
-          <Badge variant="outline" className="text-[11px]">
+          <Badge variant="outline" className="text-xs">
             {titleCase(profile.category)}
           </Badge>
         ) : null}
@@ -310,7 +310,7 @@ function ProfileReview({
           {profile.name || "—"}
         </h3>
         {profile.tagline ? (
-          <p className="mt-0.5 text-[13px] font-medium text-muted-foreground">
+          <p className="mt-0.5 text-sm font-medium text-muted-foreground">
             {profile.tagline}
           </p>
         ) : null}
@@ -339,14 +339,14 @@ function ProfileReview({
             {features.map((feature, i) => (
               <li
                 key={`${feature}-${i}`}
-                className="rounded-full border border-border/60 bg-muted/50 px-2.5 py-0.5 text-[12px]"
+                className="rounded-full border border-border/60 bg-muted/50 px-2.5 py-0.5 text-xs"
               >
                 {feature}
               </li>
             ))}
           </ul>
         ) : (
-          <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
             None yet — the URL path deliberately leaves features empty.
           </p>
         )}
@@ -354,7 +354,7 @@ function ProfileReview({
 
       <div>
         <SectionLabel>Pricing</SectionLabel>
-        <div className="mt-1.5 space-y-1 text-[13px]">
+        <div className="mt-1.5 space-y-1 text-sm">
           <p>
             <span className="text-muted-foreground">Free tier: </span>
             {profile.pricing?.free_tier || "—"}
@@ -379,7 +379,7 @@ function ProfileReview({
 
       <div>
         <SectionLabel>Links</SectionLabel>
-        <ul className="mt-1.5 grid gap-1 text-[13px] sm:grid-cols-2">
+        <ul className="mt-1.5 grid gap-1 text-sm sm:grid-cols-2">
           {links.map((link) => (
             <li key={link.label} className="flex min-w-0 items-baseline gap-1.5">
               <span className="shrink-0 text-muted-foreground">{link.label}:</span>
@@ -442,7 +442,7 @@ function StatusPanel({
         </h3>
         <span
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium",
+            "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
             meta.className,
           )}
         >
@@ -454,13 +454,13 @@ function StatusPanel({
 
       {showRejection && newest ? (
         <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-3">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-destructive">
+          <p className="text-xs font-medium uppercase tracking-wide text-destructive">
             Why it was turned down
           </p>
-          <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-destructive">
+          <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-destructive">
             {newest.note?.trim() || "No note was recorded."}
           </p>
-          <p className="mt-1.5 text-[11px] leading-relaxed text-destructive/80">
+          <p className="mt-1.5 text-xs leading-relaxed text-destructive/80">
             Decided {formatDate(newest.decided_at ?? newest.submitted_at)}. A resubmission is
             a new row — the history below stays auditable.
           </p>
@@ -469,7 +469,7 @@ function StatusPanel({
 
       {!draft.publish_offered ? (
         <div className="rounded-2xl border border-border/60 bg-muted/40 p-3">
-          <p className="text-[13px] leading-relaxed">
+          <p className="text-sm leading-relaxed">
             <span className="font-medium">No link — comparison only.</span> Your app has no
             website, GitHub, App Store, or Play Store link, so it will never be added to the
             archive: no link → no archive entry. Add any one of{" "}
@@ -480,13 +480,13 @@ function StatusPanel({
           </p>
         </div>
       ) : !draft.confirmed ? (
-        <div className="rounded-2xl border border-border/60 bg-muted/40 p-3 text-[13px] leading-relaxed text-muted-foreground">
+        <div className="rounded-2xl border border-border/60 bg-muted/40 p-3 text-sm leading-relaxed text-muted-foreground">
           This app has a link, so it is eligible for the archive. Confirm your draft first —
           consent is not approval, and publication is only offered once you have confirmed.
         </div>
       ) : canPublish ? (
         <div className="space-y-2 rounded-2xl border border-border/60 p-3">
-          <label className="flex items-start gap-2.5 text-[13px] leading-relaxed">
+          <label className="flex items-start gap-2.5 text-sm leading-relaxed">
             <input
               type="checkbox"
               checked={consent}
@@ -508,7 +508,7 @@ function StatusPanel({
           </div>
         </div>
       ) : (
-        <div className="rounded-2xl border border-border/60 bg-muted/40 p-3 text-[13px] leading-relaxed text-muted-foreground">
+        <div className="rounded-2xl border border-border/60 bg-muted/40 p-3 text-sm leading-relaxed text-muted-foreground">
           {status === "pending"
             ? "A publish request is already pending review — its outcome will appear here."
             : status === "approved"
@@ -524,7 +524,7 @@ function StatusPanel({
             {submissions.map((submission) => (
               <li
                 key={submission.id}
-                className="flex flex-wrap items-baseline gap-x-2 text-[12px]"
+                className="flex flex-wrap items-baseline gap-x-2 text-xs"
               >
                 <span className="font-medium">{SUBMISSION_LABEL[submission.status]}</span>
                 <span className="text-muted-foreground">
@@ -779,7 +779,7 @@ function FounderAppWizard({
         {error ? (
           <p
             role="alert"
-            className="rounded-2xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-[13px] leading-relaxed text-destructive"
+            className="rounded-2xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm leading-relaxed text-destructive"
           >
             {error}
           </p>
@@ -790,7 +790,7 @@ function FounderAppWizard({
             {draft.confirmed ? (
               <div className="flex items-start gap-2.5 rounded-2xl border border-success/30 bg-success/10 p-3">
                 <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
-                <p className="text-[13px] leading-relaxed">
+                <p className="text-sm leading-relaxed">
                   <span className="font-medium">Confirmed.</span> This is your record now —
                   the gap table can run against it.
                 </p>
@@ -798,7 +798,7 @@ function FounderAppWizard({
             ) : (
               <div className="flex items-start gap-2.5 rounded-2xl border border-border bg-muted/50 p-3">
                 <Info className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                <p className="text-[13px] leading-relaxed">
+                <p className="text-sm leading-relaxed">
                   <span className="font-medium">Machine draft — not confirmed.</span> Review
                   every field below. The gap table will not run until you confirm, so nothing
                   is ever compared against a guess.
@@ -811,7 +811,7 @@ function FounderAppWizard({
             {featureCount < FEATURE_MIN ? (
               <p
                 role="status"
-                className="rounded-2xl border border-destructive/30 bg-destructive/10 p-3 text-[13px] leading-relaxed text-destructive"
+                className="rounded-2xl border border-destructive/30 bg-destructive/10 p-3 text-sm leading-relaxed text-destructive"
               >
                 {featureCount === 0
                   ? "This draft has no features. Fewer than 5 makes the comparison hollow — add them from the Form or agent path, then draft again."
@@ -1152,7 +1152,7 @@ function FounderAppWizard({
                   </div>
                   <pre
                     data-lenis-prevent
-                    className="max-h-52 overflow-auto rounded-2xl border border-border/60 bg-muted/40 p-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap"
+                    className="max-h-52 overflow-auto rounded-2xl border border-border/60 bg-muted/40 p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap"
                   >
                     {AGENT_PROMPT}
                   </pre>
@@ -1171,7 +1171,7 @@ function FounderAppWizard({
                     disabled={busy}
                     spellCheck={false}
                     placeholder={'{ "name": "…", "features": ["…"] }'}
-                    className="font-mono text-[12px]"
+                    className="font-mono text-xs"
                   />
                   <p className="text-xs leading-relaxed text-muted-foreground">
                     Malformed JSON or an unrecognised key is refused with the server&apos;s own

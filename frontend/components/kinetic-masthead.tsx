@@ -40,7 +40,7 @@ export function KineticMasthead({ className }: { className?: string }) {
         initial={{ opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.05 }}
-        className="mb-4 inline-flex flex-wrap items-center justify-center gap-2 rounded-full border border-border/40 bg-background/40 px-3.5 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground backdrop-blur-md shadow-sm"
+        className="mb-4 inline-flex flex-wrap items-center justify-center gap-2 rounded-full border border-border/40 bg-background/40 px-3.5 py-1 font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground backdrop-blur-md shadow-sm"
       >
         <span className="flex items-center gap-1 text-primary">
           <Compass className="h-3 w-3 animate-[spin_12s_linear_infinite]" />

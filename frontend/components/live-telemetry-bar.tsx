@@ -64,15 +64,15 @@ export function LiveTelemetryBar({ stats, className }: LiveTelemetryBarProps) {
 
           <div className="flex flex-col">
             <div className="flex items-center gap-1.5">
-              <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              <span className="font-mono text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 Archive Radar
               </span>
-              <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-1.5 py-0.2 text-[9px] font-semibold text-success">
+              <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-1.5 py-0.2 text-xs font-semibold text-success">
                 <span className="h-1 w-1 rounded-full bg-success animate-ping" />
                 SWEEP ACTIVE
               </span>
             </div>
-            <span className="font-mono text-[11px] tabular-nums text-foreground/80">
+            <span className="font-mono text-xs tabular-nums text-foreground/80">
               Latency: <span className="font-semibold text-success">{currentPing.latency}</span>
               <span className="text-border"> · </span>
               Target: <span className="font-medium">{currentPing.name}</span> ({currentPing.code})
@@ -102,7 +102,7 @@ export function LiveTelemetryBar({ stats, className }: LiveTelemetryBarProps) {
         {/* Right: Specimen Totals in Rolling Drum Digits */}
         <div className="flex items-center gap-4">
           <div className="flex flex-col items-end">
-            <span className="font-mono text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
+            <span className="font-mono text-xs font-bold uppercase tracking-widest text-muted-foreground">
               Total Filings
             </span>
             <span className="font-mono text-xs font-bold text-foreground">
@@ -113,7 +113,7 @@ export function LiveTelemetryBar({ stats, className }: LiveTelemetryBarProps) {
           <div className="h-6 w-px bg-border/60" />
 
           <div className="flex flex-col items-end">
-            <span className="font-mono text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
+            <span className="font-mono text-xs font-bold uppercase tracking-widest text-muted-foreground">
               Verified Alive
             </span>
             <span className="font-mono text-xs font-bold text-success">

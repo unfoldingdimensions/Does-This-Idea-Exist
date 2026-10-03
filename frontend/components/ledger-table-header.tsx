@@ -12,7 +12,7 @@ export function LedgerTableHeader({ className }: { className?: string }) {
     <div
       aria-hidden="true"
       className={cn(
-        "mb-2 flex items-center justify-between gap-3 border-b border-border/50 bg-background/60 px-3.5 py-1.5 backdrop-blur-md font-mono text-[10px] tracking-wider uppercase text-muted-foreground select-none rounded-t-lg",
+        "mb-2 flex items-center justify-between gap-3 border-b border-border/50 bg-background/60 px-3.5 py-1.5 backdrop-blur-md font-mono text-xs tracking-wider uppercase text-muted-foreground select-none rounded-t-lg",
         className
       )}
     >
