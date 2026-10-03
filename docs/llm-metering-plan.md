@@ -64,17 +64,19 @@ The live archive has not been booted since before §7.4 task 1, so its `llm_usag
 
 Now: `check_budget()` catches an unreadable ledger and raises `LedgerUnreadable` (a `BudgetExceeded`, `kind="metering"`) — it **fails closed**, opens no socket, and the job records `stop_reason="metering"` so it is never confused with a genuine cap breach (`stop_reason="budget"`). `budget_status()` reports `ledger_error` instead of 500ing. A brake that silently disables itself when its meter is unreadable is not a brake.
 
-## Live install state (checked 2026-10-02)
+## Live install state (booted 2026-10-03; previously checked 2026-10-02)
 
-The running install had **not been booted since 2026-09-17**, so it is several migrations behind; the next boot runs them all, and a boot probe on copies of the real stores proved each one lands cleanly on the real data:
+The install had **not been booted since 2026-09-17**. It was backed up (WAL-safe, the copies read back to verify) and booted on 2026-10-03; every migration landed as predicted on the real data:
 
 | Step | Effect on the real archive |
 |---|---|
-| Phase P FTS5 | creates `startups_fts`, `startups_vocab`, `app_search_word`, `app_meta`; logs `fts index rebuilt (schema version 2)` |
-| §7.4 ledger | adds `llm_usage` (1258 startup rows untouched; `canonical_domain backfill: 1258 rows filled`) |
-| Auto-verify | queues a **verify job over all 1,258 stale entries** on startup (deterministic, no LLM spend — but it does fetch every URL) |
+| Phase P FTS5 | created `startups_fts`, `startups_vocab`, `app_search_word`, `app_meta`; `app_meta.fts_schema_version = 2` |
+| §7.4 ledger | added `llm_usage`; `canonical_domain backfill: 1258 rows filled` (was 0% populated) |
+| Auto-verify | ran to completion over the whole archive: **1,258/1,258 done · ok 1,159 · skipped 98 · failed 1 · `dead_flipped: []`** · breakdown `{verified: 1254, unverified: 4, dead: 0}` · **0 rows written to `llm_usage`** (the pass is deterministic and spends no LLM money) |
 
-Archive: 1,258 rows, all `active` (1,205 website / 52 github / 1 founder); `verified` 1,254; `dead` 0; last checked 2026-09-17. Jobs table: capture/done 3, verify/done 8, verify/failed 5, seed/failed 1. Settings: `active_gateway = gemini`, no per-gateway overrides, no budget set, no stored rate table (built-ins in use).
+Tables went 5 → 14; `startups` stayed at **1,258 rows**. The single failure and the single suggested re-check are the same entry — **PharmEasy**, which now answers HTTP 200 while serving gambling/SEO spam, i.e. a hijacked or expired domain the content-aware check caught rather than passing. Nothing was filed dead (one failure is not three strikes).
+
+Archive: 1,258 rows, all `active` (1,205 website / 52 github / 1 founder); `verified` 1,254; `dead` 0. Jobs table: capture/done 3, verify/done 9, verify/failed 5, seed/failed 1. Settings: `active_gateway = gemini`, no per-gateway overrides, no budget set, no stored rate table (built-ins in use).
 
 ## Rate provenance (read 2026-09-28)
 
