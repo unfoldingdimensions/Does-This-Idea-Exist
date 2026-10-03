@@ -17,8 +17,12 @@ export function SkyStage({ className }: SkyStageProps) {
   const { scrollYProgress } = useScroll();
   const [phase, setPhase] = React.useState<SkyPhase>("scroll");
 
-  // Scroll mapping for auto-scroll mode
-  const scrollSunY = useTransform(scrollYProgress, [0, 1], ["6vh", "42vh"]);
+  // Scroll mapping for auto-scroll mode.
+  // The sun's final travel (30vh) is tied to the ridge's reading-zone fade in
+  // globals.css: the silhouette's solid mass now lives in the bottom ~15vh, so
+  // a sun that sank to the old 42vh would finish in the dissolved zone and read
+  // as floating over the glass instead of setting behind the ridge.
+  const scrollSunY = useTransform(scrollYProgress, [0, 1], ["6vh", "30vh"]);
   const scrollSunScale = useTransform(scrollYProgress, [0, 1], [1.1, 0.88]);
   const scrollEveningWash = useTransform(scrollYProgress, [0, 0.45, 1], [0, 0.5, 1]);
 
@@ -184,8 +188,11 @@ export function SkyStage({ className }: SkyStageProps) {
         <div className="h-44 w-44 rounded-full bg-radial from-amber-100/70 via-orange-200/40 to-transparent blur-xl dark:from-slate-100/50 dark:via-indigo-200/25 dark:to-transparent" />
       </motion.div>
 
-      {/* Mountain Horizon Silhouette Layers (SVG Parallax) */}
-      <div className="sky-silhouette sky-silhouette--mountain opacity-85 dark:opacity-90" />
+      {/* Mountain Horizon Silhouette Layers (SVG Parallax)
+          Opacity + the reading-zone fade live in globals.css (.sky-silhouette):
+          this layer is FIXED behind the grid, so its weight is a legibility
+          decision, not a component one. */}
+      <div className="sky-silhouette sky-silhouette--mountain" />
     </div>
 
     {/* Interactive Time Scrubber Dock (Floating bottom-right, accessible and above content) */}

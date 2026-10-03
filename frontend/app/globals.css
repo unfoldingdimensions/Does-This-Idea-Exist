@@ -70,7 +70,12 @@
   --secondary: oklch(0.905 0.02 82);
   --secondary-foreground: oklch(0.27 0.052 262);
   --muted: oklch(0.92 0.018 82);
-  --muted-foreground: oklch(0.5 0.02 78);
+  /* Secondary text — the "filed" voice for metadata. Darkened from
+     oklch(0.5 0.02 78) (#6a6257), which measured 2.62:1 on the card surface
+     over the ridge. 0.401 is the measured 4.5:1 threshold against the
+     worst-case composite (#b2b5be); every muted run on the page — card dates,
+     star counts, ledger headers, footnotes — inherits the fix. */
+  --muted-foreground: oklch(0.401 0.02 78);
   --accent: oklch(0.885 0.022 82);
   --accent-foreground: oklch(0.27 0.052 262);
   --destructive: oklch(0.53 0.135 30);
@@ -93,8 +98,15 @@
   --sidebar-border: oklch(0.85 0.02 80 / 0.65);
   --sidebar-ring: oklch(0.708 0 0);
 
-  /* Glass */
-  --glass-bg: oklch(1 0 0 / 0.5);
+  /* Glass.
+     --glass-bg is the legibility multiplier: the sky (and the ridge at the
+     viewport's bottom edge) is what shows through it. At 0.55 the light card
+     composite behind the ridge was #a5abb8, putting muted card metadata at
+     2.62:1 and the status pill at 2.39:1 (WCAG AA needs 4.5:1). 0.82 keeps the
+     pane translucent — the beige still breathes through — while holding text
+     up over whatever the sky is doing. Measured, not guessed:
+     .impeccable/critique/2026-10-03T15-13-15Z__frontend-app-page-tsx.md */
+  --glass-bg: oklch(1 0 0 / 0.82);
   --glass-border: oklch(1 0 0 / 0.65);
   --glass-highlight: oklch(1 0 0 / 0.45);
   --glass-shadow: 0 8px 32px oklch(0.2 0.03 262 / 0.07);
@@ -432,9 +444,18 @@
   }
   /* Horizon silhouette — hand-drawn SVG asset, bottom-anchored, shared by
      both themes: the sun (light) sinks behind the mountain ridge; in dark
-     mode the ridge frames the moon-lit sky. Rides the bottom 42vh of the
-     viewport and fades in over the final stretch of scroll (driven from
-     sky-background.tsx). */
+     mode the ridge frames the moon-lit sky.
+
+     READING-ZONE RULE: the ridge is a horizon at the bottom EDGE of the
+     viewport, never a band across the card grid. The sky layer is FIXED, so
+     every card row that scrolls into the lower viewport sits over whatever the
+     ridge paints there — at 42vh/0.85 it composited behind card glass to
+     #a5abb8 and dragged card metadata to 2.62:1. The silhouette geometry stays
+     (the SVG is 1440x480 at 42vh, so `cover` renders it uncropped here), but
+     its top 60% now dissolves through a mask and the whole layer is lighter, so
+     the solid mass lives in the bottom ~15vh and the peaks read as atmosphere.
+     Opacity lives here — not as a Tailwind class on the element — so the layer
+     has one owner. */
   .sky-silhouette {
     position: absolute;
     left: 0;
@@ -445,9 +466,40 @@
     background-position: bottom center;
     background-size: cover;
     pointer-events: none;
+    opacity: 0.45;
+    /* The crest is what crosses the grid, so the mask carries the whole
+       correction: nothing is visible until 52% of the band, and the silhouette
+       only reaches full strength at the very bottom edge. Net effect: the
+       horizon lives in the bottom ~15vh of the viewport and the ridgeline no
+       longer runs behind a card row. */
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0%,
+      transparent 48%,
+      rgb(0 0 0 / 0.07) 60%,
+      rgb(0 0 0 / 0.2) 70%,
+      rgb(0 0 0 / 0.42) 80%,
+      rgb(0 0 0 / 0.68) 90%,
+      rgb(0 0 0 / 0.88) 96%,
+      #000 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0%,
+      transparent 48%,
+      rgb(0 0 0 / 0.07) 60%,
+      rgb(0 0 0 / 0.2) 70%,
+      rgb(0 0 0 / 0.42) 80%,
+      rgb(0 0 0 / 0.68) 90%,
+      rgb(0 0 0 / 0.88) 96%,
+      #000 100%
+    );
   }
   .sky-silhouette--mountain {
     background-image: url("/sky/mountain-sunset.svg");
+  }
+  .dark .sky-silhouette {
+    opacity: 0.55;
   }
   .dark .sky-silhouette--mountain {
     /* Moonlit variant — same ridge, no sun halo, cool rim light. The sunset
