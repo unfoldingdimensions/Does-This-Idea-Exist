@@ -47,9 +47,11 @@ export function EmptyState({
         {"// COORDINATE STATUS: 0 MATCHES"}
       </div>
 
-      <h3 className="font-display text-base sm:text-lg font-bold text-foreground max-w-md">
+      {/* h2, not h3: with the strips' h2s absent in this state, an h3 here made
+          the page jump h1 -> h3 with no h2 anywhere. */}
+      <h2 className="font-display text-base sm:text-lg font-bold text-foreground max-w-md">
         {title}
-      </h3>
+      </h2>
 
       <p className="mt-2 max-w-md text-xs text-muted-foreground leading-relaxed">
         {description}
