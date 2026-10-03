@@ -182,10 +182,11 @@ export function SkyStage({ className }: SkyStageProps) {
         transition={{ type: "spring", stiffness: 90, damping: 22 }}
         className="pointer-events-none absolute left-1/2 -translate-x-1/2 -top-8 flex h-96 w-96 items-center justify-center rounded-full"
       >
-        {/* Soft atmospheric corona */}
-        <div className="absolute inset-0 rounded-full bg-radial from-amber-200/40 via-orange-400/15 to-transparent blur-2xl dark:from-indigo-300/25 dark:via-purple-400/10 dark:to-transparent animate-[pulse_6s_ease-in-out_infinite]" />
-        {/* Inner radiant aura (diffused so text over it remains pristine) */}
-        <div className="h-44 w-44 rounded-full bg-radial from-amber-100/70 via-orange-200/40 to-transparent blur-xl dark:from-slate-100/50 dark:via-indigo-200/25 dark:to-transparent" />
+        {/* One authored glow — the sun/moon's own light.
+            This was two stacked radial spotlights, the outer one pulsing on a
+            6s loop forever. The sky is atmosphere; atmosphere does not blink,
+            and the light here belongs to one body, so it is one layer. */}
+        <div className="h-56 w-56 rounded-full bg-radial from-amber-100/70 via-orange-200/40 to-transparent blur-2xl dark:from-slate-100/50 dark:via-indigo-200/25 dark:to-transparent" />
       </motion.div>
 
       {/* Mountain Horizon Silhouette Layers (SVG Parallax)

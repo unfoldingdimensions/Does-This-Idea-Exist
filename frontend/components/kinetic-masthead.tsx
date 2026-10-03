@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { Compass, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const HEADLINE = "An archive of what exists.";
@@ -35,26 +34,11 @@ export function KineticMasthead({ className }: { className?: string }) {
 
   return (
     <section className={cn("relative mx-auto max-w-4xl text-center pt-8 pb-4", className)}>
-      {/* Editorial datum stamp header */}
-      <motion.div
-        initial={{ opacity: 0, y: -8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, delay: 0.05 }}
-        className="mb-4 inline-flex flex-wrap items-center justify-center gap-2 rounded-full border border-border/40 bg-background/40 px-3.5 py-1 font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground backdrop-blur-md shadow-sm"
-      >
-        <span className="flex items-center gap-1 text-primary">
-          <Compass className="h-3 w-3 animate-[spin_12s_linear_infinite]" />
-          <span>VAULT // 01</span>
-        </span>
-        <span className="text-muted-foreground">·</span>
-        <span className="tabular-nums">LAT 37.77° N · LON 122.42° W</span>
-        <span className="text-muted-foreground">·</span>
-        <span className="text-success font-semibold flex items-center gap-1">
-          <ShieldCheck className="h-3 w-3" />
-          VERIFIED ARCHIVE
-        </span>
-      </motion.div>
-
+      {/* No eyebrow above the heading, deliberately. This carried a
+          "VAULT // 01 · LAT 37.77° N · LON 122.42° W" stamp with a spinning
+          compass: invented coordinates, an invented vault number, and a label
+          sitting between the reader and the question the product exists to ask.
+          The heading carries its own weight. */}
       {/* Kinetic Headline with word stagger */}
       <motion.h1
         variants={container}
