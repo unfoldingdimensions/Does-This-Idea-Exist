@@ -282,6 +282,16 @@ exist, and `canonical_domain` is 0% populated); record `source` + `source_url` +
 respect `robots.txt` and provider ToS; per-host politeness. Deliverable: staging table + `SOURCES`
 entries + a per-channel yield report so channels can be ranked by cost per accepted row.
 
+**Status (2026-10-03, Phase C):** the staging table, the registry and the yield report exist, and
+three of these channels are implemented and measured — `curated_lists` (**94.2%** live), the local
+`bundles` (**81.8%**) and `show_hn` via HN's Algolia API (**78.4%**), over 345 new candidates
+(§8's table). GitHub is wired but **blocked by a rejected token** (HTTP 401 "Bad credentials") —
+which also degrades the product's own `github_search` seeding path to the unauthenticated limits.
+App stores and the launch feeds (Product Hunt / BetaList) are **not** in this phase: they are
+bot-walled, and a scraper for them is a different job with different rules. `robots.txt` and
+per-host politeness are enforced by the auditor's HTTP layer for liveness and by a throttle
+parameter for sourcing; the accelerator-directory channel (row 4) has no adapter yet.
+
 ---
 
 ## 5. Stage C — enrichment (existing machinery, made scalable)
@@ -384,12 +394,26 @@ lighter identity fields elsewhere) — never cutting the evidence rules.
 |---|---|---|---|
 | **A** | Approval model: `approval_source`/`approved_at`/`approved_by` + machine-approval path + badge exposure | additive migration idempotent; machine vs human approvals distinguishable in API and UI; the existing 1,254 rows unchanged; `teardown-spec.md` §8.1 updated as a recorded decision; smoke + functional pass | drop the new columns (additive only) |
 | **B** | Funnel v2 dry-run over the **existing** 1,258 rows, publishing nothing | reproduces the 2026-09-18 outcome (the 8 dead/repurposed + Magdrive walled); auto-approval changes nothing about the current verified set; auditor `selftest` 50/50 | nothing published, nothing deleted |
-| **C** | Sourcing harness + `candidates` staging; pull 3,000 candidates, **no publishes** | per-channel yield report; zero duplicates by `canonical_domain`; >95% of staged rows carry `source_url`+`captured_at` | truncate staging table |
+| **C** | Sourcing harness + `candidates` staging; pull 3,000 candidates, **no publishes** — **DONE 2026-10-03 (harness + a 345-candidate sample; the 3,000 pull is a documented follow-up)** | ✅ per-channel yield report (below); ✅ zero duplicates by canonical domain (a UNIQUE index on the dedupe key makes a duplicate impossible to INSERT, and the key reuses the archive's own `enrich.canonical_domain` rule); ✅ **100%** of staged rows carry `source_url`+`captured_at` (enforced at the write — a row without provenance is refused, not stored); ✅ the archive is untouched by every staging action (asserted by schema + row count + digest before/after) | truncate staging table (`source_candidates.py --truncate`) |
 | **D** | Enrichment pilot, 200 rows, six fields, end-to-end | measured s/row, tokens/row, $/row; per-field accuracy vs human labels; 100% of claims have evidence rows; **reports the real 10k budget (D3)** | delete pilot enrichment, keep rows |
 | **P** | Platform unblock: §7.1 paging, §7.2 FTS5 search, §7.7 sitemap+indexable pages — **DONE 2026-09-24** | ✅ 10k-row synthetic fixture served correctly by paged read (10,070 rows walked, no dupes/gaps, 1.3 s); ✅ search p95 sane (523 ms measured at 10k, 88–107 ms narrow tokens, parity vs linear); ⚠️ sitemap lists every product page (walked via the envelope) but is still a **single** file, not split | revert frontend/API |
 | **E** | Enrichment v2 + batch driver: use cases, negatives, competitors, reviews, metering, evidence hygiene | batch teardown with checkpoint/resume; budget hard-stop works; negatives all trace to enumerating pages; reviews quoted not scored; walls "listed but not fetched" | per-field revert |
 | **F** | Scale to 10k in batches of 500–1,000 | every batch inside both error budgets; stop-the-line honoured; verified backup per batch; §7.3/7.4/7.5 proven under load | restore batch backup |
 | **G** | Product surface at 10k: search UX, pagination, badges, performance budget | 10k pages build inside budget; badges render per §8.1 rules | revert frontend |
+
+**Phase C's measured sample (2026-10-03, real network, 345 new candidates):**
+
+| channel | found | staged (new) | already filed | judged | live | walled | dead/repurposed | live yield |
+|---|---|---|---|---|---|---|---|---|
+| curated_lists (awesome-*) | 107 | 104 | 3 | 104 | 98 | 1 | 0 | **94.2%** |
+| bundles (local) | 232 | 33 | 199 | 33 | 27 | 5 | 0 | **81.8%** |
+| show_hn (Algolia) | 209 | 208 | 1 | 208 | 163 | 3 | 11 | **78.4%** |
+| github_topics | — | — | — | — | — | — | — | **blocked: the stored `GITHUB_TOKEN` is rejected (HTTP 401 "Bad credentials")** |
+| **total** | **548** | **345** | **203** | **345** | **288** | 9 | 11 | **83.5%** |
+
+Channels rank **curated lists > local bundles > Show HN**, measured rather than assumed. Two findings worth keeping: a single awesome-list yielded **193 duplicates of itself** (projects are listed under several categories), which is why dedupe is a schema guarantee rather than a report; and **11 of Show HN's 208** new candidates are dead or repurposed spam domains — launch-feed noise the funnel would otherwise have to absorb.
+
+**The 3,000 pull is NOT done and is not claimed.** The harness was proven on 345 new candidates; the full pull is the same command with a larger `--limit`, and the GitHub channel needs a valid token first (the stored one is what the product's own GitHub seeding path sends, so that path is degraded to unauthenticated limits until it is refreshed).
 
 **Sequencing:** **A → B** first (they define who is allowed in, before any volume arrives). **D**
 before **F** (F's budget depends on D's measurement). **P** must land before or with **F** — at 10k it

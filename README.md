@@ -252,6 +252,37 @@ listed in the panel's error list, and the finishing toast reports
 Seeded entries land **unverified** — review them on the cards; the human gate
 stays the trust layer.
 
+## Sourcing candidates (staged, never published)
+
+The archive grows from channels, and a channel's output lands in a **staging
+store** — never in `startups`. `scripts/source_candidates.py` writes only to
+`CANDIDATES_DB_PATH` (its own file, like the founder and settings stores), so a
+crawler cannot touch the product's asset and the rollback is one line:
+
+```bash
+backend/.venv/Scripts/python.exe scripts/source_candidates.py --all --limit 300   # stage
+backend/.venv/Scripts/python.exe scripts/source_candidates.py --report            # what came back
+backend/.venv/Scripts/python.exe scripts/source_candidates.py --truncate          # roll back
+```
+
+- **Channels** (`backend/data/sourcing.json`, editable): `curated_lists`
+  (awesome-*/alternatives READMEs), `github_topics` (the Search API; needs
+  `GITHUB_TOKEN`), `show_hn` (HN's public Algolia API) and `bundles` (the two
+  local seed lists). Only documented surfaces are read — nothing here scrapes a
+  bot-walled product page.
+- **Every staged row carries its provenance** (`source` + `source_url` +
+  `captured_at`); a candidate without it is refused at the write rather than
+  stored unattributable. Duplicates are impossible by schema (a UNIQUE index on
+  the dedupe key), and dedupe reuses the archive's own domain rule so the two
+  can never disagree.
+- **A candidate the archive already holds is recorded as `known`**, not dropped:
+  yield is what a channel *adds*, which is not what it found.
+- **Live yield** comes from running the existing liveness auditor over the
+  staged rows (`--liveness`), so "live" means the same thing here as in the
+  funnel and the verify pass. Cost per accepted row stays **unknown** until
+  enrichment spend exists (§7.4's ledger) — the report prints no `$` rather than
+  `$0.00`.
+
 ## Testing
 
 ```bash

@@ -6,6 +6,34 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added — Phase C: sourcing channels and a staging store (2026-10-03)
+
+Candidates now arrive through a **staging store**, never straight into the archive.
+
+- **A staging store** (`candidates.db`, `CANDIDATES_DB_PATH`) in its own file, so
+  a crawler cannot write to the product's asset and the rollback is one command
+  (`source_candidates.py --truncate`). Its schema makes duplicates impossible
+  (a UNIQUE index on the dedupe key) and requires provenance on every row:
+  a candidate without `source_url`/`captured_at` is **refused at the write**
+  rather than stored unattributable. Dedupe reuses the archive's own
+  `canonical_domain` rule, so the two can never disagree.
+- **Four sourcing channels** (`scripts/source_candidates.py`,
+  `backend/data/sourcing.json`): curated awesome-*/alternatives READMEs, the
+  GitHub Search API, HN "Show HN" via HN's own Algolia API, and the two local
+  seed bundles. Only documented surfaces are read — nothing scrapes a bot-walled
+  product page. Requests are throttled per source, and a failure is reported
+  rather than raised, so one dead list cannot abandon a run.
+- **A candidate the archive already holds is recorded as `known`**, not dropped:
+  yield is what a channel *adds*, which is not what it found. Live yield is
+  measured by running the existing liveness auditor over the staged rows, so
+  "live" means the same thing here as in the funnel and the verify pass.
+- **Measured on real sources:** 548 candidates → 345 new → **288 live (83.5%)**,
+  by channel: curated lists **94.2%**, local bundles **81.8%**, Show HN **78.4%**.
+  Cost per accepted row stays **unknown until enrichment spend exists** (§7.4's
+  ledger) and the report prints no `$` rather than `$0.00`.
+- Sourcing **never publishes**: the funnel import remains the only path into
+  `startups`, and the existing `/api/admin/seed` path is untouched.
+
 ### Added — §7.4: metering, rates and the spend brake (2026-09-25 … 09-26)
 
 Every LLM call this app makes is now recorded, priced and attributable. This is

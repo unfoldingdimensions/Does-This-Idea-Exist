@@ -2089,3 +2089,54 @@ An install that configures nothing behaves exactly as it did before §7.4: no bu
 **§7.4 = PASS.** The scale plan's §7.4 is struck for token accounting, $/row and the per-batch budget, with its concurrency clause moved to §7.3.
 
 **Date and who ran it:** 2026-09-26, the Hermes agent for this repo, on `DESKTOP-KV8OEKP`.
+
+---
+
+## Phase C evidence — the sourcing harness and `candidates` staging (2026-10-03)
+
+**Branch:** `feat/liveness-admission` (continues from §7.4). **Plan:** `.hermes/plans/2026-10-03_phase-c-sourcing.md`. **Commits:** `01b2473` (the staging store), `71394ef` (the channels), `f281569` (the CLI + registry), `e85feef` (the real run + the bugs it found).
+
+### 1. What this phase delivered
+
+| # | Deliverable | Where |
+|---|---|---|
+| 1 | `candidates` staging store — its own file, provenance required at the write, duplicates impossible by schema, dedupe reusing the archive's own domain rule, `known` rows recorded rather than dropped, `yield_report()` | `backend/app/candidates.py` (new), `backend/app/config.py` |
+| 2 | Four channels — curated lists, GitHub Search (token-aware), Show HN via HN's Algolia API, and the local bundles — with injected client/sleep, lazy generators, throttling, and failures reported as error rows | `backend/app/sources.py` (new) |
+| 3 | `scripts/source_candidates.py` — `--channel/--all/--source/--limit/--spec/--dry-run/--report/--truncate/--liveness/--json`, plus the sources registry | `scripts/source_candidates.py` (new), `backend/data/sourcing.json` (new) |
+| 4 | Liveness yield by RUNNING THE AUDITOR over the staged rows and reading its `states.json` back — one definition of "live" | `scripts/source_candidates.py` |
+
+### 2. The measured sample (real network, 2026-10-03)
+
+| channel | found | staged (new) | already filed | judged | live | walled | dead/repurposed | live yield |
+|---|---|---|---|---|---|---|---|---|
+| curated_lists | 107 | 104 | 3 | 104 | 98 | 1 | 0 | **94.2%** |
+| bundles | 232 | 33 | 199 | 33 | 27 | 5 | 0 | **81.8%** |
+| show_hn | 209 | 208 | 1 | 208 | 163 | 3 | 11 | **78.4%** |
+| **total** | **548** | **345** | **203** | **345** | **288** | 9 | 11 | **83.5%** |
+
+Every acceptance item in the phase row is met and asserted by tests: a per-channel yield report; **zero duplicates by canonical domain** (schema-enforced, not reported); **100%** of staged rows carry `source_url` + `captured_at` (enforced at the write); rollback = truncate. The archive is compared by schema, row count and content digest before and after every staging action in the suite — the separation is proven, not promised.
+
+### 3. The bugs found by executing rather than reading
+
+- **The auditor's vocabulary was bigger than I guessed.** A run that was working died at the write: the auditor emits `REPURPOSED`, which the store's hand-typed state set did not have. The vocabulary is now DERIVED from `liveness.STRIKE_STATES | SKIP_STATES | {"LIVE"}`, and a check pins it EQUAL to the auditor's own `STATE_ORDER` — one vocabulary, and the next drift fails in the suite.
+- **The auditor writes a timestamped run directory** (`<out>/liveness-YYYY-MM-DD-HHMM/states.json`), so reading `<out>/states.json` reported "nothing was judged" on a run that had judged 150 candidates. The states file is now looked up, not assumed.
+- **The CLI handed every channel one call shape and `curated_lists` did not accept `max_pages`** — a real run would have died at the first curated list. The channel signatures are now uniform, and a check CALLS every channel with the CLI's exact shape.
+- **The stored `GITHUB_TOKEN` is rejected** (GitHub says "Bad credentials" for `/user`; unauthenticated search works). Reported honestly by the channel (0 candidates, with the reason) and recorded here because it also degrades the product's own GitHub seeding path. **Operator action needed: refresh the token.** No silent fallback was taken — a broken credential must not look like a working one.
+- **Two measurement bugs in my own report**: yield counted `known` rows (a channel that merely re-lists what we already have could out-rank one that found something), and `pending_liveness` re-checked those rows, spending HTTP requests to re-learn what the archive already records. Both fixed, both pinned by tests.
+
+### 4. Gate at close
+
+`npm test` ALL PASS: smoke ALL PASS · functional **581/581** · sort check · lint + prod build · e2e **266/266**. Functional grew **518 → 581** across the phase. Three consecutive full runs were green for the staging-store work (538/538, 559/559, 559/559), and one earlier flake was chased down and fixed at its root (see §7.4's note on the shallow-copy snapshot; it was a TEST defect, proven by running the same check against the pre-phase tree).
+
+### 5. Known gaps, carried forward — not silently closed
+
+- **The 3,000-candidate pull is NOT done.** The harness is proven on 345 new candidates; the full pull is the same command with a larger `--limit`, and it is a deliberate, watched run.
+- **GitHub yields nothing until the token is refreshed** (§3).
+- **App stores, Product Hunt and BetaList are not in this phase** — bot-walled, and a scraper for them is a different job with different rules. The accelerator-directory channel has no adapter yet.
+- **No admission path.** Sourcing cannot publish, by design: `funnel.import_run` remains the only way into `startups`, and how a staged candidate is enriched and admitted is Phase D/E's decision.
+- **Cost per accepted row is still unknown** — at staging time no LLM has run, so the report says so instead of printing `$0.00`. It becomes real in Phase D, which is the phase §7.4's ledger was built for.
+- **The sample is a sample.** It ranks channels at this size (345 judged), not at 10k; the report says so, and re-running with larger limits re-ranks them.
+
+**Phase C = PASS** (harness, store and a measured sample). The 3,000 pull and the GitHub token are the two open items.
+
+**Date and who ran it:** 2026-10-03, the Hermes agent for this repo, on `DESKTOP-KV8OEKP`.
