@@ -6,6 +6,31 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed — the admin surface is a page, not a modal (2026-10-04)
+
+- **`/admin` replaces the settings dialog.** Six sections used to live in a
+  `sm:max-w-2xl` dialog with a 65vh scroll box and one accordion open at a time —
+  the wrong container for a job list, a review queue, five gateway cards and an
+  editable rate table. They now sit in a **left sidebar** (`seeding`,
+  `verification`, `funnel`, `health`, `llm`, `usage`), one at a time, each with
+  the full width of the content column. `frontend/components/admin-panel.tsx` is
+  gone; `app/admin/page.tsx` + `components/admin-console.tsx` replace it.
+- **The section is in the URL** (`/admin?section=usage`), so a view is
+  bookmarkable and the back button steps through the sections you visited. An
+  unknown `?section=` falls back to Seeding instead of blanking the page.
+- **The footer gear is a link** to `/admin` (a plain `<a>`, so the back button
+  returns you to the archive). The unlock is unchanged — `ADMIN_TOKEN`, checked
+  against `GET /api/admin/check`, kept in the tab's sessionStorage — and it now
+  survives navigating between the archive and the console in the same tab.
+- **The accordion's one advantage is kept:** the sidebar carries the badges that
+  used to justify expanding a section — active runs, parked batches (from the
+  same job list the Seeding section renders, no second source of truth), and a
+  gateway that still needs a key.
+- **First automated coverage of the admin surface.** It had none: the new e2e
+  suite drives the real unlock (a rejected token must leave it locked), the
+  navigation, the badges, the controlled section switching and the `?section=`
+  deep link (12 checks; e2e 266 → 278).
+
 ### Added — Phase C: sourcing channels and a staging store (2026-10-03)
 
 Candidates now arrive through a **staging store**, never straight into the archive.

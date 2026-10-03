@@ -78,8 +78,8 @@ backend/
   scripts/        merge_duplicates.py, restore_false_dead.py (operator tools)
   tests/smoke.py  in-process test suite (~900 lines, no network)
 frontend/
-  app/            layout.tsx, page.tsx (the entire app), globals.css, SEO routes
-  components/     34 components: cards, dossier modal, admin panel, sky, chrome
+  app/            layout.tsx, page.tsx (the archive), admin/page.tsx (the owner console), globals.css, SEO routes
+  components/     cards, dossier modal, the admin console's six sections, sky, chrome
     ui/           shadcn primitives + bespoke ones (discovery bar, palette, ticker)
   lib/            api.ts, search.ts, types.ts, format.ts, motion.ts, sound-engine.ts
 scripts/          verify.mjs (test runner), sort-check.ts, e2e-verify*, a11y helpers
@@ -274,7 +274,7 @@ Both journeys are covered by the in-process smoke suite and previously by two do
 | Integration | Where | Why | Auth |
 |---|---|---|---|
 | GitHub REST API | `github.py`, `seeder._gh_search` | repo metadata, search | optional `GITHUB_TOKEN` (60 → 5,000 req/h) |
-| LLM gateway (OpenAI-compatible) | `llm.py` + `gateways.py` | draft the profile JSON, twice (identity profile + teardown) | `OPENCODE_GO_API_KEY` by default; **five gateways selectable from the admin panel** (OpenCode Go / Zen, OpenRouter, Gemini, Command Code), each with its own env fallback and an optional stored key in `SETTINGS_DB_PATH` |
+| LLM gateway (OpenAI-compatible) | `llm.py` + `gateways.py` | draft the profile JSON, twice (identity profile + teardown) | `OPENCODE_GO_API_KEY` by default; **five gateways selectable from the admin console** (OpenCode Go / Zen, OpenRouter, Gemini, Command Code), each with its own env fallback and an optional stored key in `SETTINGS_DB_PATH` |
 | Target websites | `website.fetch_homepage` via `netguard.safe_get` | homepage text, title, meta | none |
 | Wayback CDX API | `website.wayback_first_snapshot` | first archived snapshot → `founded` fallback | none |
 | RDAP (`rdap.org`) | `website.rdap_registration_date` | domain registration → `founded` fallback | none |

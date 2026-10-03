@@ -59,46 +59,6 @@ export function verifyResult(job: SeedJob): VerifyResult | null {
   return job.result && "checked" in job.result ? job.result : null;
 }
 
-/** Collapsible settings-section header (vertical accordion, one open at a time). */
-export function SectionHeader({
-  icon,
-  title,
-  open,
-  onToggle,
-  badge,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  open: boolean;
-  onToggle: () => void;
-  badge?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      className={cn(
-        "flex w-full items-center gap-2 rounded-lg border bg-background/60 px-3 py-2.5 text-left text-sm font-semibold transition-colors",
-        open ? "border-accent/60" : "hover:bg-accent/40",
-      )}
-    >
-      {icon}
-      <span className="flex-1">{title}</span>
-      {badge && (
-        <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-          {badge}
-        </span>
-      )}
-      <ChevronDown
-        className={cn(
-          "h-4 w-4 text-muted-foreground transition-transform duration-200",
-          !open && "-rotate-90",
-        )}
-      />
-    </button>
-  );
-}
-
 /** Expandable count row inside a run summary ("Fetched N", "All exist N", "Failed N"). */
 export function SummaryRow({
   label,

@@ -50,7 +50,8 @@ npm run dev
 ```
 
 Open [http://127.0.0.1:3023](http://127.0.0.1:3023). The footer gear button
-opens the admin panel (see [Admin seeder](#admin-seeder-owner-only)).
+links to the **admin console** at [`/admin`](http://127.0.0.1:3023/admin) (see
+[Admin console](#admin-console-owner-only)).
 
 ## Features
 
@@ -69,7 +70,7 @@ opens the admin panel (see [Admin seeder](#admin-seeder-owner-only)).
   entry (human-verified rows are protected from automation entirely — failures
   surface as re-check items, never strikes), `Machine Approved` means the
   liveness funnel admitted it, with `approval_source` / `approved_by` /
-  `approval_note` recording which stage let it in and why. The admin panel
+  `approval_note` recording which stage let it in and why. The admin console
   queues alive-but-unverified entries plus any funnel exceptions for review,
   one-by-one, per seed-batch, or in bulk.
 - **Local-first privacy** — SQLite (WAL), no accounts, no analytics, no
@@ -91,7 +92,8 @@ backend/   FastAPI + SQLite (WAL) on :8020
 
 frontend/  Next.js 16 + shadcn/ui on :3023
            app/        single-page archive (search bar, grid, detail dossier)
-           components/ discovery bar · startup cards · admin panel (seed/verify/health)
+                       app/admin/  the owner console (sidebar: seed/verify/funnel/health/llm/usage)
+           components/ discovery bar · startup cards · admin console sections
            lib/        API client · Fuse search · formatting
 ```
 
@@ -108,7 +110,7 @@ local and hosted behavior are identical.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `ADMIN_TOKEN` | — (**required**) | Owner token. Gates the admin panel and every mutating endpoint. The app **refuses to start** without it (see `MUTATION_AUTH`) |
+| `ADMIN_TOKEN` | — (**required**) | Owner token. Gates the admin console and every mutating endpoint. The app **refuses to start** without it (see `MUTATION_AUTH`) |
 | `OPENCODE_GO_API_KEY` | — (required to seed) | LLM provider key for profile generation |
 | `LLM_BASE_URL` | `https://opencode.ai/zen/go/v1` | OpenAI-compatible endpoint |
 | `LLM_MODEL` | `deepseek-v4-flash` | Model used for profiles |
@@ -180,7 +182,7 @@ Admin routes are prefixed `/api/admin` and require the `X-Admin-Token` header:
 | `GET /api/admin/verify/suggested` | human-approval queue |
 | `POST /api/admin/verify/approve` | stamp verified: `{ids}` · `{approve_all: true}` · `{created_after, created_before}` (per-batch) |
 | `POST /api/admin/funnel/import` | apply a completed liveness-funnel run (`{run, dry_run}`): admit the clean LIVE majority under the machine stamp, queue the exceptions for the human path. Admission only — it never deletes (dry-run is the default) |
-| `POST /api/admin/capture/{startup_id}` | capture a teardown by hand (the panel's button) |
+| `POST /api/admin/capture/{startup_id}` | capture a teardown by hand (the console's button) |
 | `GET /api/admin/capture/status/{job_id}` | capture progress |
 | `GET /api/admin/founder/submissions` | the publish queue (founder submissions and archive rows) |
 | `POST /api/admin/founder/submissions/{id}/approve` | approve a publish request → the archive row, linked |
@@ -209,11 +211,11 @@ The automated pass is **conservative by design**:
   dead is a status, not an erasure.
 - **Verified rows are protected from automation**: a human-stamped entry never
   accumulates auto-strikes or auto-files; a failed check surfaces in the
-  admin panel as a re-check item instead.
+  admin console's Website Health Check section as a re-check item instead.
 - The human revive (`POST /api/startups/{id}/verify`) resets the strike
   counter — human judgment outranks the machine.
 
-The admin panel's **Verification** tab lists the suggested queue (alive,
+The admin console's **Verification** section lists the suggested queue (alive,
 unverified, zero strikes). Approve one at a time, an entire seed-batch (grouped
 by creation day), or everything. Every approval is behind a confirm dialog and
 reversible from the status pill.
@@ -228,11 +230,29 @@ Both attach to the **record**, never to a claim. Every competitor claim carries
 its own "per their pricing page, captured <date>" source line, and neither badge
 says anything about whether a competitor's statement is true.
 
-## Admin seeder (owner-only)
+## Admin console (owner-only)
 
-The footer gear button opens the admin panel — unlock with `ADMIN_TOKEN` (set
-in `backend/.env` locally, or as an environment variable on your host; the
-token never ships in the repo). Seed from four sources:
+The footer gear links to a real page — [**/admin**](http://127.0.0.1:3023/admin) —
+not a modal: six sections in a left sidebar, one at a time, each with the full
+width of the content column. Unlock it with `ADMIN_TOKEN` (set in `backend/.env`
+locally, or as an environment variable on your host; the token never ships in the
+repo). The section is in the URL, so a view is bookmarkable and the back button
+steps through the ones you visited:
+
+| Section | `?section=` | What it does |
+|---|---|---|
+| Seeding | `seed` (default) | Start a run and read every run's history |
+| Verification | `verify` | The human gate — review the suggested queue and stamp |
+| Funnel import | `funnel` | Apply a completed liveness-funnel run (dry-run first) |
+| Website Health Check | `health` | The automated pass, its buckets and re-checks |
+| LLM gateways | `llm` | Which provider every seed and capture calls, and its key |
+| Usage | `usage` | What the calls cost, the rate table, and the spend brake |
+
+The sidebar carries the badges the accordion used to: a count of active runs, a
+parked batch waiting on a decision, and a gateway that still needs a key — so
+something waiting on you is visible without opening its section.
+
+Seed from four sources:
 
 1. **Famous list** — bundled `backend/data/seed_famous.json` (~65 well-known
    startups). The one-click "initial incentive" for a fresh directory.
@@ -247,7 +267,7 @@ that — it never clamps silently). Re-runs skip the LLM for entries already on
 file (`reuse_profile`), so re-seeding is idempotent and near-free.
 
 **Failure policy: the seeder fails loudly.** Every failed entry is logged,
-listed in the panel's error list, and the finishing toast reports
+listed in the console's error list, and the finishing toast reports
 `done · failed` explicitly. Batches over ~50 repos/hour need `GITHUB_TOKEN`.
 Seeded entries land **unverified** — review them on the cards; the human gate
 stays the trust layer.

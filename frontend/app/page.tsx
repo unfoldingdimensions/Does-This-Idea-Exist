@@ -14,6 +14,7 @@ import {
   Monitor,
   PackageOpen,
   ServerCrash,
+  Settings2,
   Share2,
   ShieldCheck,
   ShoppingBag,
@@ -22,13 +23,13 @@ import {
   Command,
 } from "lucide-react";
 import { toast } from "sonner";
+import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { EASE } from "@/lib/motion";
 import { Button } from "@/components/ui/button";
 import { CardSkeleton, LedgerRowSkeleton } from "@/components/card-skeleton";
 import { StartupCard, type StatusChoice } from "@/components/startup-card";
 import { AddStartupDialog } from "@/components/add-startup-dialog";
-import { AdminPanel } from "@/components/admin-panel";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { scrollPageToTop } from "@/components/scroll-utils";
 import { FilterBar } from "@/components/filter-bar";
@@ -307,10 +308,8 @@ export default function HomePage() {
     return () => window.clearTimeout(t);
   }, [serverMode, page, query, category, year, status]);
 
-  // Stable identity for AdminPanel's onSeeded — an inline lambda here changed
-  // on every render and cascaded new callback identities into the admin
-  // polling chain (interval teardown, HealthCheckSection effect churn).
-  const handleSeeded = React.useCallback(() => void loadAll(), [loadAll]);
+  // (The admin console lives at /admin now and refreshes its own job list; the
+  // archive refetches on mount, so no cross-page callback is needed here.)
 
   // Debounced client-side search + facets. BELOW the client window this is
   // the whole story (Fuse over the fetched archive). IN server mode the grid
@@ -918,7 +917,15 @@ export default function HomePage() {
             Founders: every filing has a record page — compare your app against it there.
           </span>
           <div className="ml-auto flex items-center gap-1.5">
-            <AdminPanel onSeeded={handleSeeded} />
+            {/* The console is a PAGE now (/admin?section=…): a modal could not hold
+                six dense sections without letterboxing them. The gear stays the
+                discoverable way in, and it is a plain link so the back button
+                returns here. */}
+            <Button variant="ghost" size="icon" aria-label="Admin — settings" title="Admin — settings" className="h-9 w-9" asChild>
+              <Link href="/admin">
+                <Settings2 className="h-4 w-4" />
+              </Link>
+            </Button>
           </div>
         </div>
       </footer>

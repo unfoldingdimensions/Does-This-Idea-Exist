@@ -502,6 +502,7 @@ import { FounderAppDialog } from "../frontend/components/founder-app-dialog";
 import { Toaster } from "../frontend/components/ui/sonner";
 import ProductPage from "../frontend/app/products/[slug]/page";
 import { UsageSection } from "../frontend/components/admin-usage-section";
+import { AdminConsole, isAdminSection } from "../frontend/components/admin-console";
 // Next's client hooks read these two contexts, so a route component can be
 // rendered outside the Next runtime by providing them directly instead of
 // standing up the app router. (next/dist has no "exports" restriction.)
@@ -2451,6 +2452,231 @@ async function phaseUsageSurface(): Promise<void> {
 
   await suiteAsync("Phase P task 7b: sitemap URL hygiene", phasePSitemap);
   await suiteAsync("Phase 7: the Usage surface (§7.4)", phaseUsageSurface);
+/**
+ * The admin console — a PAGE now (`/admin?section=…`).
+ *
+ * What this suite is really checking: the navigation exists and is driven by the
+ * section PROP (so the route's `?section=` is what decides what you see — which
+ * is what makes a bookmark work), the badges still say something is waiting
+ * without opening it, and the unlock gate cannot be walked around: a rejected
+ * token leaves you looking at the form.
+ *
+ * Defined next to its registration, like the Usage suite above.
+ */
+async function phaseAdminConsole(): Promise<void> {
+  const savedFetch = globalThis.fetch;
+  const calls: string[] = [];
+  let checkStatus = 200;
+
+  const pausedJob = {
+    id: "parked000001", kind: "seed", source: "url_list", status: "paused",
+    ok: 4, skipped: 0, failed: 0, done: 4, total: 20, created_at: 1790900000,
+    errors: [], params: {}, result: { stop_reason: "budget", spend_usd: 1.0, cap_usd: 1.0 },
+  };
+  const doneJob = {
+    id: "done00000001", kind: "verify", source: "verify", status: "done",
+    ok: 1259, skipped: 98, failed: 1, done: 1258, total: 1258, created_at: 1790890000,
+    errors: [], params: {}, result: { checked: 1258, ok: 1159, skipped: 98, failed: 1 },
+  };
+  const gatewaysBlocked = {
+    active: "gemini",
+    effective: {
+      id: "gemini", ready: false, has_key: false, model: "gemini-2.5-flash",
+      base_url: "https://generativelanguage.googleapis.com", key_hint: "",
+    },
+    gateways: [{
+      id: "gemini", label: "Google Gemini", ready: false, has_key: false,
+      model: "gemini-2.5-flash", base_url: "https://generativelanguage.googleapis.com",
+      key_hint: "", env_var: "GEMINI_API_KEY",
+    }],
+  };
+  const emptyWindow = {
+    attempts: 0, cost_usd: null, cost_complete: false, unpriced_attempts: 0,
+    total_tokens: null, usage_missing_attempts: 0, usage_missing_share: null,
+    metering_failures: 0, since: null,
+  };
+  const usageReport = {
+    generated_at: "2026-10-03 20:00:00", ledger_present: true, ledger_error: null,
+    metering_failures: 0, last_failure: null,
+    rates: { origin: "builtin", version: "129ceeb4", as_of: "2026-09-28", source: "x", models: {} },
+    spend: {
+      today: { ...emptyWindow, since: "2026-10-03 00:00:00" },
+      week: { ...emptyWindow, since: "2026-09-26 20:00:00" },
+      all: { ...emptyWindow, since: null },
+    },
+    by_purpose: [], by_model: [], last_job: null, parked: [],
+    budget: {
+      scope: "job", job_id: null, spend_window: "all-time", ledger_error: null,
+      budget_usd: null, budget_source: "unset", parse_error: null, spend_usd: null,
+      spend_is_floor: false, attempts: 0, unpriced_attempts: 0, remaining_usd: null,
+      over_budget: null, enforced: false, rate_version: "129ceeb4", rates_origin: "builtin",
+    },
+  };
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    calls.push(url);
+    const body = async () => {
+      if (url.includes("/api/admin/check")) {
+        return checkStatus === 200
+          ? { ok: true }
+          : { detail: "That token didn't unlock the console" };
+      }
+      if (url.includes("/api/admin/seed/jobs")) return [pausedJob, doneJob];
+      if (url.includes("/api/admin/settings/gateways")) return gatewaysBlocked;
+      if (url.includes("/api/admin/llm/usage")) return usageReport;
+      return { detail: `admin stub: unhandled ${url}` };
+    };
+    const status = url.includes("/api/admin/check") ? checkStatus : 200;
+    return { ok: status >= 200 && status < 300, status, json: body } as Response;
+  }) as typeof globalThis.fetch;
+
+  const TITLES = ["Seeding", "Verification", "Funnel import", "Website Health Check",
+                  "LLM gateways", "Usage"];
+
+  /** Type a value into a React-controlled input the way a user would. */
+  const typeInto = async (el: HTMLInputElement, value: string) => {
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        globalThis.HTMLInputElement.prototype, "value")?.set;
+      setter?.call(el, value);
+      el.dispatchEvent(new globalThis.Event("input", { bubbles: true }));
+    });
+  };
+
+  try {
+    // --- locked: the gate, and nothing behind it ----------------------------
+    sessionStorage.removeItem("ideasexist.admin.token");
+    const changes: string[] = [];
+    const locked = await mountApp(
+      React.createElement(AdminConsole, {
+        section: "seed",
+        onSectionChange: (next: string) => { changes.push(next); },
+      }),
+    );
+    await flush();
+    const lockedNav = () => locked.app.querySelectorAll("nav button").length;
+    assert(
+      Boolean(locked.app.querySelector("#admin-token")) && lockedNav() === 0,
+      "console: locked, it asks for the token and shows no sections",
+    );
+
+    // A REJECTED token must not get you in: 403 → the form stays, with a message.
+    checkStatus = 403;
+    const form = locked.app.querySelector("form") as HTMLFormElement;
+    const input = locked.app.querySelector("#admin-token") as HTMLInputElement;
+    await typeInto(input, "definitely-not-the-token");
+    await act(async () => {
+      form.dispatchEvent(new globalThis.Event("submit", { bubbles: true, cancelable: true }));
+    });
+    await flush();
+    await flush();
+    assert(
+      lockedNav() === 0 && Boolean(locked.app.querySelector(".text-destructive")),
+      "console: a rejected token leaves it LOCKED, with the error shown",
+    );
+    cleanupApp();
+
+    // --- unlocked: the navigation ------------------------------------------
+    checkStatus = 200;
+    sessionStorage.setItem("ideasexist.admin.token", "a-valid-token");
+    changes.length = 0;
+    const open = await mountApp(
+      React.createElement(AdminConsole, {
+        section: "seed",
+        onSectionChange: (next: string) => { changes.push(next); },
+      }),
+    );
+    await flush();
+    await flush();
+    const navItems = () => Array.from(open.app.querySelectorAll("nav button"));
+    const navLabels = () => navItems().map((b) => (b.textContent ?? "").trim());
+    const current = () =>
+      (navItems().find((b) => b.getAttribute("aria-current") === "page")?.textContent ?? "").trim();
+
+    assert(
+      navItems().length === 6
+        && TITLES.every((t) => (open.app.textContent ?? "").includes(t)),
+      "console: all six sections are in the navigation, with their labels",
+    );
+    assert(
+      navItems().filter((b) => b.getAttribute("aria-current") === "page").length === 1
+        && current().includes("Seeding"),
+      "console: the sidebar marks exactly the CURRENT section (aria-current)",
+    );
+    assert(
+      (open.app.textContent ?? "").includes("Seed summary"),
+      "console: the active section is mounted, not just its nav item",
+    );
+
+    // The badges are the accordion's one real advantage, kept: something waiting
+    // is visible from the sidebar without opening the section.
+    assert(
+      navLabels().some((l) => l.includes("Usage") && l.includes("1 parked")),
+      "console: the parked-batch badge rides on the Usage item (from the job list)",
+    );
+    assert(
+      navLabels().some((l) => l.includes("LLM gateways") && l.includes("needs a key")),
+      "console: the gateway badge rides on the LLM item",
+    );
+
+    // Clicking REPORTS the choice; it does not switch by itself — the route owns
+    // the section, which is exactly what makes `?section=` the truth.
+    const usageBtn = navItems().find((b) => (b.textContent ?? "").includes("Usage"));
+    await act(async () => {
+      usageBtn?.dispatchEvent(new globalThis.MouseEvent("click", { bubbles: true }));
+    });
+    await flush();
+    assert(
+      changes[0] === "usage" && current().includes("Seeding"),
+      "console: clicking a section reports it to the route (controlled, not self-switching)",
+    );
+    cleanupApp();
+
+    // --- the deep link: section="usage" mounts Usage, not Seeding -----------
+    const deep = await mountApp(
+      React.createElement(AdminConsole, { section: "usage", onSectionChange: () => {} }),
+    );
+    await flush();
+    await flush();
+    const deepText = deep.app.textContent ?? "";
+    const deepCurrent = Array.from(deep.app.querySelectorAll("nav button"))
+      .find((b) => b.getAttribute("aria-current") === "page");
+    assert(
+      deepText.includes("Spend") && deepText.includes("Rate table")
+        && !deepText.includes("Active runs"),
+      "console: section='usage' mounts the Usage section (the deep link's target)",
+    );
+    assert(
+      (deepCurrent?.textContent ?? "").includes("Usage"),
+      "console: and the sidebar marks Usage as current, not Seeding",
+    );
+    cleanupApp();
+
+    // --- the route's fallback, as a pure contract ---------------------------
+    assert(
+      isAdminSection("usage") && isAdminSection("seed") && isAdminSection("health")
+        && !isAdminSection("nope") && !isAdminSection("") && !isAdminSection(null)
+        && !isAdminSection(undefined),
+      "console: the route resolves ?section= through isAdminSection (junk falls back)",
+    );
+    assert(
+      calls.some((u) => u.includes("/api/admin/seed/jobs"))
+        && calls.some((u) => u.includes("/api/admin/settings/gateways"))
+        && calls.some((u) => u.includes("/api/admin/llm/usage"))
+        && calls.some((u) => u.includes("/api/admin/check")),
+      "console: it really called the endpoints it needs (jobs, gateways, usage, check)",
+    );
+  } finally {
+    globalThis.fetch = savedFetch;
+    try {
+      sessionStorage.removeItem("ideasexist.admin.token");
+    } catch {
+      /* storage unavailable */
+    }
+  }
+}
+  await suiteAsync("Admin console: navigation, badges, the unlock gate", phaseAdminConsole);
 
   // Final Test Summary Output
   console.log("\n==========================================");
