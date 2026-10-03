@@ -25,7 +25,8 @@ export function AudioToggle({ className }: { className?: string }) {
     <button
       type="button"
       onClick={handleToggle}
-      aria-label={muted ? "Enable audio haptics" : "Mute audio haptics"}
+      aria-label="Audio haptics"
+      aria-pressed={!muted}
       title={muted ? "Audio: Muted (click to enable tactile sound effects)" : "Audio: Active (click to mute)"}
       className={cn(
         "relative flex h-8 w-8 items-center justify-center rounded-full border border-border/40 bg-background/50 backdrop-blur-md transition-all duration-200 hover:border-primary/50 hover:bg-accent/60 active:scale-95",

@@ -809,6 +809,11 @@ export default function HomePage() {
           />
         ) : (
           <>
+            {/* The records region needs a heading of its own: the strips above
+                have real h2s now, and this grid is what a screen-reader user
+                actually came for. Visually hidden, because the filter bar's count
+                line already announces the same thing on screen. */}
+            <h2 className="sr-only">Archive records</h2>
             {density === "ledger" && <LedgerTableHeader />}
             <div
               className={

@@ -198,7 +198,8 @@ export function SkyStage({ className }: SkyStageProps) {
 
     {/* Interactive Time Scrubber Dock (Floating bottom-right, accessible and above content) */}
     <aside
-      aria-label="Celestial sky orbit"
+      role="group"
+      aria-label="Sky atmosphere"
       className="fixed bottom-3 right-3 z-40 flex items-center gap-1 rounded-full border border-border/50 bg-background/70 p-1 backdrop-blur-xl shadow-xl transition-all hover:scale-105"
     >
       <span className="pl-2 pr-1 font-mono text-[11px] font-bold uppercase tracking-widest text-muted-foreground hidden sm:inline">

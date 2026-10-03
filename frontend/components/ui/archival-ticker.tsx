@@ -84,7 +84,7 @@ export function ArchivalTicker({
                 sound.playTick();
                 onSelectItem?.(item.name);
               }}
-              className="group flex shrink-0 items-center gap-2 transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-primary rounded px-1.5 py-0.5 cursor-pointer"
+              className="group flex shrink-0 items-center gap-2 transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-primary rounded px-1.5 py-1 cursor-pointer"
             >
               <span className="font-semibold text-foreground/90 group-hover:text-primary transition-colors">
                 {item.name}

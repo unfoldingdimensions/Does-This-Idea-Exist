@@ -25,14 +25,18 @@ function Strip({
   if (items.length === 0) return null;
   return (
     <section className="space-y-2">
-      <div className="ledger-header pb-2">
+      {/* A real h2, not a styled div: these three strips ARE the page's sections
+          ("Just added" / "Recently verified" / "Dead recently"), and with only an
+          h1 on the page a screen-reader user had no outline to navigate an archive
+          whose whole value is structured records. */}
+      <h2 className="ledger-header pb-2">
         {icon} {title}
         {footnote && (
           <span className="ml-2 hidden font-sans text-xs font-normal normal-case tracking-normal text-muted-foreground/80 sm:inline">
             {footnote}
           </span>
         )}
-      </div>
+      </h2>
       <div data-lenis-prevent className="flex gap-2 overflow-x-auto pb-1">
         {items.map((s, i) => (
           <div

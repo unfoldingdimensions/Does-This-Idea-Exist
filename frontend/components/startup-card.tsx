@@ -123,7 +123,7 @@ export function StatusPill({
       : "Not yet confirmed — click to change its status.";
 
   const pillClass = cn(
-    "gap-1.5 text-xs border",
+    "min-h-6 gap-1.5 text-xs border",
     dead &&
       "border-[var(--pill-dead-border)] bg-[var(--pill-dead-bg)] text-[var(--pill-dead-fg)]",
     verified &&
@@ -386,7 +386,7 @@ export function StartupCard({
             <button
               type="button"
               onClick={() => onDetails?.(startup)}
-              className="truncate text-left text-xs font-bold leading-tight hover:text-primary hover:underline"
+              className="truncate py-0.5 text-left text-xs font-bold leading-tight hover:text-primary hover:underline"
             >
               {startup.name}
             </button>
@@ -463,7 +463,7 @@ export function StartupCard({
             <button
               type="button"
               onClick={() => onDetails?.(startup)}
-              className="block w-full truncate text-left text-sm font-bold leading-tight hover:text-primary hover:underline"
+              className="block w-full truncate py-0.5 text-left text-sm font-bold leading-tight hover:text-primary hover:underline"
               title="View details"
             >
               {startup.name}
@@ -516,7 +516,7 @@ export function StartupCard({
                 type="button"
                 onClick={toggleDescription}
                 aria-expanded={expanded}
-                className="text-xs font-medium text-primary hover:underline"
+                className="inline-flex min-h-6 items-center text-xs font-medium text-primary hover:underline"
               >
                 {expanded ? "Show less" : "Show more"}
               </button>
